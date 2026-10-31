@@ -153,6 +153,7 @@ Deno.serve(async (req: Request) => {
   let brand = "";
   const sections: { heading: string; body: string[] }[] = [];
   const photoImages: { label: string; caption: string; section: string; bytes: Uint8Array; contentType: string }[] = [];
+  const extraAttachments: { filename: string; content: string }[] = [];
   if (type === "proposal") {
     const { data, error } = await client.from("crm_proposals").select("id,division_id,customer_id,property_id,title,proposal_number,pricing_mode,line_items,lump_sum_amount,subtotal,tax_amount,total_amount,scope_of_work,existing_conditions,exclusions,payment_terms,warranty_summary,valid_until,template_data,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
     if (error || !data) return json({ error: "Proposal not found or access denied." }, 404);
