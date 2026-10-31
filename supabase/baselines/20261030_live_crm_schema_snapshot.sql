@@ -19,10 +19,7 @@ CREATE TABLE public.crm_activity_events (
   details jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamp with time zone NOT NULL DEFAULT now()
 );
-ALTER TABLE public.crm_activity_events ADD CONSTRAINT crm_activity_events_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES auth.users(id);
-ALTER TABLE public.crm_activity_events ADD CONSTRAINT crm_activity_events_details_check CHECK ((jsonb_typeof(details) = 'object'::text));
-ALTER TABLE public.crm_activity_events ADD CONSTRAINT crm_activity_events_division_id_fkey FOREIGN KEY (division_id) REFERENCES crm_divisions(id);
-ALTER TABLE public.crm_activity_events ADD CONSTRAINT crm_activity_events_pkey PRIMARY KEY (id);
+
 CREATE TABLE public.crm_appointments (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   division_id text NOT NULL,
@@ -40,15 +37,7 @@ CREATE TABLE public.crm_appointments (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now()
 );
-ALTER TABLE public.crm_appointments ADD CONSTRAINT crm_appointments_assigned_to_fkey FOREIGN KEY (assigned_to) REFERENCES auth.users(id);
-ALTER TABLE public.crm_appointments ADD CONSTRAINT crm_appointments_check CHECK (((ends_at IS NULL) OR (ends_at > starts_at)));
-ALTER TABLE public.crm_appointments ADD CONSTRAINT crm_appointments_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id);
-ALTER TABLE public.crm_appointments ADD CONSTRAINT crm_appointments_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES crm_customers(id);
-ALTER TABLE public.crm_appointments ADD CONSTRAINT crm_appointments_division_id_fkey FOREIGN KEY (division_id) REFERENCES crm_divisions(id);
-ALTER TABLE public.crm_appointments ADD CONSTRAINT crm_appointments_lead_id_fkey FOREIGN KEY (lead_id) REFERENCES crm_leads(id);
-ALTER TABLE public.crm_appointments ADD CONSTRAINT crm_appointments_pkey PRIMARY KEY (id);
-ALTER TABLE public.crm_appointments ADD CONSTRAINT crm_appointments_property_id_fkey FOREIGN KEY (property_id) REFERENCES crm_properties(id);
-ALTER TABLE public.crm_appointments ADD CONSTRAINT crm_appointments_status_check CHECK ((status = ANY (ARRAY['scheduled'::text, 'confirmed'::text, 'completed'::text, 'cancelled'::text, 'no_show'::text, 'rescheduled'::text])));
+
 CREATE TABLE public.crm_contacts (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   customer_id uuid NOT NULL,
@@ -61,16 +50,13 @@ CREATE TABLE public.crm_contacts (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now()
 );
-ALTER TABLE public.crm_contacts ADD CONSTRAINT crm_contacts_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES crm_customers(id) ON DELETE CASCADE;
-ALTER TABLE public.crm_contacts ADD CONSTRAINT crm_contacts_pkey PRIMARY KEY (id);
+
 CREATE TABLE public.crm_customer_divisions (
   customer_id uuid NOT NULL,
   division_id text NOT NULL,
   created_at timestamp with time zone NOT NULL DEFAULT now()
 );
-ALTER TABLE public.crm_customer_divisions ADD CONSTRAINT crm_customer_divisions_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES crm_customers(id) ON DELETE CASCADE;
-ALTER TABLE public.crm_customer_divisions ADD CONSTRAINT crm_customer_divisions_division_id_fkey FOREIGN KEY (division_id) REFERENCES crm_divisions(id);
-ALTER TABLE public.crm_customer_divisions ADD CONSTRAINT crm_customer_divisions_pkey PRIMARY KEY (customer_id, division_id);
+
 CREATE TABLE public.crm_customers (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   customer_type text NOT NULL,
@@ -85,10 +71,7 @@ CREATE TABLE public.crm_customers (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now()
 );
-ALTER TABLE public.crm_customers ADD CONSTRAINT crm_customers_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id);
-ALTER TABLE public.crm_customers ADD CONSTRAINT crm_customers_customer_type_check CHECK ((customer_type = ANY (ARRAY['individual'::text, 'business'::text, 'property_manager'::text, 'organization'::text])));
-ALTER TABLE public.crm_customers ADD CONSTRAINT crm_customers_pkey PRIMARY KEY (id);
-ALTER TABLE public.crm_customers ADD CONSTRAINT crm_customers_preferred_contact_method_check CHECK ((preferred_contact_method = ANY (ARRAY['phone'::text, 'email'::text, 'text'::text, 'other'::text])));
+
 CREATE TABLE public.crm_divisions (
   id text NOT NULL,
   name text NOT NULL,
@@ -96,8 +79,7 @@ CREATE TABLE public.crm_divisions (
   active boolean NOT NULL DEFAULT true,
   created_at timestamp with time zone NOT NULL DEFAULT now()
 );
-ALTER TABLE public.crm_divisions ADD CONSTRAINT crm_divisions_id_check CHECK ((id = ANY (ARRAY['TRD'::text, 'CRD'::text])));
-ALTER TABLE public.crm_divisions ADD CONSTRAINT crm_divisions_pkey PRIMARY KEY (id);
+
 CREATE TABLE public.crm_files (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   division_id text NOT NULL,
@@ -111,10 +93,7 @@ CREATE TABLE public.crm_files (
   uploaded_by uuid,
   created_at timestamp with time zone NOT NULL DEFAULT now()
 );
-ALTER TABLE public.crm_files ADD CONSTRAINT crm_files_bucket_id_object_path_key UNIQUE (bucket_id, object_path);
-ALTER TABLE public.crm_files ADD CONSTRAINT crm_files_division_id_fkey FOREIGN KEY (division_id) REFERENCES crm_divisions(id);
-ALTER TABLE public.crm_files ADD CONSTRAINT crm_files_pkey PRIMARY KEY (id);
-ALTER TABLE public.crm_files ADD CONSTRAINT crm_files_uploaded_by_fkey FOREIGN KEY (uploaded_by) REFERENCES auth.users(id);
+
 CREATE TABLE public.crm_inspection_items (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   inspection_id uuid NOT NULL,
@@ -130,10 +109,7 @@ CREATE TABLE public.crm_inspection_items (
   verified_at timestamp with time zone,
   created_at timestamp with time zone NOT NULL DEFAULT now()
 );
-ALTER TABLE public.crm_inspection_items ADD CONSTRAINT crm_inspection_items_inspection_id_fkey FOREIGN KEY (inspection_id) REFERENCES crm_inspections(id) ON DELETE CASCADE;
-ALTER TABLE public.crm_inspection_items ADD CONSTRAINT crm_inspection_items_pkey PRIMARY KEY (id);
-ALTER TABLE public.crm_inspection_items ADD CONSTRAINT crm_inspection_items_severity_check CHECK ((severity = ANY (ARRAY['informational'::text, 'minor'::text, 'moderate'::text, 'major'::text, 'critical'::text])));
-ALTER TABLE public.crm_inspection_items ADD CONSTRAINT crm_inspection_items_verified_by_fkey FOREIGN KEY (verified_by) REFERENCES auth.users(id);
+
 CREATE TABLE public.crm_inspections (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   division_id text NOT NULL,
@@ -153,15 +129,7 @@ CREATE TABLE public.crm_inspections (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now()
 );
-ALTER TABLE public.crm_inspections ADD CONSTRAINT crm_inspections_appointment_id_fkey FOREIGN KEY (appointment_id) REFERENCES crm_appointments(id);
-ALTER TABLE public.crm_inspections ADD CONSTRAINT crm_inspections_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES crm_customers(id);
-ALTER TABLE public.crm_inspections ADD CONSTRAINT crm_inspections_division_id_fkey FOREIGN KEY (division_id) REFERENCES crm_divisions(id);
-ALTER TABLE public.crm_inspections ADD CONSTRAINT crm_inspections_inspector_id_fkey FOREIGN KEY (inspector_id) REFERENCES auth.users(id);
-ALTER TABLE public.crm_inspections ADD CONSTRAINT crm_inspections_lead_id_fkey FOREIGN KEY (lead_id) REFERENCES crm_leads(id);
-ALTER TABLE public.crm_inspections ADD CONSTRAINT crm_inspections_pkey PRIMARY KEY (id);
-ALTER TABLE public.crm_inspections ADD CONSTRAINT crm_inspections_property_id_fkey FOREIGN KEY (property_id) REFERENCES crm_properties(id);
-ALTER TABLE public.crm_inspections ADD CONSTRAINT crm_inspections_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES auth.users(id);
-ALTER TABLE public.crm_inspections ADD CONSTRAINT crm_inspections_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'in_progress'::text, 'review_required'::text, 'approved'::text, 'completed'::text])));
+
 CREATE TABLE public.crm_leads (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   division_id text NOT NULL,
@@ -181,15 +149,7 @@ CREATE TABLE public.crm_leads (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now()
 );
-ALTER TABLE public.crm_leads ADD CONSTRAINT crm_leads_assigned_to_fkey FOREIGN KEY (assigned_to) REFERENCES auth.users(id);
-ALTER TABLE public.crm_leads ADD CONSTRAINT crm_leads_contact_id_fkey FOREIGN KEY (contact_id) REFERENCES crm_contacts(id);
-ALTER TABLE public.crm_leads ADD CONSTRAINT crm_leads_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id);
-ALTER TABLE public.crm_leads ADD CONSTRAINT crm_leads_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES crm_customers(id);
-ALTER TABLE public.crm_leads ADD CONSTRAINT crm_leads_division_id_fkey FOREIGN KEY (division_id) REFERENCES crm_divisions(id);
-ALTER TABLE public.crm_leads ADD CONSTRAINT crm_leads_pkey PRIMARY KEY (id);
-ALTER TABLE public.crm_leads ADD CONSTRAINT crm_leads_priority_check CHECK ((priority = ANY (ARRAY['low'::text, 'normal'::text, 'high'::text, 'urgent'::text])));
-ALTER TABLE public.crm_leads ADD CONSTRAINT crm_leads_property_id_fkey FOREIGN KEY (property_id) REFERENCES crm_properties(id);
-ALTER TABLE public.crm_leads ADD CONSTRAINT crm_leads_status_check CHECK ((status = ANY (ARRAY['new'::text, 'contacted'::text, 'qualified'::text, 'appointment_set'::text, 'inspection_pending'::text, 'estimate_in_progress'::text, 'proposal_sent'::text, 'won'::text, 'lost'::text, 'on_hold'::text])));
+
 CREATE TABLE public.crm_memberships (
   user_id uuid NOT NULL,
   division_id text NOT NULL,
@@ -198,10 +158,7 @@ CREATE TABLE public.crm_memberships (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now()
 );
-ALTER TABLE public.crm_memberships ADD CONSTRAINT crm_memberships_division_id_fkey FOREIGN KEY (division_id) REFERENCES crm_divisions(id);
-ALTER TABLE public.crm_memberships ADD CONSTRAINT crm_memberships_pkey PRIMARY KEY (user_id, division_id);
-ALTER TABLE public.crm_memberships ADD CONSTRAINT crm_memberships_role_check CHECK ((role = ANY (ARRAY['owner'::text, 'division_admin'::text, 'office_manager'::text, 'sales_rep'::text, 'project_manager'::text, 'field_inspector'::text, 'production_manager'::text, 'accounting'::text, 'read_only'::text])));
-ALTER TABLE public.crm_memberships ADD CONSTRAINT crm_memberships_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
 CREATE TABLE public.crm_profiles (
   user_id uuid NOT NULL,
   display_name text,
@@ -211,8 +168,7 @@ CREATE TABLE public.crm_profiles (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now()
 );
-ALTER TABLE public.crm_profiles ADD CONSTRAINT crm_profiles_pkey PRIMARY KEY (user_id);
-ALTER TABLE public.crm_profiles ADD CONSTRAINT crm_profiles_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
 CREATE TABLE public.crm_projects (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   division_id text NOT NULL,
@@ -233,14 +189,7 @@ CREATE TABLE public.crm_projects (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now()
 );
-ALTER TABLE public.crm_projects ADD CONSTRAINT crm_projects_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id);
-ALTER TABLE public.crm_projects ADD CONSTRAINT crm_projects_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES crm_customers(id);
-ALTER TABLE public.crm_projects ADD CONSTRAINT crm_projects_division_id_fkey FOREIGN KEY (division_id) REFERENCES crm_divisions(id);
-ALTER TABLE public.crm_projects ADD CONSTRAINT crm_projects_lead_id_fkey FOREIGN KEY (lead_id) REFERENCES crm_leads(id);
-ALTER TABLE public.crm_projects ADD CONSTRAINT crm_projects_pkey PRIMARY KEY (id);
-ALTER TABLE public.crm_projects ADD CONSTRAINT crm_projects_project_manager_id_fkey FOREIGN KEY (project_manager_id) REFERENCES auth.users(id);
-ALTER TABLE public.crm_projects ADD CONSTRAINT crm_projects_property_id_fkey FOREIGN KEY (property_id) REFERENCES crm_properties(id);
-ALTER TABLE public.crm_projects ADD CONSTRAINT crm_projects_status_check CHECK ((status = ANY (ARRAY['planning'::text, 'approved'::text, 'scheduled'::text, 'in_progress'::text, 'on_hold'::text, 'substantially_complete'::text, 'completed'::text, 'cancelled'::text])));
+
 CREATE TABLE public.crm_properties (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   customer_id uuid NOT NULL,
@@ -258,8 +207,7 @@ CREATE TABLE public.crm_properties (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now()
 );
-ALTER TABLE public.crm_properties ADD CONSTRAINT crm_properties_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES crm_customers(id);
-ALTER TABLE public.crm_properties ADD CONSTRAINT crm_properties_pkey PRIMARY KEY (id);
+
 CREATE TABLE public.crm_roofs (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   property_id uuid NOT NULL,
@@ -275,8 +223,7 @@ CREATE TABLE public.crm_roofs (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now()
 );
-ALTER TABLE public.crm_roofs ADD CONSTRAINT crm_roofs_pkey PRIMARY KEY (id);
-ALTER TABLE public.crm_roofs ADD CONSTRAINT crm_roofs_property_id_fkey FOREIGN KEY (property_id) REFERENCES crm_properties(id) ON DELETE CASCADE;
+
 CREATE TABLE public.crm_tasks (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   division_id text NOT NULL,
@@ -293,12 +240,82 @@ CREATE TABLE public.crm_tasks (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now()
 );
+
+ALTER TABLE public.crm_activity_events ADD CONSTRAINT crm_activity_events_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES auth.users(id);
+ALTER TABLE public.crm_activity_events ADD CONSTRAINT crm_activity_events_details_check CHECK ((jsonb_typeof(details) = 'object'::text));
+ALTER TABLE public.crm_activity_events ADD CONSTRAINT crm_activity_events_division_id_fkey FOREIGN KEY (division_id) REFERENCES crm_divisions(id);
+ALTER TABLE public.crm_activity_events ADD CONSTRAINT crm_activity_events_pkey PRIMARY KEY (id);
+ALTER TABLE public.crm_appointments ADD CONSTRAINT crm_appointments_assigned_to_fkey FOREIGN KEY (assigned_to) REFERENCES auth.users(id);
+ALTER TABLE public.crm_appointments ADD CONSTRAINT crm_appointments_check CHECK (((ends_at IS NULL) OR (ends_at > starts_at)));
+ALTER TABLE public.crm_appointments ADD CONSTRAINT crm_appointments_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id);
+ALTER TABLE public.crm_appointments ADD CONSTRAINT crm_appointments_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES crm_customers(id);
+ALTER TABLE public.crm_appointments ADD CONSTRAINT crm_appointments_division_id_fkey FOREIGN KEY (division_id) REFERENCES crm_divisions(id);
+ALTER TABLE public.crm_appointments ADD CONSTRAINT crm_appointments_lead_id_fkey FOREIGN KEY (lead_id) REFERENCES crm_leads(id);
+ALTER TABLE public.crm_appointments ADD CONSTRAINT crm_appointments_pkey PRIMARY KEY (id);
+ALTER TABLE public.crm_appointments ADD CONSTRAINT crm_appointments_property_id_fkey FOREIGN KEY (property_id) REFERENCES crm_properties(id);
+ALTER TABLE public.crm_appointments ADD CONSTRAINT crm_appointments_status_check CHECK ((status = ANY (ARRAY['scheduled'::text, 'confirmed'::text, 'completed'::text, 'cancelled'::text, 'no_show'::text, 'rescheduled'::text])));
+ALTER TABLE public.crm_contacts ADD CONSTRAINT crm_contacts_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES crm_customers(id) ON DELETE CASCADE;
+ALTER TABLE public.crm_contacts ADD CONSTRAINT crm_contacts_pkey PRIMARY KEY (id);
+ALTER TABLE public.crm_customer_divisions ADD CONSTRAINT crm_customer_divisions_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES crm_customers(id) ON DELETE CASCADE;
+ALTER TABLE public.crm_customer_divisions ADD CONSTRAINT crm_customer_divisions_division_id_fkey FOREIGN KEY (division_id) REFERENCES crm_divisions(id);
+ALTER TABLE public.crm_customer_divisions ADD CONSTRAINT crm_customer_divisions_pkey PRIMARY KEY (customer_id, division_id);
+ALTER TABLE public.crm_customers ADD CONSTRAINT crm_customers_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id);
+ALTER TABLE public.crm_customers ADD CONSTRAINT crm_customers_customer_type_check CHECK ((customer_type = ANY (ARRAY['individual'::text, 'business'::text, 'property_manager'::text, 'organization'::text])));
+ALTER TABLE public.crm_customers ADD CONSTRAINT crm_customers_pkey PRIMARY KEY (id);
+ALTER TABLE public.crm_customers ADD CONSTRAINT crm_customers_preferred_contact_method_check CHECK ((preferred_contact_method = ANY (ARRAY['phone'::text, 'email'::text, 'text'::text, 'other'::text])));
+ALTER TABLE public.crm_divisions ADD CONSTRAINT crm_divisions_id_check CHECK ((id = ANY (ARRAY['TRD'::text, 'CRD'::text])));
+ALTER TABLE public.crm_divisions ADD CONSTRAINT crm_divisions_pkey PRIMARY KEY (id);
+ALTER TABLE public.crm_files ADD CONSTRAINT crm_files_bucket_id_object_path_key UNIQUE (bucket_id, object_path);
+ALTER TABLE public.crm_files ADD CONSTRAINT crm_files_division_id_fkey FOREIGN KEY (division_id) REFERENCES crm_divisions(id);
+ALTER TABLE public.crm_files ADD CONSTRAINT crm_files_pkey PRIMARY KEY (id);
+ALTER TABLE public.crm_files ADD CONSTRAINT crm_files_uploaded_by_fkey FOREIGN KEY (uploaded_by) REFERENCES auth.users(id);
+ALTER TABLE public.crm_inspection_items ADD CONSTRAINT crm_inspection_items_inspection_id_fkey FOREIGN KEY (inspection_id) REFERENCES crm_inspections(id) ON DELETE CASCADE;
+ALTER TABLE public.crm_inspection_items ADD CONSTRAINT crm_inspection_items_pkey PRIMARY KEY (id);
+ALTER TABLE public.crm_inspection_items ADD CONSTRAINT crm_inspection_items_severity_check CHECK ((severity = ANY (ARRAY['informational'::text, 'minor'::text, 'moderate'::text, 'major'::text, 'critical'::text])));
+ALTER TABLE public.crm_inspection_items ADD CONSTRAINT crm_inspection_items_verified_by_fkey FOREIGN KEY (verified_by) REFERENCES auth.users(id);
+ALTER TABLE public.crm_inspections ADD CONSTRAINT crm_inspections_appointment_id_fkey FOREIGN KEY (appointment_id) REFERENCES crm_appointments(id);
+ALTER TABLE public.crm_inspections ADD CONSTRAINT crm_inspections_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES crm_customers(id);
+ALTER TABLE public.crm_inspections ADD CONSTRAINT crm_inspections_division_id_fkey FOREIGN KEY (division_id) REFERENCES crm_divisions(id);
+ALTER TABLE public.crm_inspections ADD CONSTRAINT crm_inspections_inspector_id_fkey FOREIGN KEY (inspector_id) REFERENCES auth.users(id);
+ALTER TABLE public.crm_inspections ADD CONSTRAINT crm_inspections_lead_id_fkey FOREIGN KEY (lead_id) REFERENCES crm_leads(id);
+ALTER TABLE public.crm_inspections ADD CONSTRAINT crm_inspections_pkey PRIMARY KEY (id);
+ALTER TABLE public.crm_inspections ADD CONSTRAINT crm_inspections_property_id_fkey FOREIGN KEY (property_id) REFERENCES crm_properties(id);
+ALTER TABLE public.crm_inspections ADD CONSTRAINT crm_inspections_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES auth.users(id);
+ALTER TABLE public.crm_inspections ADD CONSTRAINT crm_inspections_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'in_progress'::text, 'review_required'::text, 'approved'::text, 'completed'::text])));
+ALTER TABLE public.crm_leads ADD CONSTRAINT crm_leads_assigned_to_fkey FOREIGN KEY (assigned_to) REFERENCES auth.users(id);
+ALTER TABLE public.crm_leads ADD CONSTRAINT crm_leads_contact_id_fkey FOREIGN KEY (contact_id) REFERENCES crm_contacts(id);
+ALTER TABLE public.crm_leads ADD CONSTRAINT crm_leads_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id);
+ALTER TABLE public.crm_leads ADD CONSTRAINT crm_leads_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES crm_customers(id);
+ALTER TABLE public.crm_leads ADD CONSTRAINT crm_leads_division_id_fkey FOREIGN KEY (division_id) REFERENCES crm_divisions(id);
+ALTER TABLE public.crm_leads ADD CONSTRAINT crm_leads_pkey PRIMARY KEY (id);
+ALTER TABLE public.crm_leads ADD CONSTRAINT crm_leads_priority_check CHECK ((priority = ANY (ARRAY['low'::text, 'normal'::text, 'high'::text, 'urgent'::text])));
+ALTER TABLE public.crm_leads ADD CONSTRAINT crm_leads_property_id_fkey FOREIGN KEY (property_id) REFERENCES crm_properties(id);
+ALTER TABLE public.crm_leads ADD CONSTRAINT crm_leads_status_check CHECK ((status = ANY (ARRAY['new'::text, 'contacted'::text, 'qualified'::text, 'appointment_set'::text, 'inspection_pending'::text, 'estimate_in_progress'::text, 'proposal_sent'::text, 'won'::text, 'lost'::text, 'on_hold'::text])));
+ALTER TABLE public.crm_memberships ADD CONSTRAINT crm_memberships_division_id_fkey FOREIGN KEY (division_id) REFERENCES crm_divisions(id);
+ALTER TABLE public.crm_memberships ADD CONSTRAINT crm_memberships_pkey PRIMARY KEY (user_id, division_id);
+ALTER TABLE public.crm_memberships ADD CONSTRAINT crm_memberships_role_check CHECK ((role = ANY (ARRAY['owner'::text, 'division_admin'::text, 'office_manager'::text, 'sales_rep'::text, 'project_manager'::text, 'field_inspector'::text, 'production_manager'::text, 'accounting'::text, 'read_only'::text])));
+ALTER TABLE public.crm_memberships ADD CONSTRAINT crm_memberships_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE public.crm_profiles ADD CONSTRAINT crm_profiles_pkey PRIMARY KEY (user_id);
+ALTER TABLE public.crm_profiles ADD CONSTRAINT crm_profiles_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE public.crm_projects ADD CONSTRAINT crm_projects_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id);
+ALTER TABLE public.crm_projects ADD CONSTRAINT crm_projects_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES crm_customers(id);
+ALTER TABLE public.crm_projects ADD CONSTRAINT crm_projects_division_id_fkey FOREIGN KEY (division_id) REFERENCES crm_divisions(id);
+ALTER TABLE public.crm_projects ADD CONSTRAINT crm_projects_lead_id_fkey FOREIGN KEY (lead_id) REFERENCES crm_leads(id);
+ALTER TABLE public.crm_projects ADD CONSTRAINT crm_projects_pkey PRIMARY KEY (id);
+ALTER TABLE public.crm_projects ADD CONSTRAINT crm_projects_project_manager_id_fkey FOREIGN KEY (project_manager_id) REFERENCES auth.users(id);
+ALTER TABLE public.crm_projects ADD CONSTRAINT crm_projects_property_id_fkey FOREIGN KEY (property_id) REFERENCES crm_properties(id);
+ALTER TABLE public.crm_projects ADD CONSTRAINT crm_projects_status_check CHECK ((status = ANY (ARRAY['planning'::text, 'approved'::text, 'scheduled'::text, 'in_progress'::text, 'on_hold'::text, 'substantially_complete'::text, 'completed'::text, 'cancelled'::text])));
+ALTER TABLE public.crm_properties ADD CONSTRAINT crm_properties_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES crm_customers(id);
+ALTER TABLE public.crm_properties ADD CONSTRAINT crm_properties_pkey PRIMARY KEY (id);
+ALTER TABLE public.crm_roofs ADD CONSTRAINT crm_roofs_pkey PRIMARY KEY (id);
+ALTER TABLE public.crm_roofs ADD CONSTRAINT crm_roofs_property_id_fkey FOREIGN KEY (property_id) REFERENCES crm_properties(id) ON DELETE CASCADE;
 ALTER TABLE public.crm_tasks ADD CONSTRAINT crm_tasks_assigned_to_fkey FOREIGN KEY (assigned_to) REFERENCES auth.users(id);
 ALTER TABLE public.crm_tasks ADD CONSTRAINT crm_tasks_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id);
 ALTER TABLE public.crm_tasks ADD CONSTRAINT crm_tasks_division_id_fkey FOREIGN KEY (division_id) REFERENCES crm_divisions(id);
 ALTER TABLE public.crm_tasks ADD CONSTRAINT crm_tasks_pkey PRIMARY KEY (id);
 ALTER TABLE public.crm_tasks ADD CONSTRAINT crm_tasks_priority_check CHECK ((priority = ANY (ARRAY['low'::text, 'normal'::text, 'high'::text, 'urgent'::text])));
 ALTER TABLE public.crm_tasks ADD CONSTRAINT crm_tasks_status_check CHECK ((status = ANY (ARRAY['open'::text, 'in_progress'::text, 'blocked'::text, 'completed'::text, 'cancelled'::text])));
+
 INSERT INTO public.crm_divisions (id,name,business_scope,active) VALUES
 ('TRD','The ROOF Doctors','Residential roofing',true),
 ('CRD','Commercial ROOF Doctors','Commercial roofing',true)
