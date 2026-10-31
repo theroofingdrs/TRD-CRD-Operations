@@ -451,7 +451,7 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
     setType(selected.customer_type);
     setEmail(selected.email || "");
     setPhone(selected.phone || "");
-    const primaryContact = contacts.find((contact) => contact.is_primary === true || contact.is_primary === "true");
+    const primaryContact = contacts.find((contact) => String(contact.is_primary) === "true");
     setPrimaryContactName(primaryContact ? String(primaryContact.full_name || "") : "");
     setBillingAddress(selected.billing_address_line1 || "");
     setBillingCity(selected.billing_city || "");
