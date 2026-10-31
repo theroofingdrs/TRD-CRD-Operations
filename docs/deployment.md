@@ -40,7 +40,7 @@ Suggested service name: `trd-crd-operations`.
 9. Confirm no secret keys are present in the browser bundle.
 10. Confirm website lead intake remains unchanged and that the CRM import does not modify source submissions.
 11. Review Supabase security and performance advisors.
-12. Generate and review a proper migration baseline from the live schema before further schema changes. Do not reset or recreate the database.
+12. Reconcile `supabase/baselines/20261030_live_crm_schema_snapshot.sql` with the live schema using the Supabase CLI, then validate the resulting baseline against a disposable project. The checked in snapshot is reference only and must not be applied to production. Do not reset or recreate the existing database.
 
 ## Explicit hold points
 
