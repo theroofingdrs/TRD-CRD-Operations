@@ -6,7 +6,7 @@ The React application source and Supabase database foundation are committed. Git
 
 An owner only `crm-invite-employee` Supabase Edge Function is deployed with JWT verification enabled. It checks active owner membership in the requested division, does not allow assigning owner access, and keeps privileged credentials server side. The function has not yet been exercised by sending a real employee invitation.
 
-An owner only `crm-import-website-intake` function is also deployed with JWT verification enabled. It reads legacy website submissions without modifying them, maps residential and commercial payloads into CRM customer, contact, property, and lead records, and uses each original intake record ID to skip records already imported. The import is initiated manually from the Leads screen and requires owner confirmation. It has not yet been run against the two live submissions.
+An owner only `crm-import-website-intake` function is also deployed with JWT verification enabled. It reads legacy website submissions without modifying them, maps residential and commercial payloads into CRM customer, contact, property, roof system, and lead records, preserving estimate, storm, and emergency details in the lead notes. It uses each original intake record ID to skip records already imported. The import is initiated manually from the Leads screen and requires owner confirmation. It has not yet been run against the two live submissions.
 
 ## Required environment
 
