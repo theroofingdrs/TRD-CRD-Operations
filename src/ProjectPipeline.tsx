@@ -294,15 +294,6 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     setBusy(false);
   }
 
-  async function openReceipt(expense: Expense) {
-    if (!supabase || !expense.receipt_file_id) return;
-    const { data: fileRow, error: fileError } = await supabase.from("crm_files").select("bucket_id,object_path").eq("id", expense.receipt_file_id).single();
-    if (fileError || !fileRow) { setError(fileError?.message || "Receipt not found."); return; }
-    const { data, error: signedError } = await supabase.storage.from(fileRow.bucket_id).createSignedUrl(fileRow.object_path, 60);
-    if (signedError) setError(signedError.message);
-    else if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener,noreferrer");
-  }
-
   async function saveFinancials(event: FormEvent) {
     event.preventDefault();
     if (!supabase || !selected || !canWriteFinancials) return;
