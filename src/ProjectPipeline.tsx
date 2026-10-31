@@ -41,7 +41,8 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [supplementAttachments, setSupplementAttachments] = useState<Record<string, Attachment[]>>({});
   const [costEstimates, setCostEstimates] = useState<Record<string, number>>({});
-  const [history, setHistory] = useState<any[]>([]);\n  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [history, setHistory] = useState<any[]>([]);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [showExpense, setShowExpense] = useState(false);
   const [showSupplement, setShowSupplement] = useState(false);
