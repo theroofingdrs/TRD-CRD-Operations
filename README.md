@@ -60,7 +60,7 @@ Never put a Supabase secret or service role key in a Vite environment variable. 
 - No public website code was changed.
 - No production deployment has occurred.
 - Stripe is deliberately on hold. No payment processing is configured or enabled.
-- File metadata tables exist, but private Storage upload and download policies are not yet enabled.
+- Private Storage policies are enabled for the existing private bucket. Object paths must begin with TRD or CRD, and access is division scoped.
 - Supabase leaked password protection still needs to be enabled in the Auth dashboard.
 - The new database foundation was applied additively to the existing project. A checked in migration baseline still needs to be generated and reconciled before future schema changes.
 
