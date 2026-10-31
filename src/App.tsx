@@ -386,6 +386,44 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
     setDetailLoading(false);
   }
 
+  async function createMaintenanceRecord(event: FormEvent) {
+    event.preventDefault();
+    if (!supabase || !selected || !servicePropertyId) return;
+    setSaving(true);
+    setMessage("");
+    const { error } = await supabase.from("crm_maintenance_records").insert({
+      division_id: division,
+      customer_id: selected.id,
+      property_id: servicePropertyId,
+      roof_id: serviceRoofId || null,
+      project_id: serviceProjectId || null,
+      service_type: serviceType,
+      status: serviceStatus,
+      priority: servicePriority,
+      scheduled_for: serviceScheduledFor ? new Date(serviceScheduledFor).toISOString() : null,
+      completed_at: serviceCompletedAt ? new Date(serviceCompletedAt).toISOString() : null,
+      next_service_due: nextServiceDue || null,
+      description: serviceDescription.trim() || null,
+      findings: serviceFindings.trim() || null,
+      work_performed: serviceWork.trim() || null,
+      recommendations: serviceRecommendations.trim() || null,
+      materials_used: serviceMaterials.trim() || null,
+      service_cost: serviceCost ? Number(serviceCost) : null,
+      created_by: userId
+    });
+    if (error) setMessage(error.message);
+    else {
+      setServiceType("preventive_maintenance"); setServiceStatus("scheduled"); setServicePriority("normal");
+      setServicePropertyId(""); setServiceRoofId(""); setServiceProjectId("");
+      setServiceScheduledFor(""); setServiceCompletedAt(""); setNextServiceDue("");
+      setServiceDescription(""); setServiceFindings(""); setServiceWork("");
+      setServiceRecommendations(""); setServiceMaterials(""); setServiceCost("");
+      setShowMaintenanceForm(false); setMessage("Maintenance service record saved.");
+      await loadCustomerDetails(selected.id);
+    }
+    setSaving(false);
+  }
+
   function beginEditCustomer() {
     if (!selected) return;
     setEditingId(selected.id);
