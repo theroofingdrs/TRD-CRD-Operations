@@ -135,7 +135,7 @@ function App() {
       {view === "overview" && <Overview division={division} onNavigate={setView} />}
       {view === "leads" && <Leads division={division} userId={session.user.id} canWrite={canWriteLeads} />}
       {view === "customers" && <Customers division={division} userId={session.user.id} canWrite={canWriteCustomers} />}
-      {view === "properties" && <DataList division={division} view="properties" />}
+      {view === "properties" && <Properties division={division} canWrite={canWriteCustomers} />}
       {view === "appointments" && <DataList division={division} view="appointments" />}
       {view === "inspections" && <DataList division={division} view="inspections" />}
       {view === "projects" && <DataList division={division} view="projects" />}
@@ -196,6 +196,12 @@ function Leads({ division, userId, canWrite }: { division: DivisionId; userId: s
     setLoading(false);
   }, [division]);
   useEffect(() => { void load(); }, [load]);
+  async function updateStatus(id: string, status: string) {
+    if (!supabase) return;
+    const { error } = await supabase.from("crm_leads").update({ status }).eq("id", id);
+    if (error) setMessage(error.message);
+    else await load();
+  }
   async function createLead(event: FormEvent) {
     event.preventDefault();
     if (!supabase) return;
@@ -215,7 +221,7 @@ function Leads({ division, userId, canWrite }: { division: DivisionId; userId: s
   return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">OPPORTUNITY MANAGEMENT</p><h2>Lead pipeline</h2><p className="muted">{rows.length} records in this division</p></div>{canWrite && <button className="primary-button compact" onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "+ Add lead"}</button>}</div>
     {showForm && <form className="inline-form" onSubmit={createLead}><div className="form-grid"><label>Service requested<input value={service} onChange={(event) => setService(event.target.value)} placeholder="Roof replacement, repair, gutter cleaning..." /></label><label>Lead source<select value={source} onChange={(event) => setSource(event.target.value)}><option>Phone</option><option>Website</option><option>Referral</option><option>Google</option><option>Repeat customer</option><option>Other</option></select></label><label>Priority<select value={priority} onChange={(event) => setPriority(event.target.value)}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label className="wide">Notes<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={2} placeholder="What does the customer need?" /></label></div><button className="primary-button" disabled={saving}>{saving ? "Saving..." : "Save lead"}</button></form>}
     {message && <p className="inline-message">{message}</p>}
-    {loading ? <div className="empty-state">Loading leads...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Service</th><th>Source</th><th>Status</th><th>Priority</th><th>Created</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><strong>{row.service_interest || "Unspecified service"}</strong><span className="subline">{row.description || "No notes"}</span></td><td>{row.source || "—"}</td><td><span className={"pill " + row.status}>{row.status.replaceAll("_"," ")}</span></td><td><span className={"priority " + row.priority}>{row.priority}</span></td><td>{new Date(row.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>Your lead pipeline is ready</strong><span>There are no CRM leads in this division yet. Existing public website submissions have not been copied or changed.</span>{canWrite && <button className="secondary-button" onClick={() => setShowForm(true)}>Add your first lead</button>}</div>}
+    {loading ? <div className="empty-state">Loading leads...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Service</th><th>Source</th><th>Status</th><th>Priority</th><th>Created</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><strong>{row.service_interest || "Unspecified service"}</strong><span className="subline">{row.description || "No notes"}</span></td><td>{row.source || "—"}</td><td>{canWrite ? <select className="table-select" value={row.status} onChange={(event) => void updateStatus(row.id, event.target.value)}><option value="new">New</option><option value="contacted">Contacted</option><option value="qualified">Qualified</option><option value="appointment_set">Appointment set</option><option value="inspection_pending">Inspection pending</option><option value="estimate_in_progress">Estimate in progress</option><option value="proposal_sent">Proposal sent</option><option value="won">Won</option><option value="lost">Lost</option><option value="on_hold">On hold</option></select> : <span className={"pill " + row.status}>{row.status.replaceAll("_"," ")}</span>}</td><td><span className={"priority " + row.priority}>{row.priority}</span></td><td>{new Date(row.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>Your lead pipeline is ready</strong><span>There are no CRM leads in this division yet. Existing public website submissions have not been copied or changed.</span>{canWrite && <button className="secondary-button" onClick={() => setShowForm(true)}>Add your first lead</button>}</div>}
   </section></div>;
 }
 
@@ -265,6 +271,69 @@ function Customers({ division, userId, canWrite }: { division: DivisionId; userI
     {showForm && <form className="inline-form" onSubmit={createCustomer}><div className="form-grid"><label>Customer or account name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Name or business" /></label><label>Customer type<select value={type} onChange={(event) => setType(event.target.value)}><option value="individual">Homeowner / Individual</option><option value="business">Business</option><option value="property_manager">Property manager</option><option value="organization">Organization</option></select></label><label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label><label>Phone<input value={phone} onChange={(event) => setPhone(event.target.value)} /></label></div><button className="primary-button" disabled={saving}>{saving ? "Saving..." : "Save customer"}</button></form>}
     {message && <p className="inline-message">{message}</p>}
     {loading ? <div className="empty-state">Loading customers...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Email</th><th>Phone</th><th>Added</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><strong>{row.display_name}</strong></td><td>{row.customer_type.replaceAll("_"," ")}</td><td>{row.email || "—"}</td><td>{row.phone || "—"}</td><td>{new Date(row.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No customer records yet</strong><span>Add a customer to start building the shared customer and property history.</span>{canWrite && <button className="secondary-button" onClick={() => setShowForm(true)}>Add first customer</button>}</div>}
+  </section></div>;
+}
+
+function Properties({ division, canWrite }: { division: DivisionId; canWrite: boolean }) {
+  const [rows, setRows] = useState<GenericRow[]>([]);
+  const [customers, setCustomers] = useState<{id:string;display_name:string}[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [customerId, setCustomerId] = useState("");
+  const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("TX");
+  const [postal, setPostal] = useState("");
+  const [propertyType, setPropertyType] = useState("residential");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const load = useCallback(async () => {
+    if (!supabase) return;
+    setLoading(true);
+    const { data: links, error: linkError } = await supabase.from("crm_customer_divisions").select("customer_id").eq("division_id", division);
+    if (linkError) setMessage(linkError.message);
+    const ids = (links ?? []).map((item: {customer_id:string}) => item.customer_id);
+    if (!ids.length) {
+      setRows([]);
+      setCustomers([]);
+    } else {
+      const [customerResult, propertyResult] = await Promise.all([
+        supabase.from("crm_customers").select("id,display_name").in("id", ids).order("display_name"),
+        supabase.from("crm_properties").select("id,address_line1,city,state,postal_code,property_type,created_at").in("customer_id", ids).order("created_at", {ascending:false})
+      ]);
+      if (customerResult.error) setMessage(customerResult.error.message);
+      if (propertyResult.error) setMessage(propertyResult.error.message);
+      setCustomers(customerResult.data ?? []);
+      setRows((propertyResult.data ?? []) as GenericRow[]);
+      if (!customerId && customerResult.data?.length) setCustomerId(customerResult.data[0].id);
+    }
+    setLoading(false);
+  }, [division, customerId]);
+  useEffect(() => { void load(); }, [load]);
+  async function createProperty(event: FormEvent) {
+    event.preventDefault();
+    if (!supabase) return;
+    setSaving(true);
+    setMessage("");
+    const { error } = await supabase.from("crm_properties").insert({
+      customer_id: customerId,
+      address_line1: address.trim(),
+      city: city.trim(),
+      state: state.trim().toUpperCase(),
+      postal_code: postal.trim() || null,
+      property_type: propertyType
+    });
+    if (error) setMessage(error.message);
+    else {
+      setAddress(""); setCity(""); setPostal(""); setShowForm(false); setMessage("Property created.");
+      await load();
+    }
+    setSaving(false);
+  }
+  return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">PROPERTY RECORDS</p><h2>Properties and locations</h2><p className="muted">Each property is linked to a customer account and can hold multiple roof records.</p></div>{canWrite && customers.length > 0 && <button className="primary-button compact" onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "+ Add property"}</button>}</div>
+    {showForm && <form className="inline-form" onSubmit={createProperty}><div className="form-grid"><label>Customer account<select required value={customerId} onChange={(event) => setCustomerId(event.target.value)}>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.display_name}</option>)}</select></label><label>Property type<select value={propertyType} onChange={(event) => setPropertyType(event.target.value)}><option value="residential">Residential</option><option value="commercial">Commercial</option><option value="multifamily">Multifamily</option><option value="industrial">Industrial</option><option value="institutional">Church / School / Institutional</option></select></label><label className="wide">Street address<input required value={address} onChange={(event) => setAddress(event.target.value)} /></label><label>City<input required value={city} onChange={(event) => setCity(event.target.value)} /></label><label>State<input required value={state} onChange={(event) => setState(event.target.value)} maxLength={2} /></label><label>ZIP code<input value={postal} onChange={(event) => setPostal(event.target.value)} /></label></div><button className="primary-button" disabled={saving || !customerId}>{saving ? "Saving..." : "Save property"}</button></form>}
+    {message && <p className="inline-message">{message}</p>}
+    {loading ? <div className="empty-state">Loading properties...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Street address</th><th>City</th><th>State</th><th>ZIP</th><th>Type</th><th>Added</th></tr></thead><tbody>{rows.map((row) => <tr key={String(row.id)}><td><strong>{String(row.address_line1 || "Property")}</strong></td><td>{String(row.city || "—")}</td><td>{String(row.state || "—")}</td><td>{String(row.postal_code || "—")}</td><td>{String(row.property_type || "—")}</td><td>{formatValue("created_at",row.created_at)}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No properties yet</strong><span>Add a customer first, then create the property record here.</span>{canWrite && customers.length > 0 && <button className="secondary-button" onClick={() => setShowForm(true)}>Add first property</button>}</div>}
   </section></div>;
 }
 
