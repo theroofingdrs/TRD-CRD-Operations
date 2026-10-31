@@ -141,3 +141,23 @@ input:focus,select:focus,textarea:focus{border-color:#e8895c;box-shadow:0 0 0 3p
 .project-pipeline .history-list span{font-size:12px;color:var(--text-muted,#667085)}
 .project-pipeline .error-text{color:#b42318}
 @media(max-width:640px){.project-pipeline .pipeline-grid{grid-template-columns:1fr}.project-pipeline .panel-heading{align-items:flex-start;gap:12px}}
+
+
+/* Pipeline kanban and list views */
+.project-pipeline .pipeline-view-toolbar{margin-top:10px;align-items:center}
+.project-pipeline .kanban-board{display:flex;gap:12px;overflow-x:auto;padding:8px 2px 14px;align-items:flex-start;scroll-snap-type:x proximity}
+.project-pipeline .kanban-column{flex:0 0 270px;max-width:270px;min-height:300px;border:1px solid var(--border,#e4e7ec);border-radius:12px;background:var(--surface-muted,#f7f8fa);scroll-snap-align:start}
+.project-pipeline .kanban-column-header{position:sticky;top:0;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px;border-bottom:1px solid var(--border,#e4e7ec);background:var(--surface-muted,#f7f8fa);border-radius:12px 12px 0 0;font-size:13px}
+.project-pipeline .kanban-column-header span{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;padding:0 6px;border-radius:20px;background:var(--surface,#fff);font-size:12px}
+.project-pipeline .kanban-column-cards{display:grid;gap:10px;padding:10px;min-height:250px}
+.project-pipeline .kanban-drop-placeholder{display:flex;align-items:center;justify-content:center;min-height:72px;border:1px dashed var(--border,#cbd5e1);border-radius:9px;color:var(--text-muted,#667085);font-size:12px}
+.project-pipeline .kanban-column .pipeline-card{width:100%;max-width:100%}
+.project-pipeline .pipeline-card[draggable="true"]{cursor:grab}
+.project-pipeline .pipeline-card[draggable="true"]:active{cursor:grabbing;opacity:.75}
+.project-pipeline .pipeline-list-link{padding:0;border:0;background:transparent;color:var(--accent,#b45309);font-weight:700;text-align:left;cursor:pointer}
+.project-pipeline .pipeline-list td small{display:block;margin-top:4px;color:var(--text-muted,#667085)}
+.project-pipeline .pipeline-list select{max-width:180px;padding:6px;border:1px solid var(--border,#d0d5dd);border-radius:7px;background:var(--surface,#fff);color:inherit}
+.project-pipeline .history-list details{padding:10px 12px;border:1px solid var(--border,#e4e7ec);border-radius:8px;background:var(--surface,#fff)}
+.project-pipeline .history-list details summary{display:flex;justify-content:space-between;gap:12px;cursor:pointer}
+.project-pipeline .history-list pre{overflow:auto;max-height:260px;padding:10px;background:var(--surface-muted,#f8f9fb);border-radius:7px;font-size:11px}
+@media(max-width:640px){.project-pipeline .kanban-column{flex-basis:250px;max-width:250px}.project-pipeline .pipeline-view-toolbar{align-items:flex-start;flex-direction:column}}
