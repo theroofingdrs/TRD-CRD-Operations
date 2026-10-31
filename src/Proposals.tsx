@@ -5,7 +5,7 @@ import { estimateCatalog, estimateCatalogCategories } from "./estimateCatalog";
 type DivisionId = "TRD" | "CRD";
 type Customer = { id: string; display_name: string; email: string | null };
 type Property = { id: string; customer_id: string; address_line1: string; city: string; state: string };
-type LineItem = { description: string; quantity: string; unit: string; unit_price: string };
+type LineItem = { description: string; quantity: string; unit: string; unit_price: string; category?: string; line_type?: "material" | "labor" | "other"; apply_waste?: boolean };
 type RoofrMeasurement = { label: string; value: number; unit: string };
 type RoofrReport = { id: string; original_filename: string; created_at: string; metadata: { document_type?: string; extraction_status?: string; extracted_measurements?: RoofrMeasurement[]; predominant_pitch?: string | null; pitch_distribution?: { pitch: string; area_sqft: number; squares: number }[] } | null };
 type Proposal = { id: string; title: string; status: string; pricing_mode: string; total_amount: number; lump_sum_amount: number | null; created_at: string; customer_id: string; property_id: string };
@@ -39,7 +39,9 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
   const [validUntil, setValidUntil] = useState("");
   const [wasteFactorPercent, setWasteFactorPercent] = useState("10");
   const [complexityFactor, setComplexityFactor] = useState("standard");
+  const [complexityRate, setComplexityRate] = useState("0");
   const [pitchFactor, setPitchFactor] = useState("standard");
+  const [pitchRate, setPitchRate] = useState("0");
   const [showForm, setShowForm] = useState(Boolean(initialPropertyId));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -98,11 +100,30 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
   const customerProperties = properties.filter((item) => item.customer_id === customerId);
   const selectedRoofrReport = roofrReports.find(report => report.id === selectedRoofrReportId);
   const roofSquares = selectedRoofrReport?.metadata?.extracted_measurements?.find(item => item.label.toLowerCase().includes("roof squares"))?.value;
+  const roofAreaSqft = selectedRoofrReport?.metadata?.extracted_measurements?.find(item => item.label.toLowerCase().includes("roof area"))?.value;
   const adjustedRoofSquares = typeof roofSquares === "number" ? roofSquares * (1 + Number(wasteFactorPercent) / 100) : null;
+  function effectiveQuantity(item: LineItem) { const base = Math.max(0, Number(item.quantity || 0)); return roundMoney(base * (item.apply_waste && (item.unit === "SQ" || item.unit === "SF") ? 1 + Number(wasteFactorPercent) / 100 : 1)); }
+  function lineAmount(item: LineItem) { return roundMoney(effectiveQuantity(item) * Math.max(0, Number(item.unit_price || 0))); }
+  function roofrQuantityForItem(description: string, unit: string) {
+    const measurements = selectedRoofrReport?.metadata?.extracted_measurements || [];
+    if (unit === "SQ" && typeof roofSquares === "number") return String(roofSquares);
+    if (unit === "SF" && typeof roofAreaSqft === "number") return String(roofAreaSqft);
+    if (unit === "LF") {
+      const d = description.toLowerCase();
+      const keys = d.includes("drip edge") ? ["eave","rake"] : ["eave","rake","ridge","hip","valley","perimeter","gutter"].filter(k=>d.includes(k));
+      const matches = measurements.filter(m=>keys.some(k=>m.label.toLowerCase().includes(k)) && (m.unit.toUpperCase()==="LF" || m.unit.toLowerCase().includes("linear")));
+      if(matches.length) return String(matches.reduce((sum,m)=>sum+m.value,0));
+    }
+    return "1";
+  }
   const allCatalogItems = [...estimateCatalog,...priceBookRows.filter(row=>!estimateCatalog.some(item=>item.category===row.category&&item.description===row.description&&item.unit===row.unit)).map(row=>({category:row.category,description:row.description,unit:row.unit}))];
   const catalogCategories = Array.from(new Set([...estimateCatalogCategories,...priceBookRows.map(row=>row.category)])).sort();
   const catalogMatches = allCatalogItems.filter(item => item.category === catalogCategory && (!catalogSearch.trim() || item.description.toLowerCase().includes(catalogSearch.trim().toLowerCase())));
-  const itemSubtotal = roundMoney(lineItems.reduce((sum, item) => sum + Math.max(0, Number(item.quantity || 0)) * Math.max(0, Number(item.unit_price || 0)), 0));
+  const rawItemSubtotal = roundMoney(lineItems.reduce((sum, item) => sum + lineAmount(item), 0));
+  const laborSubtotal = roundMoney(lineItems.filter(item=>item.line_type==="labor").reduce((sum,item)=>sum+lineAmount(item),0));
+  const complexityAmount = pricingMode === "lump_sum" ? 0 : roundMoney(laborSubtotal * Math.max(0,Number(complexityRate||0)) / 100);
+  const pitchAmount = pricingMode === "lump_sum" ? 0 : roundMoney(laborSubtotal * Math.max(0,Number(pitchRate||0)) / 100);
+  const itemSubtotal = roundMoney(rawItemSubtotal + complexityAmount + pitchAmount);
   const baseSubtotal = roundMoney(Math.max(0, pricingMode === "lump_sum" ? Number(lumpSum || 0) : itemSubtotal));
   const overheadAmount = overheadEnabled ? roundMoney(baseSubtotal * 0.10) : 0;
   const profitBase = roundMoney(baseSubtotal + overheadAmount);
