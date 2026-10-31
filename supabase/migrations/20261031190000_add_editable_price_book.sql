@@ -6,7 +6,7 @@ CREATE TABLE public.crm_price_book (
   category text NOT NULL CHECK (length(trim(category)) BETWEEN 1 AND 100),
   item_code text,
   description text NOT NULL CHECK (length(trim(description)) BETWEEN 1 AND 240),
-  unit text NOT NULL CHECK (unit IN ('SQ','SF','LF','EA','HR','DAY','WK','MO','LS','CY','SHEET','ROLL','GAL','BDL')),
+  unit text NOT NULL CHECK (unit IN ('SQ','SF','LF','EA','HR','DAY','WK','MO','LS','CY','SHEET','ROLL','GAL','BDL','BOX','PAIL','TUBE','PALLET')),
   unit_price numeric(14,2) CHECK (unit_price IS NULL OR unit_price >= 0),
   is_active boolean NOT NULL DEFAULT true,
   effective_from date,
