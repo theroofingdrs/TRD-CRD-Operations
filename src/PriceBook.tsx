@@ -30,7 +30,7 @@ export default function PriceBook({ division, userId }: { division: DivisionId; 
     const saved = new Map(savedRows.map(r=>[keyOf(r),r]));
     const base = estimateCatalog.map(item => {
       const existing=saved.get(keyOf(item));
-      return {...item,id:existing?.id,unit_price:prices[keyOf(item)] ?? existing?.unit_price ?? "",is_active:existing?.is_active ?? true,custom:false};
+      return {...item,id:existing?.id,item_code:existing?.item_code ?? null,unit_price:prices[keyOf(item)] ?? existing?.unit_price ?? "",is_active:existing?.is_active ?? true,custom:false};
     });
     const custom = savedRows.filter(r=>!estimateCatalog.some(item=>keyOf(item)===keyOf(r))).map(r=>({...r,unit_price:prices[keyOf(r)] ?? r.unit_price,custom:true}));
     return [...base,...custom].filter(r=>r.is_active && (category==="All categories" || r.category===category) && (!search.trim() || (r.description+" "+r.category+" "+r.unit).toLowerCase().includes(search.trim().toLowerCase())));
