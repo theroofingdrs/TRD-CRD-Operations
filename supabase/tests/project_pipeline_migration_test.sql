@@ -134,6 +134,21 @@ VALUES
    'Pipeline migration test', 'insurance', 'new_lead', auth.uid())
 RETURNING id AS test_project_id \gset
 INSERT INTO pg_temp.test_ids(project_id) VALUES (:'test_project_id');
+
+DO $body$
+BEGIN
+  BEGIN
+    INSERT INTO public.crm_project_stage_history
+      (division_id, project_id, to_stage, changed_by)
+    VALUES ('TRD', (SELECT project_id FROM pg_temp.test_ids), 'contacted', auth.uid());
+    RAISE EXCEPTION 'Direct project audit history insert was allowed';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = 'Direct project audit history insert was allowed' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE 'Audit history can only be written by system-generated change triggers%' THEN RAISE; END IF;
+  END;
+END
+$body$;
+
 UPDATE public.crm_claims SET project_id = :'test_project_id' WHERE id = '00000000-0000-0000-0000-000000000040';
 
 DO $body$
@@ -433,6 +448,21 @@ VALUES
 RETURNING id AS test_company_receipt_id \gset
 CREATE TEMP TABLE company_expense_ids(expense_id uuid, receipt_file_id uuid);
 INSERT INTO pg_temp.company_expense_ids VALUES (:'test_company_expense_id', :'test_company_receipt_id');
+
+DO $body$
+BEGIN
+  BEGIN
+    INSERT INTO public.crm_company_expense_history
+      (division_id, expense_id, changed_by, before_values, after_values)
+    VALUES ('TRD', (SELECT expense_id FROM pg_temp.company_expense_ids), auth.uid(), '{}'::jsonb, '{"payment_status":"paid"}'::jsonb);
+    RAISE EXCEPTION 'Direct company audit history insert was allowed';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = 'Direct company audit history insert was allowed' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE 'Audit history can only be written by system-generated change triggers%' THEN RAISE; END IF;
+  END;
+END
+$body$;
+
 UPDATE public.crm_company_expenses
 SET receipt_file_id = :'test_company_receipt_id'
 WHERE id = :'test_company_expense_id';
