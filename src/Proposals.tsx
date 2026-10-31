@@ -29,6 +29,7 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
   const [conditions, setConditions] = useState("");
   const [exclusions, setExclusions] = useState("");
   const [paymentTerms, setPaymentTerms] = useState("Due upon completion unless otherwise stated in writing.");
+  const [warrantySummary, setWarrantySummary] = useState("");
   const [validUntil, setValidUntil] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -36,10 +37,17 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
   const [sendingId, setSendingId] = useState("");
   const load = useCallback(async () => {
     if (!supabase) return;
-    const [proposalResult, customerResult] = await Promise.all([
+    const [proposalResult, customerResult, templateResult] = await Promise.all([
       supabase.from("crm_proposals").select("id,title,status,pricing_mode,total_amount,lump_sum_amount,created_at,customer_id,property_id").eq("division_id", division).order("created_at", { ascending: false }),
-      supabase.from("crm_customer_divisions").select("customer_id,crm_customers(id,display_name,email)").eq("division_id", division)
+      supabase.from("crm_customer_divisions").select("customer_id,crm_customers(id,display_name,email)").eq("division_id", division),
+      supabase.from("crm_proposal_templates").select("default_scope,default_exclusions,payment_terms,warranty_summary").eq("division_id", division).maybeSingle()
     ]);
+    if (templateResult.data) {
+      setScope(templateResult.data.default_scope || "");
+      setExclusions(templateResult.data.default_exclusions || "");
+      setPaymentTerms(templateResult.data.payment_terms || "");
+      setWarrantySummary(templateResult.data.warranty_summary || "");
+    }
     if (proposalResult.error) setMessage(proposalResult.error.message);
     setRows((proposalResult.data ?? []) as Proposal[]);
     const customerRows = (customerResult.data ?? []).flatMap((item: any) => item.crm_customers ? [item.crm_customers] : []);
@@ -117,7 +125,7 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
       pricing_mode: pricingMode, line_items: savedItems, lump_sum_amount: pricingMode === "itemized" ? null : Number(lumpSum),
       subtotal, tax_amount: taxAmount, total_amount: total, scope_of_work: scope || null,
       existing_conditions: conditions || null, exclusions: exclusions || null, payment_terms: paymentTerms || null,
-      valid_until: validUntil || null, created_by: userId,
+      valid_until: validUntil || null, warranty_summary: warrantySummary || null, created_by: userId,
       template_data: { template: division === "TRD" ? "residential_standard_v1" : "commercial_standard_v1", tax_rate_percent: Number(taxRate || 0) }
     });
     if (error) setMessage(error.message);
@@ -145,6 +153,7 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
       <label className="wide">Scope of work<textarea rows={4} value={scope} onChange={e => setScope(e.target.value)} placeholder={division === "TRD" ? "Describe tear off, decking, underlayment, flashing, roofing material, ventilation and cleanup." : "Describe roof sections, system, preparation, insulation, membrane or coating, details, access and phasing."} /></label>
       <label className="wide">Exclusions<textarea rows={2} value={exclusions} onChange={e => setExclusions(e.target.value)} /></label>
       <label className="wide">Payment terms<textarea rows={2} value={paymentTerms} onChange={e => setPaymentTerms(e.target.value)} /></label>
+      <label className="wide">Warranty wording<textarea rows={2} value={warrantySummary} onChange={e => setWarrantySummary(e.target.value)} /></label>
       <div className="wide"><strong>Current estimate total: {total.toLocaleString("en-US",{style:"currency",currency:"USD"})}</strong>{pricingMode === "both" && <p className="muted">The lump sum is stored as an alternate price. The itemized total is used as the proposal's recorded total until the customer selects an option.</p>}</div>
     </div><button className="primary-button" disabled={busy || !customers.length || !customerProperties.length}>{busy ? "Saving..." : "Save proposal draft"}</button></form>}
     {message && <p className="inline-message">{message}</p>}
