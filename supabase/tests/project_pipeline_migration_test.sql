@@ -67,8 +67,6 @@ CREATE TABLE public.crm_files (
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 ALTER TABLE public.crm_files ENABLE ROW LEVEL SECURITY;
-CREATE POLICY crm_files_read ON public.crm_files FOR SELECT TO authenticated
-  USING (app_private.has_division_resource_access(division_id, 'files', false));
 
 CREATE OR REPLACE FUNCTION app_private.has_division_resource_access(p_division_id text, p_resource text, p_write boolean DEFAULT false)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO ''
@@ -79,7 +77,10 @@ AS $$
       AND m.division_id = p_division_id AND m.active
       AND (NOT p_write OR m.role IN ('owner','division_admin','office_manager','project_manager'))
   );
-$$;
+$;
+CREATE POLICY crm_files_read ON public.crm_files FOR SELECT TO authenticated
+  USING (app_private.has_division_resource_access(division_id, 'files', false));
+
 GRANT USAGE ON SCHEMA auth, storage, app_private TO authenticated;
 GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated;
 GRANT EXECUTE ON FUNCTION storage.foldername(text) TO authenticated;
@@ -172,7 +173,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.crm_project_stage_history WHERE project_id = (SELECT project_id FROM pg_temp.test_ids) AND to_stage = 'new_lead') THEN
     RAISE EXCEPTION 'Initial stage history was not recorded';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.crm_project_financial_history WHERE project_id = :'test_project_id') THEN
+  IF NOT EXISTS (SELECT 1 FROM public.crm_project_financial_history WHERE project_id = (SELECT project_id FROM pg_temp.test_ids)) THEN
     RAISE EXCEPTION 'Financial edit history was not recorded';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.crm_project_supplement_history WHERE supplement_id = (SELECT supplement_id FROM pg_temp.test_ids)) THEN
