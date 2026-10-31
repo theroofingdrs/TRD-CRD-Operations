@@ -8,7 +8,7 @@ type Project = {
   workflow_stage: string | null; status: string; property_id: string; customer_id: string;
   contract_amount: number | null; original_estimate_amount: number | null; initial_approved_amount: number | null;
   supplements_approved_amount: number; invoiced_amount: number; collected_amount: number;
-  next_action: string | null; next_action_due_at: string | null; commission_method: string | null; commission_rate: number | null; commission_fixed_amount: number | null; commission_earned_amount: number; commission_paid_amount: number; commission_salesperson_name: string | null; overhead_method: string | null; overhead_rate: number | null; overhead_fixed_amount: number | null; overhead_allocated_amount: number; created_at: string;
+  next_action: string | null; next_action_due_at: string | null; updated_at: string; commission_method: string | null; commission_rate: number | null; commission_fixed_amount: number | null; commission_earned_amount: number; commission_paid_amount: number; commission_salesperson_name: string | null; overhead_method: string | null; overhead_rate: number | null; overhead_fixed_amount: number | null; overhead_allocated_amount: number; created_at: string;
 };
 type Expense = { id: string; category: string; amount: number; paid_amount: number; payment_status: string; expense_date: string; vendor_payee: string | null; description: string | null; receipt_file_id: string | null };
 type Supplement = { id: string; supplement_number: number; status: string; requested_amount: number; approved_amount: number; submitted_at: string | null; response_at: string | null; carrier_response: string | null; notes: string | null };
@@ -39,6 +39,9 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
   const [showCreate, setShowCreate] = useState(false);
   const [showExpense, setShowExpense] = useState(false);
   const [showSupplement, setShowSupplement] = useState(false);
+  const [divisionExpenseTotal, setDivisionExpenseTotal] = useState(0);
+  const [staleDays, setStaleDays] = useState(7);
+  const [stageLastChanged, setStageLastChanged] = useState<Record<string, string>>({});
   const [projectName, setProjectName] = useState("");
   const [projectType, setProjectType] = useState("roof_replacement");
   const [pipelineType, setPipelineType] = useState<"retail" | "insurance">("retail");
@@ -57,6 +60,21 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
   const [supplementApproved, setSupplementApproved] = useState("");
   const [supplementResponse, setSupplementResponse] = useState("");
   const [supplementResponseDate, setSupplementResponseDate] = useState("");
+  const [supplementStatusEdit, setSupplementStatusEdit] = useState("under_review");
+  const [financeContract, setFinanceContract] = useState("");
+  const [financeApproved, setFinanceApproved] = useState("");
+  const [financeInvoiced, setFinanceInvoiced] = useState("");
+  const [financeCollected, setFinanceCollected] = useState("");
+  const [commissionMethod, setCommissionMethod] = useState("manual");
+  const [commissionRate, setCommissionRate] = useState("");
+  const [commissionFixed, setCommissionFixed] = useState("");
+  const [commissionEarned, setCommissionEarned] = useState("");
+  const [commissionPaid, setCommissionPaid] = useState("");
+  const [commissionSalesperson, setCommissionSalesperson] = useState("");
+  const [overheadMethod, setOverheadMethod] = useState("manual");
+  const [overheadRate, setOverheadRate] = useState("");
+  const [overheadFixed, setOverheadFixed] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [supplementAmount, setSupplementAmount] = useState("");
   const [supplementStatus, setSupplementStatus] = useState("draft");
   const [supplementNotes, setSupplementNotes] = useState("");
@@ -68,12 +86,23 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
   const load = useCallback(async () => {
     if (!supabase) return;
     setError(""); setBusy(true);
-    const [projectResult, linkResult] = await Promise.all([
+    const [projectResult, linkResult, expenseResult, settingsResult] = await Promise.all([
       supabase.from("crm_projects").select("id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at").eq("division_id", division).order("created_at", { ascending: false }),
       supabase.from("crm_customer_divisions").select("customer_id").eq("division_id", division)
     ]);
     if (projectResult.error) setError(projectResult.error.message);
     setProjects((projectResult.data ?? []) as Project[]);
+    if (expenseResult.error) setError(expenseResult.error.message);
+    setDivisionExpenseTotal((expenseResult.data ?? []).reduce((sum: number, item: { amount: number }) => sum + Math.round(Number(item.amount || 0) * 100), 0) / 100);
+    if (settingsResult.data?.stale_stage_days) setStaleDays(settingsResult.data.stale_stage_days);
+    const projectIds = (projectResult.data ?? []).map((p: any) => p.id);
+    if (projectIds.length) {
+      const { data: stageRows, error: stageError } = await supabase.from("crm_project_stage_history").select("project_id,changed_at").in("project_id", projectIds).order("changed_at", { ascending: false });
+      if (stageError) setError(stageError.message);
+      const latest: Record<string, string> = {};
+      (stageRows ?? []).forEach((row: { project_id: string; changed_at: string }) => { if (!latest[row.project_id]) latest[row.project_id] = row.changed_at; });
+      setStageLastChanged(latest);
+    } else setStageLastChanged({});
     const ids = (linkResult.data ?? []).map((x: { customer_id: string }) => x.customer_id);
     if (ids.length) {
       const [p, c] = await Promise.all([
@@ -93,6 +122,19 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
 
   async function openProject(project: Project) {
     setSelected(project); setMessage(""); setError("");
+    setFinanceContract(String(project.contract_amount ?? ""));
+    setFinanceApproved(String(project.initial_approved_amount ?? ""));
+    setFinanceInvoiced(String(project.invoiced_amount ?? ""));
+    setFinanceCollected(String(project.collected_amount ?? ""));
+    setCommissionMethod(project.commission_method || "manual");
+    setCommissionRate(String(project.commission_rate ?? ""));
+    setCommissionFixed(String(project.commission_fixed_amount ?? ""));
+    setCommissionEarned(String(project.commission_earned_amount ?? ""));
+    setCommissionPaid(String(project.commission_paid_amount ?? ""));
+    setCommissionSalesperson(project.commission_salesperson_name || "");
+    setOverheadMethod(project.overhead_method || "manual");
+    setOverheadRate(String(project.overhead_rate ?? ""));
+    setOverheadFixed(String(project.overhead_fixed_amount ?? ""));
     if (!supabase) return;
     const [e, s, h] = await Promise.all([
       supabase.from("crm_project_expenses").select("id,category,amount,paid_amount,payment_status,expense_date,vendor_payee,description,receipt_file_id").eq("project_id", project.id).order("expense_date", { ascending: false }),
@@ -183,7 +225,7 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
     const nextPaid = changes.paid_amount ?? expense.paid_amount;
     const nextStatus = changes.payment_status ?? expense.payment_status;
     if (nextPaid > expense.amount) { setError("Paid amount cannot exceed the expense amount."); setBusy(false); return; }
-    const { error: updateError } = await supabase.from("crm_project_expenses").update({ ...changes, payment_status: nextStatus, updated_at: new Date().toISOString() }).eq("id", expense.id).eq("division_id", division);
+    const { error: updateError } = await supabase.from("crm_project_expenses").update({ ...changes, paid_amount: nextPaid, payment_status: nextStatus, updated_at: new Date().toISOString() }).eq("id", expense.id).eq("division_id", division);
     if (updateError) setError(updateError.message);
     else await openProject(selected);
     setBusy(false);
@@ -194,7 +236,7 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
     setBusy(true); setError("");
     const { error: updateError } = await supabase.from("crm_project_supplements").update({
       ...changes,
-      response_at: changes.status && ["approved","partially_approved","denied"].includes(changes.status) ? (supplementResponseDate ? new Date(supplementResponseDate).toISOString() : new Date().toISOString()) : supplement.response_at,
+      status: changes.status ?? supplementStatusEdit,\n      response_at: changes.status && ["approved","partially_approved","denied"].includes(changes.status) || ["approved","partially_approved","denied"].includes(supplementStatusEdit) ? (supplementResponseDate ? new Date(supplementResponseDate).toISOString() : new Date().toISOString()) : supplement.response_at,
       carrier_response: supplementResponse.trim() || supplement.carrier_response,
       updated_at: new Date().toISOString()
     }).eq("id", supplement.id).eq("division_id", division);
@@ -218,16 +260,88 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
     else if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   }
 
+  async function saveFinancials(event: FormEvent) {
+    event.preventDefault();
+    if (!supabase || !selected || !canWrite) return;
+    const direct = expenses.filter(x => x.category !== "overhead" && x.category !== "sales_commission").reduce((sum, x) => sum + Math.round(Number(x.amount) * 100), 0) / 100;
+    const approved = cents(financeApproved);
+    const contractAmount = cents(financeContract);
+    const collected = cents(financeCollected);
+    const contractValueNow = (contractAmount || approved) + Number(selected.supplements_approved_amount || 0);
+    const grossNow = contractValueNow - direct;
+    const rate = cents(commissionRate);
+    const fixed = cents(commissionFixed);
+    const earned = commissionMethod === "fixed" ? fixed
+      : commissionMethod === "contract_percent" ? contractValueNow * rate / 100
+      : commissionMethod === "collected_percent" ? collected * rate / 100
+      : commissionMethod === "gross_profit_percent" ? grossNow * rate / 100
+      : cents(commissionEarned);
+    const overheadRateValue = cents(overheadRate);
+    const overheadFixedValue = cents(overheadFixed);
+    const overheadAllocated = overheadMethod === "flat" ? overheadFixedValue
+      : overheadMethod === "contract_percent" ? contractValueNow * overheadRateValue / 100
+      : overheadMethod === "direct_cost_percent" ? direct * overheadRateValue / 100
+      : overheadFixedValue;
+    if (cents(commissionPaid) > earned) { setError("Commission paid cannot exceed commission earned."); return; }
+    if (collected > cents(financeInvoiced)) { setError("Collected revenue cannot exceed invoiced revenue."); return; }
+    setBusy(true); setError("");
+    const { error: updateError } = await supabase.from("crm_projects").update({
+      contract_amount: contractAmount || null,
+      initial_approved_amount: approved || null,
+      invoiced_amount: cents(financeInvoiced),
+      collected_amount: collected,
+      commission_method: commissionMethod,
+      commission_rate: rate || null,
+      commission_fixed_amount: fixed || null,
+      commission_earned_amount: Math.round(earned * 100) / 100,
+      commission_paid_amount: cents(commissionPaid),
+      commission_salesperson_name: commissionSalesperson.trim() || null,
+      overhead_method: overheadMethod,
+      overhead_rate: overheadRateValue || null,
+      overhead_fixed_amount: overheadFixedValue || null,
+      overhead_allocated_amount: Math.round(overheadAllocated * 100) / 100,
+      updated_at: new Date().toISOString()
+    }).eq("id", selected.id).eq("division_id", division);
+    if (updateError) setError(updateError.message);
+    else {
+      setMessage("Project financials saved.");
+      await load();
+      await openProject({ ...selected, contract_amount: contractAmount || null, initial_approved_amount: approved || null, invoiced_amount: cents(financeInvoiced), collected_amount: collected, commission_method: commissionMethod, commission_rate: rate, commission_fixed_amount: fixed, commission_earned_amount: earned, commission_paid_amount: cents(commissionPaid), commission_salesperson_name: commissionSalesperson, overhead_method: overheadMethod, overhead_rate: overheadRateValue, overhead_fixed_amount: overheadFixedValue, overhead_allocated_amount: overheadAllocated });
+    }
+    setBusy(false);
+  }
+
+  async function saveSettings(event: FormEvent) {
+    event.preventDefault();
+    if (!supabase || !canWrite) return;
+    setBusy(true); setError("");
+    const { error: settingsError } = await supabase.from("crm_division_financial_settings").upsert({
+      division_id: division, stale_stage_days: staleDays, updated_by: userId, updated_at: new Date().toISOString()
+    }, { onConflict: "division_id" });
+    if (settingsError) setError(settingsError.message);
+    else { setMessage("Pipeline settings saved."); setSettingsOpen(false); }
+    setBusy(false);
+  }
+
   const filtered = useMemo(() => projects.filter(p => filter === "all" || p.pipeline_type === filter), [projects, filter]);
   const totalExpenses = expenses.reduce((sum, item) => sum + Math.round(Number(item.amount) * 100), 0) / 100;
   const directExpenses = expenses.filter(x => x.category !== "overhead" && x.category !== "sales_commission").reduce((sum, item) => sum + Math.round(Number(item.amount) * 100), 0) / 100;
   const contractValue = Number(selected?.contract_amount || selected?.initial_approved_amount || 0) + Number(selected?.supplements_approved_amount || 0);
-  const gross = contractValue - directExpenses;
+  const gross = contractValue - directExpenses;\n  const netProfit = gross - Number(selected?.commission_earned_amount || 0) - Number(selected?.overhead_allocated_amount || 0);\n  const attention = filtered.filter(p => p.workflow_stage !== "closed" && ((p.next_action_due_at && new Date(p.next_action_due_at).getTime() < Date.now()) || Math.floor((Date.now() - new Date(stageLastChanged[p.id] || p.created_at).getTime()) / 86400000) >= staleDays));\n  const activeContractValue = filtered.filter(p => p.workflow_stage !== "closed").reduce((sum,p)=>sum+Number(p.contract_amount || p.initial_approved_amount || 0)+Number(p.supplements_approved_amount || 0),0);\n  const collectedTotal = filtered.reduce((sum,p)=>sum+Number(p.collected_amount || 0),0);
   const addressFor = (id: string) => { const p = properties.find(x => x.id === id); return p ? [p.address_line1,p.city,p.state].filter(Boolean).join(", ") : "Property"; };
 
   return <div className="content-stack project-pipeline">
     <section className="panel">
       <div className="panel-heading"><div><p className="eyebrow">{division} PROJECT OPERATIONS</p><h2>Project pipeline</h2><p className="muted">Track each job from lead through completion. Customers and properties remain in the existing CRM records.</p></div><div className="panel-actions"><span className="record-count">{filtered.length} projects</span>{canWrite && <button className="primary-button compact" onClick={() => setShowCreate(v => !v)}>+ New project</button>}</div></div>
+      <div className="financial-summary pipeline-overview">
+        <div><span>Active contract value</span><strong>{money(activeContractValue)}</strong></div>
+        <div><span>Collected revenue</span><strong>{money(collectedTotal)}</strong></div>
+        <div><span>Recorded expenses</span><strong>{money(divisionExpenseTotal)}</strong></div>
+        <div><span>Needs attention</span><strong>{attention.length}</strong></div>
+      </div>
+      <div className="panel-heading subheading"><div><h3>Needs attention</h3><p className="muted">Overdue next actions and projects unchanged for {staleDays} days or more.</p></div><button className="secondary-button compact" onClick={()=>setSettingsOpen(v=>!v)}>Pipeline settings</button></div>
+      {settingsOpen && <form className="inline-form" onSubmit={saveSettings}><div className="form-grid"><label>Stale stage threshold (days)<input type="number" min="1" max="365" value={staleDays} onChange={e=>setStaleDays(Math.max(1,Math.min(365,Number(e.target.value)||1)))} /></label></div><button className="primary-button" disabled={busy}>Save settings</button></form>}
+      {attention.length ? <div className="attention-list">{attention.slice(0,10).map(p=><button key={p.id} className="attention-item" onClick={()=>void openProject(p)}><strong>{p.project_name}</strong><span>{p.next_action_due_at && new Date(p.next_action_due_at).getTime()<Date.now() ? "Overdue next action" : "Stale project"} · {stageLabel(p.workflow_stage || "unassigned")}</span><small>{p.next_action || "Review project and set a next action"}</small></button>)}</div> : <p className="muted">No projects currently need attention.</p>}
       <div className="pipeline-toolbar"><div className="segmented-filter"><button className={filter==="all"?"active":""} onClick={()=>setFilter("all")}>All</button><button className={filter==="retail"?"active":""} onClick={()=>setFilter("retail")}>Retail</button><button className={filter==="insurance"?"active":""} onClick={()=>setFilter("insurance")}>Insurance</button></div></div>
       {showCreate && <form className="inline-form" onSubmit={createProject}><div className="form-grid">
         <label>Project name<input required value={projectName} onChange={e=>setProjectName(e.target.value)} placeholder="Customer or property project name" /></label>
@@ -265,15 +379,33 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
         <div><span>Collected</span><strong>{money(selected.collected_amount)}</strong></div>
         <div><span>Recorded expenses</span><strong>{money(totalExpenses)}</strong></div>
         <div><span>Direct costs</span><strong>{money(directExpenses)}</strong></div>
-        <div><span>Preliminary gross profit</span><strong>{money(gross)}</strong></div>
+        <div><span>Gross profit</span><strong>{money(gross)}</strong></div><div><span>Commission earned</span><strong>{money(selected.commission_earned_amount)}</strong></div><div><span>Overhead allocated</span><strong>{money(selected.overhead_allocated_amount)}</strong></div><div><span>Net project profit</span><strong>{money(netProfit)}</strong></div>
       </div>
+      {canWrite && <form className="inline-form" onSubmit={saveFinancials}>
+        <div className="panel-heading subheading"><div><h3>Contract and profitability</h3><p className="muted">Keep estimates, approved value, signed contract, invoicing, and cash collected separate.</p></div></div>
+        <div className="form-grid">
+          <label>Signed contract amount ($)<input type="number" min="0" step="0.01" value={financeContract} onChange={e=>setFinanceContract(e.target.value)} /></label>
+          <label>Initial approved amount ($)<input type="number" min="0" step="0.01" value={financeApproved} onChange={e=>setFinanceApproved(e.target.value)} /></label>
+          <label>Invoiced amount ($)<input type="number" min="0" step="0.01" value={financeInvoiced} onChange={e=>setFinanceInvoiced(e.target.value)} /></label>
+          <label>Collected amount ($)<input type="number" min="0" step="0.01" value={financeCollected} onChange={e=>setFinanceCollected(e.target.value)} /></label>
+          <label>Commission method<select value={commissionMethod} onChange={e=>setCommissionMethod(e.target.value)}><option value="fixed">Fixed amount</option><option value="contract_percent">Percent of contract</option><option value="collected_percent">Percent of collected revenue</option><option value="gross_profit_percent">Percent of gross profit</option><option value="manual">Manual</option></select></label>
+          <label>Commission rate (%)<input type="number" min="0" step="0.01" value={commissionRate} onChange={e=>setCommissionRate(e.target.value)} /></label>
+          <label>Commission fixed / manual earned ($)<input type="number" min="0" step="0.01" value={commissionMethod==="manual"?commissionEarned:commissionFixed} onChange={e=>commissionMethod==="manual"?setCommissionEarned(e.target.value):setCommissionFixed(e.target.value)} /></label>
+          <label>Commission paid ($)<input type="number" min="0" step="0.01" value={commissionPaid} onChange={e=>setCommissionPaid(e.target.value)} /></label>
+          <label>Salesperson<input value={commissionSalesperson} onChange={e=>setCommissionSalesperson(e.target.value)} /></label>
+          <label>Overhead method<select value={overheadMethod} onChange={e=>setOverheadMethod(e.target.value)}><option value="flat">Flat amount</option><option value="contract_percent">Percent of contract</option><option value="direct_cost_percent">Percent of direct costs</option><option value="manual">Manual</option></select></label>
+          <label>Overhead rate (%)<input type="number" min="0" step="0.01" value={overheadRate} onChange={e=>setOverheadRate(e.target.value)} /></label>
+          <label>Overhead flat / manual allocation ($)<input type="number" min="0" step="0.01" value={overheadFixed} onChange={e=>setOverheadFixed(e.target.value)} /></label>
+        </div>
+        <button className="primary-button" disabled={busy}>Save financials</button>
+      </form>}
       <div className="panel-heading subheading"><div><h3>Job costs</h3><p className="muted">Record actual expenses. Ordered materials are not counted until an expense is entered.</p></div>{canWrite&&<button className="primary-button compact" onClick={()=>setShowExpense(v=>!v)}>+ Add expense</button>}</div>
       {showExpense&&<form className="inline-form" onSubmit={addExpense}><div className="form-grid"><label>Category<select value={expenseCategory} onChange={e=>setExpenseCategory(e.target.value)}><option value="materials">Materials</option><option value="labor">Labor</option><option value="equipment">Equipment</option><option value="permits">Permits</option><option value="sales_commission">Sales commission</option><option value="overhead">Overhead allocation</option><option value="other">Other</option></select></label><label>Amount ($)<input type="number" min="0.01" step="0.01" required value={expenseAmount} onChange={e=>setExpenseAmount(e.target.value)} /></label><label>Date<input type="date" required value={expenseDate} onChange={e=>setExpenseDate(e.target.value)} /></label><label>Vendor / payee<input value={vendor} onChange={e=>setVendor(e.target.value)} /></label><label className="wide">Description<input value={expenseDescription} onChange={e=>setExpenseDescription(e.target.value)} /></label><label className="wide">Receipt attachment<input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf" onChange={e=>setReceiptFile(e.target.files?.[0] || null)} /></label></div><button className="primary-button" disabled={busy}>Save expense</button></form>}
       {expenses.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Category</th><th>Vendor</th><th>Description</th><th>Amount</th><th>Payment</th><th>Paid</th><th>Receipt</th></tr></thead><tbody>{expenses.map(x=><tr key={x.id}><td>{new Date(x.expense_date+"T12:00:00").toLocaleDateString()}</td><td>{stageLabel(x.category)}</td><td>{x.vendor_payee||"—"}</td><td>{x.description||"—"}</td><td>{money(x.amount)}</td><td>{canWrite ? <select value={x.payment_status} disabled={busy} onChange={e=>void updateExpense(x,{payment_status:e.target.value})}><option value="unpaid">Unpaid</option><option value="partially_paid">Partially paid</option><option value="paid">Paid</option></select> : stageLabel(x.payment_status)}</td><td>{canWrite ? <input aria-label="Paid amount" type="number" min="0" max={x.amount} step="0.01" defaultValue={x.paid_amount} onBlur={e=>{const v=cents(e.target.value);if(v!==x.paid_amount)void updateExpense(x,{paid_amount:v,payment_status:v===0?"unpaid":v>=x.amount?"paid":"partially_paid"});}} /> : money(x.paid_amount)}</td><td>{x.receipt_file_id ? <button className="secondary-button compact" onClick={()=>void openReceipt(x)}>View</button> : "—"}</td></tr>)}</tbody></table></div>:<div className="empty-state">No expenses recorded for this project.</div>}
       {selected.pipeline_type==="insurance" && <><div className="panel-heading subheading"><div><h3>Supplements</h3><p className="muted">Each submission is tracked separately with its own response history.</p></div>{canWrite&&<button className="primary-button compact" onClick={()=>setShowSupplement(v=>!v)}>+ Add supplement</button>}</div>
         {showSupplement&&<form className="inline-form" onSubmit={addSupplement}><div className="form-grid"><label>Requested amount ($)<input type="number" min="0" step="0.01" required value={supplementAmount} onChange={e=>setSupplementAmount(e.target.value)} /></label><label>Status<select value={supplementStatus} onChange={e=>setSupplementStatus(e.target.value)}><option value="draft">Draft</option><option value="submitted">Submitted</option><option value="under_review">Under review</option><option value="approved">Approved</option><option value="partially_approved">Partially approved</option><option value="denied">Denied</option><option value="resubmitted">Resubmitted</option></select></label><label className="wide">Notes<textarea rows={2} value={supplementNotes} onChange={e=>setSupplementNotes(e.target.value)} /></label></div><button className="primary-button" disabled={busy}>Save supplement</button></form>}
-        {supplementEditing && <form className="inline-form" onSubmit={e=>{e.preventDefault();const s=supplements.find(x=>x.id===supplementEditing);if(s)void updateSupplement(s,{approved_amount:cents(supplementApproved)});}}><div className="form-grid"><label>Approved amount ($)<input type="number" min="0" step="0.01" value={supplementApproved} onChange={e=>setSupplementApproved(e.target.value)} /></label><label>Response date<input type="date" value={supplementResponseDate} onChange={e=>setSupplementResponseDate(e.target.value)} /></label><label className="wide">Carrier response / notes<input value={supplementResponse} onChange={e=>setSupplementResponse(e.target.value)} /></label></div><button className="primary-button" disabled={busy}>Save carrier response</button><button type="button" className="secondary-button compact" onClick={()=>setSupplementEditing(null)}>Cancel</button></form>}
-        {supplements.length?<div className="table-wrap"><table><thead><tr><th>#</th><th>Status</th><th>Requested</th><th>Approved</th><th>Submitted</th><th>Carrier response</th><th>Update</th></tr></thead><tbody>{supplements.map(s=><tr key={s.id}><td>{s.supplement_number}</td><td>{stageLabel(s.status)}</td><td>{money(s.requested_amount)}</td><td>{money(s.approved_amount)}</td><td>{s.submitted_at?new Date(s.submitted_at).toLocaleDateString():"—"}</td><td>{s.carrier_response || "—"}</td><td>{canWrite && <button className="secondary-button compact" onClick={()=>{setSupplementEditing(s.id);setSupplementApproved(String(s.approved_amount||0));setSupplementResponse(s.carrier_response||"");setSupplementResponseDate(s.response_at?s.response_at.slice(0,10):new Date().toISOString().slice(0,10));}}>Update</button>}</td></tr>)}</tbody></table></div>:<div className="empty-state">No supplements recorded.</div>}</>}
+        {supplementEditing && <form className="inline-form" onSubmit={e=>{e.preventDefault();const s=supplements.find(x=>x.id===supplementEditing);if(s)void updateSupplement(s,{approved_amount:cents(supplementApproved),status:supplementStatusEdit,carrier_response:supplementResponse,response_at:supplementResponseDate?new Date(supplementResponseDate).toISOString():null});}}><div className="form-grid"><label>Status<select value={supplementStatusEdit} onChange={e=>setSupplementStatusEdit(e.target.value)}><option value="draft">Draft</option><option value="submitted">Submitted</option><option value="under_review">Under review</option><option value="approved">Approved</option><option value="partially_approved">Partially approved</option><option value="denied">Denied</option><option value="resubmitted">Resubmitted</option></select></label><label>Approved amount ($)<input type="number" min="0" step="0.01" value={supplementApproved} onChange={e=>setSupplementApproved(e.target.value)} /></label><label>Response date<input type="date" value={supplementResponseDate} onChange={e=>setSupplementResponseDate(e.target.value)} /></label><label className="wide">Carrier response / notes<input value={supplementResponse} onChange={e=>setSupplementResponse(e.target.value)} /></label></div><button className="primary-button" disabled={busy}>Save carrier response</button><button type="button" className="secondary-button compact" onClick={()=>setSupplementEditing(null)}>Cancel</button></form>}
+        {supplements.length?<div className="table-wrap"><table><thead><tr><th>#</th><th>Status</th><th>Requested</th><th>Approved</th><th>Submitted</th><th>Carrier response</th><th>Update</th></tr></thead><tbody>{supplements.map(s=><tr key={s.id}><td>{s.supplement_number}</td><td>{stageLabel(s.status)}</td><td>{money(s.requested_amount)}</td><td>{money(s.approved_amount)}</td><td>{s.submitted_at?new Date(s.submitted_at).toLocaleDateString():"—"}</td><td>{s.carrier_response || "—"}</td><td>{canWrite && <button className="secondary-button compact" onClick={()=>{setSupplementEditing(s.id);setSupplementApproved(String(s.approved_amount||0));setSupplementResponse(s.carrier_response||"");setSupplementResponseDate(s.response_at?s.response_at.slice(0,10):new Date().toISOString().slice(0,10));setSupplementStatusEdit(s.status);}}>Update</button>}</td></tr>)}</tbody></table></div>:<div className="empty-state">No supplements recorded.</div>}</>}
       <div className="panel-heading subheading"><div><h3>Stage history</h3></div></div>
       {history.length?<div className="history-list">{history.map(item=><div key={item.id}><strong>{stageLabel(item.from_stage||"Project created")} → {stageLabel(item.to_stage)}</strong><span>{new Date(item.changed_at).toLocaleString()}</span>{item.note&&<p>{item.note}</p>}</div>)}</div>:<div className="empty-state">No stage changes recorded yet.</div>}
     </section>}
