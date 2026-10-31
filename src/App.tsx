@@ -343,14 +343,15 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
     setSelectedId(customerId);
     setDetailLoading(true);
     setMessage("");
-    const [propertyResult, contactResult, projectResult, claimResult, leadResult, appointmentResult, inspectionResult] = await Promise.all([
+    const [propertyResult, contactResult, projectResult, claimResult, leadResult, appointmentResult, inspectionResult, maintenanceResult] = await Promise.all([
       supabase.from("crm_properties").select("id,address_line1,city,state,postal_code,property_type,county,parcel_number,building_name").eq("customer_id", customerId).order("created_at", { ascending: false }),
       supabase.from("crm_contacts").select("id,full_name,title,email,phone,is_primary").eq("customer_id", customerId).order("is_primary", { ascending: false }),
       supabase.from("crm_projects").select("id,project_name,project_type,status,contract_amount,property_id").eq("customer_id", customerId).order("created_at", { ascending: false }),
       supabase.from("crm_claims").select("id,claim_number,policy_number,insurance_carrier,date_of_loss,claim_status,adjuster_name,adjuster_email,adjuster_phone,deductible,approved_amount,replacement_cost_value,actual_cash_value,supplement_amount,property_id").eq("customer_id", customerId).order("created_at", { ascending: false }),
       supabase.from("crm_leads").select("id,service_interest,status,priority,created_at,property_id").eq("customer_id", customerId).order("created_at", { ascending: false }),
       supabase.from("crm_appointments").select("id,appointment_type,status,starts_at,location_notes,property_id").eq("customer_id", customerId).order("starts_at", { ascending: false }),
-      supabase.from("crm_inspections").select("id,status,inspected_at,overall_condition,summary,property_id").eq("customer_id", customerId).order("inspected_at", { ascending: false })
+      supabase.from("crm_inspections").select("id,status,inspected_at,overall_condition,summary,property_id").eq("customer_id", customerId).order("inspected_at", { ascending: false }),
+      supabase.from("crm_maintenance_records").select("id,property_id,roof_id,project_id,service_type,status,priority,scheduled_for,completed_at,description,findings,work_performed,recommendations,materials_used,service_cost,next_service_due,warranty_until,created_at").eq("customer_id", customerId).eq("division_id", division).order("created_at", { ascending: false })
     ]);
     if (propertyResult.error) setMessage(propertyResult.error.message);
     if (contactResult.error) setMessage(contactResult.error.message);
@@ -359,6 +360,7 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
     if (leadResult.error) setMessage(leadResult.error.message);
     if (appointmentResult.error) setMessage(appointmentResult.error.message);
     if (inspectionResult.error) setMessage(inspectionResult.error.message);
+    if (maintenanceResult.error) setMessage(maintenanceResult.error.message);
     const propertyRows = (propertyResult.data ?? []) as GenericRow[];
     setProperties(propertyRows);
     setContacts((contactResult.data ?? []) as GenericRow[]);
@@ -367,6 +369,7 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
     setLeads((leadResult.data ?? []) as GenericRow[]);
     setAppointments((appointmentResult.data ?? []) as GenericRow[]);
     setInspections((inspectionResult.data ?? []) as GenericRow[]);
+    setMaintenanceRecords((maintenanceResult.data ?? []) as GenericRow[]);
     const propertyIds = propertyRows.map((p) => String(p.id));
     if (propertyIds.length) {
       const { data, error } = await supabase.from("crm_roofs")
