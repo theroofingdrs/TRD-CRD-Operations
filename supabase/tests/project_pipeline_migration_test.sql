@@ -431,6 +431,8 @@ VALUES
    'application/pdf',100,auth.uid(),
    jsonb_build_object('document_category','company_expense_receipt'))
 RETURNING id AS test_company_receipt_id \\gset;
+CREATE TEMP TABLE company_expense_ids(expense_id uuid, receipt_file_id uuid);
+INSERT INTO pg_temp.company_expense_ids VALUES (:'test_company_expense_id', :'test_company_receipt_id');
 UPDATE public.crm_company_expenses
 SET receipt_file_id = :'test_company_receipt_id'
 WHERE id = :'test_company_expense_id';
@@ -446,12 +448,12 @@ DO $body$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM public.crm_company_expenses
-    WHERE id = :'test_company_expense_id' AND receipt_file_id = :'test_company_receipt_id'
+    WHERE id = (SELECT expense_id FROM pg_temp.company_expense_ids) AND receipt_file_id = (SELECT receipt_file_id FROM pg_temp.company_expense_ids)
       AND payment_status = 'paid' AND paid_amount = 1200
   ) THEN
     RAISE EXCEPTION 'Company expense receipt or payment update was not saved';
   END IF;
-  IF (SELECT count(*) FROM public.crm_company_expense_history WHERE expense_id = :'test_company_expense_id') <> 2 THEN
+  IF (SELECT count(*) FROM public.crm_company_expense_history WHERE expense_id = (SELECT expense_id FROM pg_temp.company_expense_ids)) <> 3 THEN
     RAISE EXCEPTION 'Company expense edits were not retained in history';
   END IF;
   IF has_table_privilege('authenticated','public.crm_company_expenses','DELETE') THEN
