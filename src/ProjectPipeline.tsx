@@ -123,11 +123,6 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
   async function moveProject(project: Project, nextStage: string) {
     if (!supabase || !canWrite || nextStage === (project.workflow_stage || "new_lead")) return;
     setBusy(true); setError("");
-    const previous = project.workflow_stage || null;
-    const { error: historyError } = await supabase.from("crm_project_stage_history").insert({
-      division_id: division, project_id: project.id, from_stage: previous, to_stage: nextStage, changed_by: userId
-    });
-    if (historyError) { setError(historyError.message); setBusy(false); return; }
     const { error: updateError } = await supabase.from("crm_projects").update({ workflow_stage: nextStage, updated_at: new Date().toISOString() }).eq("id", project.id).eq("division_id", division);
     if (updateError) setError(updateError.message);
     else { setMessage("Project stage updated."); await load(); if (selected?.id === project.id) await openProject({ ...project, workflow_stage: nextStage }); }
