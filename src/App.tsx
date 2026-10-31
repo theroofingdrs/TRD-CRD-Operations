@@ -48,6 +48,7 @@ function App() {
   const loadMemberships = useCallback(async (activeSession: Session | null) => {
     if (!supabase || !activeSession) {
       setMemberships([]);
+      setProfileName("");
       setLoading(false);
       return;
     }
@@ -63,13 +64,11 @@ function App() {
     } else {
       const rows = (membershipResult.data ?? []) as Membership[];
       setMemberships(rows);
-      if (rows.length && !rows.some((item) => item.division_id === division)) {
-        setDivision(rows[0].division_id);
-      }
+      setDivision((current) => rows.length && !rows.some((item) => item.division_id === current) ? rows[0].division_id : current);
     }
     setProfileName(profileResult.data?.display_name ?? activeSession.user.email ?? "");
     setLoading(false);
-  }, [division]);
+  }, []);
 
   useEffect(() => {
     if (!supabase) {
@@ -82,9 +81,14 @@ function App() {
       setSession(data.session);
       void loadMemberships(data.session);
     });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
-      void loadMemberships(nextSession);
+      // Token refreshes occur when a background tab becomes active. They must not
+      // reload the workspace or unmount forms containing unsaved user input.
+      if (event === "TOKEN_REFRESHED") return;
+      if (event === "SIGNED_OUT" || event === "INITIAL_SESSION" || event === "SIGNED_IN" || event === "USER_UPDATED" || event === "PASSWORD_RECOVERY") {
+        void loadMemberships(nextSession);
+      }
     });
     return () => {
       alive = false;
@@ -297,8 +301,7 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
   const [appointments, setAppointments] = useState<GenericRow[]>([]);
   const [inspections, setInspections] = useState<GenericRow[]>([]);
   const [files, setFiles] = useState<GenericRow[]>([]);
-  const [maintenanceRecords, setMaintenanceRecords] = useState<GenericRow[]>([]);
-  const [showMaintenanceForm, setShowMaintenanceForm] = useState(false);
+  const [maintenanceRecords, setMaintenanceRecords] = useState<GenericRow[]>([]);  const [showMaintenanceForm, setShowMaintenanceForm] = useState(false);
   const [serviceType, setServiceType] = useState("preventive_maintenance");
   const [serviceStatus, setServiceStatus] = useState("scheduled");
   const [servicePriority, setServicePriority] = useState("normal");
@@ -597,8 +600,7 @@ function Claims({ division, userId, canWrite }: { division: DivisionId; userId: 
 
   async function createClaim(event:FormEvent){
     event.preventDefault();
-    if(!supabase)return;
-    setSaving(true);setMessage("");
+    if(!supabase)return;    setSaving(true);setMessage("");
     const {error}=await supabase.from("crm_claims").insert({
       division_id:division,customer_id:customerId,property_id:propertyId,project_id:projectId||null,
       claim_number:claimNumber.trim()||null,policy_number:policyNumber.trim()||null,
@@ -897,8 +899,7 @@ function DataList({ division, view, userId, canWrite }: { division: DivisionId; 
     if (!supabase) return;
     setLoading(true);
     const result = await supabase.from(config.table).select(config.columns).eq("division_id", division).order(config.order, { ascending: view === "appointments" }).limit(100);
-    const data = (result.data ?? []) as unknown as GenericRow[];
-    const errorMessage = result.error?.message ?? "";
+    const data = (result.data ?? []) as unknown as GenericRow[];    const errorMessage = result.error?.message ?? "";
     setError(errorMessage);
     setRows(data);
     if (view === "projects" || view === "inspections") {
