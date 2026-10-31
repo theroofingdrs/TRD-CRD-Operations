@@ -88,9 +88,9 @@ GRANT EXECUTE ON FUNCTION app_private.has_division_resource_access(text,text,boo
 GRANT ALL ON ALL TABLES IN SCHEMA public, storage, auth TO authenticated;
 
 INSERT INTO public.crm_divisions(id) VALUES ('TRD');
-INSERT INTO auth.users(id) VALUES ('00000000-0000-0000-0000-000000000001');
+INSERT INTO auth.users(id) VALUES ('00000000-0000-0000-0000-000000000001'), ('00000000-0000-0000-0000-000000000002');
 INSERT INTO public.crm_memberships(user_id, division_id, role)
-VALUES ('00000000-0000-0000-0000-000000000001', 'TRD', 'owner');
+VALUES ('00000000-0000-0000-0000-000000000001', 'TRD', 'owner'), ('00000000-0000-0000-0000-000000000002', 'TRD', 'project_manager');
 
 \ir ../migrations/20261031220000_add_project_pipeline_and_job_costing.sql
 \ir ../migrations/20261031220100_complete_project_pipeline_stage_gates.sql
@@ -107,6 +107,38 @@ VALUES
    'Pipeline migration test', 'insurance', 'new_lead', auth.uid())
 RETURNING id AS test_project_id \gset
 INSERT INTO pg_temp.test_ids(project_id) VALUES (:'test_project_id');
+
+-- Direct table writes must not bypass stage gates.
+DO $body$
+BEGIN
+  BEGIN
+    UPDATE public.crm_projects SET workflow_stage = 'materials_ordered'
+    WHERE id = (SELECT project_id FROM pg_temp.test_ids);
+    RAISE EXCEPTION 'Direct update bypassed the materials order gate';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = 'Direct update bypassed the materials order gate' THEN RAISE; END IF;
+  END;
+END
+$body$;
+
+-- A project manager may move jobs, but cannot self-authorize an administrative override.
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000002', false);
+DO $body$
+BEGIN
+  BEGIN
+    UPDATE public.crm_projects
+    SET workflow_stage = 'materials_ordered',
+        workflow_stage_override = true,
+        workflow_stage_note = 'AUTHORIZED OVERRIDE | unauthorized role test'
+    WHERE id = (SELECT project_id FROM pg_temp.test_ids);
+    RAISE EXCEPTION 'Project manager bypassed an administrator-only stage gate';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = 'Project manager bypassed an administrator-only stage gate' THEN RAISE; END IF;
+  END;
+END
+$body$;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
+
 
 INSERT INTO public.crm_project_transactions
   (division_id, project_id, transaction_type, amount, transaction_date, reference_number, entered_by)
