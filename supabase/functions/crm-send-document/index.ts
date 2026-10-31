@@ -157,5 +157,6 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Email provider rejected the message.", details: responseBody }, 502);
   }
   await client.from("crm_document_deliveries").update({ status: "sent", provider_message_id: responseBody.id || null, sent_at: new Date().toISOString() }).eq("id", delivery.id);
+  if (type === "proposal") await client.from("crm_proposals").update({ status: "sent" }).eq("id", id);
   return json({ success: true, recipient, delivery_id: delivery.id, provider_message_id: responseBody.id || null });
 });
