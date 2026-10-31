@@ -117,6 +117,13 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    const setting = workflowStageSettings[workflowEditType + ":" + workflowEditStage];
+    const base = workflowEditType === "retail" ? retailStages : insuranceStages;
+    setWorkflowEditLabel(setting?.display_label || stageLabel(workflowEditStage));
+    setWorkflowEditOrder(String(setting?.sort_order ?? base.indexOf(workflowEditStage)));
+  }, [workflowStageSettings, workflowEditType, workflowEditStage]);
+
   const load = useCallback(async () => {
     if (!supabase) return;
     setError(""); setBusy(true);
@@ -552,7 +559,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   }
 
   const filtered = useMemo(() => projects.filter(p => filter === "all" || p.pipeline_type === filter), [projects, filter]);
-  const workflowLabel = (stage: string, type?: string | null) => scope === "combined" ? stageLabel(stage) : workflowStageSettings[(type || "retail") + ":" + stage]?.display_label || workflowStageSettings["insurance:" + stage]?.display_label || stageLabel(stage);
+  const workflowLabel = (stage: string, type?: string | null) => scope === "combined" ? stageLabel(stage) : workflowStageSettings[(type || "retail") + ":" + stage]?.display_label || stageLabel(stage);
   const sortedStages = (type: "retail"|"insurance") => {
     const base = type === "retail" ? retailStages : insuranceStages;
     return [...base].sort((a,b)=>(workflowStageSettings[type+":"+a]?.sort_order ?? base.indexOf(a))-(workflowStageSettings[type+":"+b]?.sort_order ?? base.indexOf(b)));
@@ -640,7 +647,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       {busy && !projects.length ? <div className="empty-state">Loading projects...</div> : filtered.length ? (viewMode === "kanban" ? <div className="kanban-board">{kanbanStages.map(stage=>{
         const items = filtered.filter(project => stageFor(project) === stage);
         return <section className="kanban-column" key={stage} onDragOver={event=>{if(scope!=="combined"&&canWrite)event.preventDefault();}} onDrop={event=>{event.preventDefault();const id=event.dataTransfer.getData("text/project")||draggedProjectId;const project=filtered.find(item=>item.id===id);if(project&&project.pipeline_type){const allowed=project.pipeline_type==="insurance"?insuranceStages:retailStages;if(allowed.includes(stage))void moveProject(project,stage);}setDraggedProjectId(null);}}>
-          <div className="kanban-column-header"><strong>{stage==="unassigned"?"Workflow not assigned":workflowLabel(stage,filter==="insurance"?"insurance":"retail")}</strong><span>{items.length}</span></div>
+          <div className="kanban-column-header"><strong>{stage==="unassigned"?"Workflow not assigned":filter==="all" ? stageLabel(stage) : workflowLabel(stage,filter)}</strong><span>{items.length}</span></div>
           <div className="kanban-column-cards">{items.map(renderProjectCard)}{!items.length&&<div className="kanban-drop-placeholder">Drop project here</div>}</div>
         </section>;
       })}</div> : <div className="table-wrap pipeline-list"><table><thead><tr><th>Project</th><th>Division</th><th>Workflow</th><th>Stage</th><th>Value</th><th>Manager</th><th>Next action</th><th>Days in stage</th></tr></thead><tbody>{filtered.map(project=><tr key={project.id}><td><button className="pipeline-list-link" onClick={()=>void openProject(project)}>{project.project_name}</button><small>{addressFor(project.property_id)}</small></td><td>{project.division_id}</td><td>{project.pipeline_type?stageLabel(project.pipeline_type):"Unassigned"}</td><td>{scope!=="combined"&&canWrite&&project.pipeline_type?<select value={project.workflow_stage||"new_lead"} onChange={e=>void moveProject(project,e.target.value)}>{(project.pipeline_type==="insurance"?insuranceStages:retailStages).map(stage=><option key={stage} value={stage}>{stageLabel(stage)}</option>)}</select>:stageLabel(project.workflow_stage||"unassigned")}</td><td>{money(project.contract_amount||project.initial_approved_amount||project.original_estimate_amount)}</td><td>{project.project_manager_id?staffNames[project.project_manager_id]||"Assigned":"Unassigned"}</td><td>{project.next_action||"—"}</td><td>{daysInStage(project)}</td></tr>)}</tbody></table></div>) : <div className="empty-state"><strong>No projects in this view</strong><span>Create a project using an existing customer property.</span></div>}
