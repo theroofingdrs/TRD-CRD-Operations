@@ -18,6 +18,7 @@ ALTER TABLE public.crm_projects
   ADD COLUMN IF NOT EXISTS commission_salesperson_name text,
   ADD COLUMN IF NOT EXISTS commission_earned_amount numeric(14,2) NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS commission_paid_amount numeric(14,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS commission_paid_at date,
   ADD COLUMN IF NOT EXISTS overhead_method text,
   ADD COLUMN IF NOT EXISTS overhead_rate numeric(8,4),
   ADD COLUMN IF NOT EXISTS overhead_fixed_amount numeric(14,2),
@@ -414,6 +415,7 @@ BEGIN
     'commission_salesperson_name', OLD.commission_salesperson_name,
     'commission_earned_amount', OLD.commission_earned_amount,
     'commission_paid_amount', OLD.commission_paid_amount,
+    'commission_paid_at', OLD.commission_paid_at,
     'overhead_method', OLD.overhead_method,
     'overhead_rate', OLD.overhead_rate,
     'overhead_fixed_amount', OLD.overhead_fixed_amount,
@@ -431,6 +433,7 @@ BEGIN
     'commission_salesperson_name', NEW.commission_salesperson_name,
     'commission_earned_amount', NEW.commission_earned_amount,
     'commission_paid_amount', NEW.commission_paid_amount,
+    'commission_paid_at', NEW.commission_paid_at,
     'overhead_method', NEW.overhead_method,
     'overhead_rate', NEW.overhead_rate,
     'overhead_fixed_amount', NEW.overhead_fixed_amount,
@@ -449,7 +452,7 @@ $function$;
 CREATE TRIGGER crm_projects_log_financial_change
   AFTER UPDATE OF contract_amount, initial_approved_amount, supplements_approved_amount, invoiced_amount, collected_amount,
     commission_method, commission_rate, commission_fixed_amount, commission_salesperson_name,
-    commission_earned_amount, commission_paid_amount, overhead_method, overhead_rate,
+    commission_earned_amount, commission_paid_amount, commission_paid_at, overhead_method, overhead_rate,
     overhead_fixed_amount, overhead_allocated_amount
   ON public.crm_projects
   FOR EACH ROW EXECUTE FUNCTION app_private.log_project_financial_change();
@@ -664,7 +667,7 @@ BEGIN
   WHERE id = p_project_id AND division_id = target_division_id;
 END;
 $function$;
-REVOKE ALL ON FUNCTION public.crm_update_project_financials(uuid,numeric,numeric,text,numeric,numeric,text,numeric,numeric,text,numeric,numeric,numeric) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.crm_update_project_financials(uuid,numeric,numeric,text,numeric,numeric,text,numeric,numeric,date,text,numeric,numeric,numeric) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.crm_update_project_financials(uuid,numeric,numeric,text,numeric,numeric,text,numeric,numeric,text,numeric,numeric,numeric) TO authenticated;
 
 CREATE TABLE public.crm_project_expense_history (
