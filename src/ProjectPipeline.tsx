@@ -113,10 +113,12 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
       project_name: projectName.trim(), project_type: projectType, pipeline_type: pipelineType,
       workflow_stage: stage, status: "planning", contract_amount: contract ? cents(contract) : null,
       original_estimate_amount: contract ? cents(contract) : null,
+      next_action: nextAction.trim() || null,
+      next_action_due_at: nextDue ? new Date(nextDue).toISOString() : null,
       created_by: userId
     });
     if (insertError) setError(insertError.message);
-    else { setShowCreate(false); setProjectName(""); setContract(""); setMessage("Project created."); await load(); }
+    else { setShowCreate(false); setProjectName(""); setContract(""); setNextAction(""); setNextDue(""); setMessage("Project created."); await load(); }
     setBusy(false);
   }
 
@@ -176,7 +178,7 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
         <label>Workflow<select value={pipelineType} onChange={e=>{const v=e.target.value as "retail"|"insurance";setPipelineType(v);setStage("new_lead");}}><option value="retail">Retail</option><option value="insurance">Insurance</option></select></label>
         <label>Starting stage<select value={stage} onChange={e=>setStage(e.target.value)}>{(pipelineType==="retail"?retailStages:insuranceStages).map(x=><option key={x} value={x}>{stageLabel(x)}</option>)}</select></label>
         <label className="wide">Property<select required value={propertyId} onChange={e=>setPropertyId(e.target.value)}><option value="">Select property</option>{properties.map(p=><option key={p.id} value={p.id}>{p.address_line1}, {p.city}, {p.state} · {customerNames[p.customer_id] || "Customer"}</option>)}</select></label>
-        <label>Initial estimate ($)<input type="number" min="0" step="0.01" value={contract} onChange={e=>setContract(e.target.value)} /></label>
+        <label>Initial estimate ($)<input type="number" min="0" step="0.01" value={contract} onChange={e=>setContract(e.target.value)} /></label>\n        <label>Next action<input value={nextAction} onChange={e=>setNextAction(e.target.value)} placeholder="Call customer, order materials..." /></label>\n        <label>Next action due<input type="datetime-local" value={nextDue} onChange={e=>setNextDue(e.target.value)} /></label>
       </div><button className="primary-button" disabled={busy || !properties.length}>Create project</button></form>}
       {message && <p className="inline-message">{message}</p>}
       {error && <p className="inline-message error-text">{error}</p>}
