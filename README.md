@@ -38,7 +38,8 @@ Supabase project: `gubvelngdohrfvqeeabu` in the TRDCRD organization.
 - Private property file and photo upload with signed file access
 - Owner only employee invitations and division role assignment through a JWT protected Supabase Edge Function
 - Owner controlled website lead import for TRD and CRD, using the original website record IDs to skip records already imported
-- Automated GitHub Actions type check and production build
+- Automated GitHub Actions checks for React production build, Supabase Edge Function types, and Cloud Run container build
+- Node 22 and Nginx container configuration prepared for Cloud Run
 - AI generated inspection observations are explicitly marked unverified until a human verifies them
 
 ## Employee roles
