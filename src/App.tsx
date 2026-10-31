@@ -289,6 +289,10 @@ function Customers({ division, userId, canWrite }: { division: DivisionId; userI
   const [projects, setProjects] = useState<GenericRow[]>([]);
   const [claims, setClaims] = useState<GenericRow[]>([]);
   const [roofs, setRoofs] = useState<GenericRow[]>([]);
+  const [leads, setLeads] = useState<GenericRow[]>([]);
+  const [appointments, setAppointments] = useState<GenericRow[]>([]);
+  const [inspections, setInspections] = useState<GenericRow[]>([]);
+  const [files, setFiles] = useState<GenericRow[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -318,21 +322,30 @@ function Customers({ division, userId, canWrite }: { division: DivisionId; userI
     setSelectedId(customerId);
     setDetailLoading(true);
     setMessage("");
-    const [propertyResult, contactResult, projectResult, claimResult] = await Promise.all([
+    const [propertyResult, contactResult, projectResult, claimResult, leadResult, appointmentResult, inspectionResult] = await Promise.all([
       supabase.from("crm_properties").select("id,address_line1,city,state,postal_code,property_type,county,parcel_number,building_name").eq("customer_id", customerId).order("created_at", { ascending: false }),
       supabase.from("crm_contacts").select("id,full_name,title,email,phone,is_primary").eq("customer_id", customerId).order("is_primary", { ascending: false }),
       supabase.from("crm_projects").select("id,project_name,project_type,status,contract_amount,property_id").eq("customer_id", customerId).order("created_at", { ascending: false }),
-      supabase.from("crm_claims").select("id,claim_number,insurance_carrier,date_of_loss,claim_status,adjuster_name,approved_amount,property_id").eq("customer_id", customerId).order("created_at", { ascending: false })
+      supabase.from("crm_claims").select("id,claim_number,insurance_carrier,date_of_loss,claim_status,adjuster_name,approved_amount,property_id").eq("customer_id", customerId).order("created_at", { ascending: false }),
+      supabase.from("crm_leads").select("id,service_interest,status,priority,created_at,property_id").eq("customer_id", customerId).order("created_at", { ascending: false }),
+      supabase.from("crm_appointments").select("id,appointment_type,status,starts_at,location_notes,property_id").eq("customer_id", customerId).order("starts_at", { ascending: false }),
+      supabase.from("crm_inspections").select("id,status,inspected_at,overall_condition,summary,property_id").eq("customer_id", customerId).order("inspected_at", { ascending: false })
     ]);
     if (propertyResult.error) setMessage(propertyResult.error.message);
     if (contactResult.error) setMessage(contactResult.error.message);
     if (projectResult.error) setMessage(projectResult.error.message);
     if (claimResult.error) setMessage(claimResult.error.message);
+    if (leadResult.error) setMessage(leadResult.error.message);
+    if (appointmentResult.error) setMessage(appointmentResult.error.message);
+    if (inspectionResult.error) setMessage(inspectionResult.error.message);
     const propertyRows = (propertyResult.data ?? []) as GenericRow[];
     setProperties(propertyRows);
     setContacts((contactResult.data ?? []) as GenericRow[]);
     setProjects((projectResult.data ?? []) as GenericRow[]);
     setClaims((claimResult.data ?? []) as GenericRow[]);
+    setLeads((leadResult.data ?? []) as GenericRow[]);
+    setAppointments((appointmentResult.data ?? []) as GenericRow[]);
+    setInspections((inspectionResult.data ?? []) as GenericRow[]);
     const propertyIds = propertyRows.map((p) => String(p.id));
     if (propertyIds.length) {
       const { data, error } = await supabase.from("crm_roofs")
@@ -341,6 +354,11 @@ function Customers({ division, userId, canWrite }: { division: DivisionId; userI
       if (error) setMessage(error.message);
       setRoofs((data ?? []) as GenericRow[]);
     } else setRoofs([]);
+    if (propertyIds.length) {
+      const { data, error } = await supabase.from("crm_files").select("id,related_id,related_type,original_filename,content_type,created_at").eq("division_id", division).in("related_id", propertyIds).order("created_at", { ascending: false });
+      if (error) setMessage(error.message);
+      setFiles((data ?? []) as GenericRow[]);
+    } else setFiles([]);
     setDetailLoading(false);
   }
 
@@ -394,12 +412,16 @@ function Customers({ division, userId, canWrite }: { division: DivisionId; userI
     {selected && <section className="panel">
       <div className="panel-heading"><div><p className="eyebrow">CENTRAL CUSTOMER RECORD</p><h2>{selected.display_name}</h2><p className="muted">{selected.customer_type.replaceAll("_"," ")} · {selected.email || "No email"} · {selected.phone || "No phone"}</p></div><button className="secondary-button compact" onClick={() => setSelectedId("")}>Close details</button></div>
       {detailLoading ? <div className="empty-state">Loading linked customer history...</div> : <div className="content-stack">
-        <div className="form-grid"><div><strong>Billing / mailing address</strong><p>{[selected.billing_address_line1,selected.billing_city,selected.billing_state,selected.billing_postal_code].filter(Boolean).join(", ") || "Not entered"}</p></div><div><strong>Linked records</strong><p>{properties.length} properties · {contacts.length} contacts · {projects.length} projects · {claims.length} claims · {roofs.length} roof systems</p></div></div>
+        <div className="form-grid"><div><strong>Billing / mailing address</strong><p>{[selected.billing_address_line1,selected.billing_city,selected.billing_state,selected.billing_postal_code].filter(Boolean).join(", ") || "Not entered"}</p></div><div><strong>Linked records</strong><p>{properties.length} properties · {contacts.length} contacts · {leads.length} leads · {projects.length} projects · {claims.length} claims · {roofs.length} roof systems · {appointments.length} appointments · {inspections.length} inspections · {files.length} files</p></div></div>
         <div><h3>Properties</h3>{properties.length ? <div className="table-wrap"><table><thead><tr><th>Property</th><th>Type</th><th>County</th><th>Parcel / building</th></tr></thead><tbody>{properties.map((p) => <tr key={String(p.id)}><td><strong>{[p.address_line1,p.city,p.state,p.postal_code].filter(Boolean).join(", ")}</strong></td><td>{String(p.property_type || "—")}</td><td>{String(p.county || "—")}</td><td>{[p.parcel_number,p.building_name].filter(Boolean).join(" · ") || "—"}</td></tr>)}</tbody></table></div> : <p className="muted">No properties linked yet.</p>}</div>
         <div><h3>Roof systems</h3>{roofs.length ? <div className="table-wrap"><table><thead><tr><th>Property</th><th>Roof section</th><th>System / material</th><th>Installed</th><th>Condition</th></tr></thead><tbody>{roofs.map((roof) => <tr key={String(roof.id)}><td>{propertyAddress(roof.property_id)}</td><td>{String(roof.roof_section || "—")}</td><td>{[roof.roof_type,roof.covering_material].filter(Boolean).join(" · ") || "—"}</td><td>{String(roof.installation_year || "—")}</td><td>{String(roof.condition_summary || "—")}</td></tr>)}</tbody></table></div> : <p className="muted">No roof systems linked yet.</p>}</div>
         <div><h3>Insurance claims</h3>{claims.length ? <div className="table-wrap"><table><thead><tr><th>Claim number</th><th>Property</th><th>Carrier</th><th>Date of loss</th><th>Status</th><th>Adjuster</th></tr></thead><tbody>{claims.map((claim) => <tr key={String(claim.id)}><td>{String(claim.claim_number || "Not entered")}</td><td>{propertyAddress(claim.property_id)}</td><td>{String(claim.insurance_carrier || "—")}</td><td>{String(claim.date_of_loss || "—")}</td><td>{String(claim.claim_status || "—")}</td><td>{String(claim.adjuster_name || "—")}</td></tr>)}</tbody></table></div> : <p className="muted">No insurance claims linked yet.</p>}</div>
         <div><h3>Projects</h3>{projects.length ? <div className="table-wrap"><table><thead><tr><th>Project</th><th>Property</th><th>Type</th><th>Status</th><th>Contract</th></tr></thead><tbody>{projects.map((project) => <tr key={String(project.id)}><td>{String(project.project_name)}</td><td>{propertyAddress(project.property_id)}</td><td>{String(project.project_type || "—")}</td><td>{String(project.status || "—")}</td><td>{project.contract_amount == null ? "—" : "$"+Number(project.contract_amount).toLocaleString()}</td></tr>)}</tbody></table></div> : <p className="muted">No projects linked yet.</p>}</div>
         <div><h3>Contacts</h3>{contacts.length ? <div className="table-wrap"><table><thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Phone</th><th>Primary</th></tr></thead><tbody>{contacts.map((contact) => <tr key={String(contact.id)}><td>{String(contact.full_name)}</td><td>{String(contact.title || "—")}</td><td>{String(contact.email || "—")}</td><td>{String(contact.phone || "—")}</td><td>{contact.is_primary ? "Yes" : "No"}</td></tr>)}</tbody></table></div> : <p className="muted">No contacts linked yet.</p>}</div>
+        <div><h3>Leads and opportunities</h3>{leads.length ? <div className="table-wrap"><table><thead><tr><th>Service</th><th>Property</th><th>Status</th><th>Priority</th><th>Created</th></tr></thead><tbody>{leads.map((lead) => <tr key={String(lead.id)}><td>{String(lead.service_interest || "General inquiry")}</td><td>{propertyAddress(lead.property_id)}</td><td>{String(lead.status || "—")}</td><td>{String(lead.priority || "—")}</td><td>{String(lead.created_at || "—")}</td></tr>)}</tbody></table></div> : <p className="muted">No leads linked yet.</p>}</div>
+        <div><h3>Appointments</h3>{appointments.length ? <div className="table-wrap"><table><thead><tr><th>Type</th><th>Property</th><th>Date and time</th><th>Status</th><th>Notes</th></tr></thead><tbody>{appointments.map((appointment) => <tr key={String(appointment.id)}><td>{String(appointment.appointment_type || "Appointment")}</td><td>{propertyAddress(appointment.property_id)}</td><td>{appointment.starts_at ? new Date(String(appointment.starts_at)).toLocaleString() : "—"}</td><td>{String(appointment.status || "—")}</td><td>{String(appointment.location_notes || "—")}</td></tr>)}</tbody></table></div> : <p className="muted">No appointments linked yet.</p>}</div>
+        <div><h3>Inspections</h3>{inspections.length ? <div className="table-wrap"><table><thead><tr><th>Property</th><th>Inspection date</th><th>Status</th><th>Condition</th><th>Summary</th></tr></thead><tbody>{inspections.map((inspection) => <tr key={String(inspection.id)}><td>{propertyAddress(inspection.property_id)}</td><td>{inspection.inspected_at ? new Date(String(inspection.inspected_at)).toLocaleDateString() : "Not completed"}</td><td>{String(inspection.status || "—")}</td><td>{String(inspection.overall_condition || "—")}</td><td>{String(inspection.summary || "—")}</td></tr>)}</tbody></table></div> : <p className="muted">No inspections linked yet.</p>}</div>
+        <div><h3>Property files and photos</h3>{files.length ? <div className="table-wrap"><table><thead><tr><th>Property</th><th>File</th><th>Type</th><th>Added</th></tr></thead><tbody>{files.map((file) => <tr key={String(file.id)}><td>{propertyAddress(file.related_id)}</td><td>{String(file.original_filename || "File")}</td><td>{String(file.content_type || "—")}</td><td>{file.created_at ? new Date(String(file.created_at)).toLocaleDateString() : "—"}</td></tr>)}</tbody></table></div> : <p className="muted">No files or photos linked yet.</p>}</div>
       </div>}
     </section>}
   </div>;
