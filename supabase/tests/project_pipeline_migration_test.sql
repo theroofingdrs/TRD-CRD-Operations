@@ -153,6 +153,20 @@ UPDATE public.crm_claims SET project_id = :'test_project_id' WHERE id = '0000000
 
 DO $body$
 BEGIN
+  BEGIN
+    INSERT INTO public.crm_projects
+      (division_id, customer_id, property_id, project_name, pipeline_type, workflow_stage, claim_id, created_by)
+    VALUES ('TRD','00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000020',
+      'Duplicate claim link test','insurance','new_lead','00000000-0000-0000-0000-000000000040',auth.uid());
+    RAISE EXCEPTION 'The same insurance claim was linked to multiple projects';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = 'The same insurance claim was linked to multiple projects' THEN RAISE; END IF;
+  END;
+END
+$body$;
+
+DO $body$
+BEGIN
   IF (SELECT lead_id FROM public.crm_projects WHERE id = (SELECT project_id FROM pg_temp.test_ids)) <> '00000000-0000-0000-0000-000000000030' THEN
     RAISE EXCEPTION 'Existing CRM lead was not linked to the project';
   END IF;
