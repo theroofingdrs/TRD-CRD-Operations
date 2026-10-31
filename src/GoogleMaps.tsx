@@ -77,7 +77,7 @@ export function AddressAutocomplete({ value, onChange, onPlaceSelected, required
   </div>;
 }
 
-type MapProject = { project_id: string; division_id: "TRD" | "CRD"; project_name: string; project_type: string; status: string; completion_date: string | null; customer_name: string | null; property_name: string | null; address_line1: string; city: string; state: string; postal_code: string | null; latitude: number | null; longitude: number | null };
+type MapProject = { project_id: string; property_id: string; division_id: "TRD" | "CRD"; project_name: string; project_type: string; status: string; completion_date: string | null; customer_name: string | null; property_name: string | null; address_line1: string; city: string; state: string; postal_code: string | null; latitude: number | null; longitude: number | null };
 
 export function CompletedProjectsMap() {
   const mapElement = useRef<HTMLDivElement>(null);
@@ -119,6 +119,25 @@ export function CompletedProjectsMap() {
     }).catch(reason => { if (active) setError(reason.message); });
     return () => { active = false; markersRef.current.forEach(marker => marker.setMap(null)); };
   }, []);
+
+  useEffect(() => {
+    if (!mapReady || !window.google || !supabase) return;
+    let cancelled = false;
+    const geocoder = new window.google.maps.Geocoder();
+    const pending = projects.filter(project => project.property_id && project.latitude == null && project.longitude == null && project.address_line1);
+    pending.forEach(project => {
+      const address = [project.address_line1, project.city, project.state, project.postal_code].filter(Boolean).join(", ");
+      geocoder.geocode({ address }, async (results: any[], status: string) => {
+        if (cancelled || status !== "OK" || !results?.[0]?.geometry?.location) return;
+        const location = results[0].geometry.location;
+        const latitude = location.lat();
+        const longitude = location.lng();
+        await supabase.rpc("crm_owner_save_property_coordinates", { p_property_id: project.property_id, p_latitude: latitude, p_longitude: longitude });
+        if (!cancelled) setProjects(current => current.map(item => item.property_id === project.property_id ? { ...item, latitude, longitude } : item));
+      });
+    });
+    return () => { cancelled = true; };
+  }, [mapReady, projects]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !window.google) return;
