@@ -75,6 +75,38 @@ CREATE POLICY crm_project_stage_history_insert ON public.crm_project_stage_histo
   );
 GRANT SELECT, INSERT ON public.crm_project_stage_history TO authenticated;
 
+CREATE OR REPLACE FUNCTION app_private.log_project_stage_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path TO ''
+AS $function$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.workflow_stage IS NOT NULL THEN
+      INSERT INTO public.crm_project_stage_history
+        (division_id, project_id, from_stage, to_stage, changed_by)
+      VALUES
+        (NEW.division_id, NEW.id, NULL, NEW.workflow_stage, (SELECT auth.uid()));
+    END IF;
+  ELSIF NEW.workflow_stage IS DISTINCT FROM OLD.workflow_stage THEN
+    INSERT INTO public.crm_project_stage_history
+      (division_id, project_id, from_stage, to_stage, changed_by)
+    VALUES
+      (NEW.division_id, NEW.id, OLD.workflow_stage, NEW.workflow_stage, (SELECT auth.uid()));
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER crm_projects_log_stage_insert
+  AFTER INSERT ON public.crm_projects
+  FOR EACH ROW EXECUTE FUNCTION app_private.log_project_stage_change();
+CREATE TRIGGER crm_projects_log_stage_update
+  AFTER UPDATE OF workflow_stage ON public.crm_projects
+  FOR EACH ROW EXECUTE FUNCTION app_private.log_project_stage_change();
+
+
 CREATE TABLE public.crm_project_supplements (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   division_id text NOT NULL REFERENCES public.crm_divisions(id),
