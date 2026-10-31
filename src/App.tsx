@@ -442,15 +442,16 @@ function Roofs({ division, canWrite }: { division: DivisionId; canWrite: boolean
   </section></div>;
 }
 
-const listConfig: Record<Exclude<View,"overview"|"leads"|"customers"|"team">, { table: string; columns: string; order: string; title: string; labels: string[] }> = {
-  properties: { table: "crm_properties", columns: "id,address_line1,city,state,postal_code,property_type,created_at", order: "created_at", title: "Property records", labels: ["Address","City","State","Type","Added"] },
+type DataListView = "appointments" | "inspections" | "projects" | "tasks";
+
+const listConfig: Record<DataListView, { table: string; columns: string; order: string; title: string; labels: string[] }> = {
   appointments: { table: "crm_appointments", columns: "id,appointment_type,status,starts_at,assigned_to,location_notes", order: "starts_at", title: "Appointments", labels: ["Appointment","Status","Scheduled","Assigned employee"] },
   inspections: { table: "crm_inspections", columns: "id,status,inspected_at,overall_condition,summary,property_id", order: "created_at", title: "Inspection records", labels: ["Inspection","Status","Date","Condition","Summary"] },
   projects: { table: "crm_projects", columns: "id,project_name,project_type,status,target_completion_date,project_manager_id", order: "created_at", title: "Production projects", labels: ["Project","Type","Status","Target completion","Manager"] },
   tasks: { table: "crm_tasks", columns: "id,title,status,priority,due_at,assigned_to", order: "created_at", title: "Team tasks", labels: ["Task","Status","Priority","Due date","Assigned employee"] }
 };
 
-function DataList({ division, view, userId, canWrite }: { division: DivisionId; view: Exclude<View,"overview"|"leads"|"customers"|"team"|"properties">; userId: string; canWrite: boolean }) {
+function DataList({ division, view, userId, canWrite }: { division: DivisionId; view: DataListView; userId: string; canWrite: boolean }) {
   const config = listConfig[view];
   const [rows, setRows] = useState<GenericRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -471,7 +472,7 @@ function DataList({ division, view, userId, canWrite }: { division: DivisionId; 
     if (!supabase) return;
     setLoading(true);
     const result = await supabase.from(config.table).select(config.columns).eq("division_id", division).order(config.order, { ascending: view === "appointments" }).limit(100);
-    const data = (result.data ?? []) as GenericRow[];
+    const data = (result.data ?? []) as unknown as GenericRow[];
     const errorMessage = result.error?.message ?? "";
     setError(errorMessage);
     setRows(data);
