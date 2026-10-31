@@ -33,8 +33,8 @@ Deno.serve(async (req: Request) => {
   if (slug && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return json({ error: "Invalid article slug." }, 400);
 
   const url = Deno.env.get("SUPABASE_URL") ?? "";
-  const secret = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
-    Deno.env.get("SUPABASE_SECRET_KEY") ?? "";
+  const secret = readKey("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEYS") ||
+    Deno.env.get("SUPABASE_SECRET_KEY") || "";
   if (!url || !secret) return json({ error: "Blog service is not configured." }, 500);
 
   const admin = createClient(url, secret, {
