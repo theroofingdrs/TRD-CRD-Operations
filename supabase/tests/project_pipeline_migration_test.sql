@@ -77,7 +77,7 @@ AS $$
       AND m.division_id = p_division_id AND m.active
       AND (NOT p_write OR m.role IN ('owner','division_admin','office_manager','project_manager'))
   );
-$;
+$$;
 CREATE POLICY crm_files_read ON public.crm_files FOR SELECT TO authenticated
   USING (app_private.has_division_resource_access(division_id, 'files', false));
 
