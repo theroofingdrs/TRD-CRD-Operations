@@ -3,8 +3,10 @@ import { supabase } from "./lib/supabase";
 
 type Division = "TRD" | "CRD";
 type Property = { id: string; customer_id: string; address_line1: string; city: string; state: string };
+type Lead = { id: string; division_id: Division; customer_id: string | null; property_id: string | null; service_interest: string | null; status: string; assigned_to: string | null };
+type Claim = { id: string; division_id: Division; customer_id: string; property_id: string; lead_id: string | null; project_id: string | null; claim_number: string | null; insurance_carrier: string | null; claim_status: string };
 type Project = {
-  id: string; division_id: Division; project_manager_id: string | null; project_name: string; project_type: string | null; pipeline_type: "retail" | "insurance" | null;
+  id: string; division_id: Division; lead_id: string | null; claim_id: string | null; project_manager_id: string | null; project_name: string; project_type: string | null; pipeline_type: "retail" | "insurance" | null;
   workflow_stage: string | null; status: string; property_id: string; customer_id: string;
   materials_order_reference?: string | null; materials_ordered_at?: string | null; work_completed_at?: string | null; workflow_stage_note?: string | null; workflow_stage_override?: boolean;
   contract_amount: number | null; original_estimate_amount: number | null; initial_approved_amount: number | null;
@@ -40,6 +42,8 @@ const localDateString = (date = new Date()) => `${date.getFullYear()}-${String(d
 export default function ProjectPipeline({ division, userId, canWrite, canWriteFinancials, availableDivisions, canManageSettings, canOverrideGates }: { division: Division; userId: string; canWrite: boolean; canWriteFinancials: boolean; availableDivisions: Division[]; canManageSettings: boolean; canOverrideGates: boolean }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [claims, setClaims] = useState<Claim[]>([]);
   const [customerNames, setCustomerNames] = useState<Record<string, string>>({});
   const [staffNames, setStaffNames] = useState<Record<string, string>>({});
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -75,6 +79,8 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [projectType, setProjectType] = useState("roof_replacement");
   const [pipelineType, setPipelineType] = useState<"retail" | "insurance">("retail");
   const [propertyId, setPropertyId] = useState("");
+  const [leadId, setLeadId] = useState("");
+  const [claimId, setClaimId] = useState("");
   const [stage, setStage] = useState("new_lead");
   const [contract, setContract] = useState("");
   const [nextAction, setNextAction] = useState("");
@@ -136,7 +142,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const load = useCallback(async () => {
     if (!supabase) return;
     setError(""); setBusy(true);
-    const [projectResult, linkResult, expenseResult, settingsResult, transactionResult, memberResult, workflowSettingsResult, budgetResult] = await Promise.all([
+    const [projectResult, linkResult, expenseResult, settingsResult, transactionResult, memberResult, workflowSettingsResult, budgetResult, leadResult, claimResult] = await Promise.all([
       supabase.from("crm_projects").select("id,division_id,project_manager_id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,materials_order_reference,materials_ordered_at,work_completed_at,workflow_stage_note,workflow_stage_override,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_paid_at,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").in("division_id", visibleDivisions).order("created_at", { ascending: false }),
       supabase.from("crm_customer_divisions").select("customer_id").in("division_id", visibleDivisions),
       supabase.from("crm_project_expenses").select("project_id,amount,category,paid_amount,payment_status").in("division_id", visibleDivisions),
@@ -144,10 +150,16 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       supabase.from("crm_project_transactions").select("project_id,amount,transaction_date").in("division_id", visibleDivisions).eq("transaction_type", "payment").eq("status", "recorded").gte("transaction_date", (() => { const now = new Date(); return [now.getFullYear(),String(now.getMonth()+1).padStart(2,"0"),"01"].join("-"); })()),
       supabase.from("crm_memberships").select("user_id,role").in("division_id", visibleDivisions).eq("active", true),
       supabase.from("crm_workflow_stage_settings").select("pipeline_type,stage_key,display_label,sort_order").eq("division_id", division),
-      supabase.from("crm_project_cost_estimates").select("project_id,estimated_amount").in("division_id", visibleDivisions)
+      supabase.from("crm_project_cost_estimates").select("project_id,estimated_amount").in("division_id", visibleDivisions),
+      supabase.from("crm_leads").select("id,division_id,customer_id,property_id,service_interest,status,assigned_to").in("division_id", visibleDivisions).order("created_at", { ascending: false }),
+      supabase.from("crm_claims").select("id,division_id,customer_id,property_id,lead_id,project_id,claim_number,insurance_carrier,claim_status").in("division_id", visibleDivisions).order("created_at", { ascending: false })
     ]);
     if (projectResult.error) setError(projectResult.error.message);
     setProjects((projectResult.data ?? []) as Project[]);
+    if (leadResult.error) setError(leadResult.error.message);
+    if (claimResult.error) setError(claimResult.error.message);
+    setLeads((leadResult.data ?? []) as Lead[]);
+    setClaims((claimResult.data ?? []) as Claim[]);
     if (expenseResult.error) setError(expenseResult.error.message);
     const expenseByProject: Record<string,{direct:number;recorded:number;materials:number;labor:number;unpaid:number}> = {};
     (expenseResult.data ?? []).forEach((item: {project_id:string;amount:number;category:string;paid_amount:number;payment_status:string}) => {
