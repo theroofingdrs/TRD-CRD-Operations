@@ -87,8 +87,10 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
     if (!supabase) return;
     setError(""); setBusy(true);
     const [projectResult, linkResult, expenseResult, settingsResult] = await Promise.all([
-      supabase.from("crm_projects").select("id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at").eq("division_id", division).order("created_at", { ascending: false }),
-      supabase.from("crm_customer_divisions").select("customer_id").eq("division_id", division)
+      supabase.from("crm_projects").select("id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").eq("division_id", division).order("created_at", { ascending: false }),
+      supabase.from("crm_customer_divisions").select("customer_id").eq("division_id", division),
+      supabase.from("crm_project_expenses").select("amount,category").eq("division_id", division),
+      supabase.from("crm_division_financial_settings").select("stale_stage_days").eq("division_id", division).maybeSingle()
     ]);
     if (projectResult.error) setError(projectResult.error.message);
     setProjects((projectResult.data ?? []) as Project[]);
@@ -236,7 +238,9 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
     setBusy(true); setError("");
     const { error: updateError } = await supabase.from("crm_project_supplements").update({
       ...changes,
-      status: changes.status ?? supplementStatusEdit,\n      response_at: changes.status && ["approved","partially_approved","denied"].includes(changes.status) || ["approved","partially_approved","denied"].includes(supplementStatusEdit) ? (supplementResponseDate ? new Date(supplementResponseDate).toISOString() : new Date().toISOString()) : supplement.response_at,
+      submitted_at: changes.status && ["submitted","resubmitted","under_review"].includes(changes.status) ? new Date().toISOString() : supplement.submitted_at,
+      status: changes.status ?? supplementStatusEdit,
+      response_at: changes.status && ["approved","partially_approved","denied"].includes(changes.status) || ["approved","partially_approved","denied"].includes(supplementStatusEdit) ? (supplementResponseDate ? new Date(supplementResponseDate).toISOString() : new Date().toISOString()) : supplement.response_at,
       carrier_response: supplementResponse.trim() || supplement.carrier_response,
       updated_at: new Date().toISOString()
     }).eq("id", supplement.id).eq("division_id", division);
@@ -327,7 +331,11 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
   const totalExpenses = expenses.reduce((sum, item) => sum + Math.round(Number(item.amount) * 100), 0) / 100;
   const directExpenses = expenses.filter(x => x.category !== "overhead" && x.category !== "sales_commission").reduce((sum, item) => sum + Math.round(Number(item.amount) * 100), 0) / 100;
   const contractValue = Number(selected?.contract_amount || selected?.initial_approved_amount || 0) + Number(selected?.supplements_approved_amount || 0);
-  const gross = contractValue - directExpenses;\n  const netProfit = gross - Number(selected?.commission_earned_amount || 0) - Number(selected?.overhead_allocated_amount || 0);\n  const attention = filtered.filter(p => p.workflow_stage !== "closed" && ((p.next_action_due_at && new Date(p.next_action_due_at).getTime() < Date.now()) || Math.floor((Date.now() - new Date(stageLastChanged[p.id] || p.created_at).getTime()) / 86400000) >= staleDays));\n  const activeContractValue = filtered.filter(p => p.workflow_stage !== "closed").reduce((sum,p)=>sum+Number(p.contract_amount || p.initial_approved_amount || 0)+Number(p.supplements_approved_amount || 0),0);\n  const collectedTotal = filtered.reduce((sum,p)=>sum+Number(p.collected_amount || 0),0);
+  const gross = contractValue - directExpenses;
+  const netProfit = gross - Number(selected?.commission_earned_amount || 0) - Number(selected?.overhead_allocated_amount || 0);
+  const attention = filtered.filter(p => p.workflow_stage !== "closed" && ((p.next_action_due_at && new Date(p.next_action_due_at).getTime() < Date.now()) || Math.floor((Date.now() - new Date(stageLastChanged[p.id] || p.created_at).getTime()) / 86400000) >= staleDays));
+  const activeContractValue = filtered.filter(p => p.workflow_stage !== "closed").reduce((sum,p)=>sum+Number(p.contract_amount || p.initial_approved_amount || 0)+Number(p.supplements_approved_amount || 0),0);
+  const collectedTotal = filtered.reduce((sum,p)=>sum+Number(p.collected_amount || 0),0);
   const addressFor = (id: string) => { const p = properties.find(x => x.id === id); return p ? [p.address_line1,p.city,p.state].filter(Boolean).join(", ") : "Property"; };
 
   return <div className="content-stack project-pipeline">
@@ -350,7 +358,8 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
         <label>Starting stage<select value={stage} onChange={e=>setStage(e.target.value)}>{(pipelineType==="retail"?retailStages:insuranceStages).map(x=><option key={x} value={x}>{stageLabel(x)}</option>)}</select></label>
         <label className="wide">Property<select required value={propertyId} onChange={e=>setPropertyId(e.target.value)}><option value="">Select property</option>{properties.map(p=><option key={p.id} value={p.id}>{p.address_line1}, {p.city}, {p.state} · {customerNames[p.customer_id] || "Customer"}</option>)}</select></label>
         <label>Initial estimate ($)<input type="number" min="0" step="0.01" value={contract} onChange={e=>setContract(e.target.value)} /></label>
-        <label>Next action<input value={nextAction} onChange={e=>setNextAction(e.target.value)} placeholder="Call customer, order materials..." /></label>\n        <label>Next action due<input type="datetime-local" value={nextDue} onChange={e=>setNextDue(e.target.value)} /></label>
+        <label>Next action<input value={nextAction} onChange={e=>setNextAction(e.target.value)} placeholder="Call customer, order materials..." /></label>
+        <label>Next action due<input type="datetime-local" value={nextDue} onChange={e=>setNextDue(e.target.value)} /></label>
       </div><button className="primary-button" disabled={busy || !properties.length}>Create project</button></form>}
       {message && <p className="inline-message">{message}</p>}
       {error && <p className="inline-message error-text">{error}</p>}
