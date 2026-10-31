@@ -263,7 +263,11 @@ CREATE TABLE public.crm_division_financial_settings (
   default_overhead_fixed_amount numeric(14,2),
   stale_stage_days integer NOT NULL DEFAULT 7 CHECK (stale_stage_days BETWEEN 1 AND 365),
   updated_by uuid REFERENCES auth.users(id),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (default_commission_rate IS NULL OR default_commission_rate >= 0),
+  CHECK (default_commission_fixed_amount IS NULL OR default_commission_fixed_amount >= 0),
+  CHECK (default_overhead_rate IS NULL OR default_overhead_rate >= 0),
+  CHECK (default_overhead_fixed_amount IS NULL OR default_overhead_fixed_amount >= 0)
 );
 ALTER TABLE public.crm_division_financial_settings ENABLE ROW LEVEL SECURITY;
 CREATE POLICY crm_division_financial_settings_read ON public.crm_division_financial_settings
