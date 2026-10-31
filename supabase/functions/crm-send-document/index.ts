@@ -124,8 +124,8 @@ async function makeProposalPdf(
   const pale = rgb(0.96, 0.97, 0.97);
   const isResidential = division === "TRD";
   const logoUrl = isResidential
-    ? "https://theroofingdrs.com/residential/the_roof_doctors_logo_transparent.png"
-    : "https://theroofingdrs.com/commercial/assets/crd-logo-full-dark.png";
+    ? "https://trd-crd-operations-687495157172.us-east1.run.app/brand-assets/the-roof-doctors.png"
+    : "https://trd-crd-operations-687495157172.us-east1.run.app/brand-assets/commercial-roof-doctors.png";
   let logo: any = null;
   try {
     const response = await fetch(logoUrl, { signal: AbortSignal.timeout(8000) });
