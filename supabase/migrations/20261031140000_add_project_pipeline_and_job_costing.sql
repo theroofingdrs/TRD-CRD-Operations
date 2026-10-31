@@ -414,7 +414,10 @@ CREATE POLICY crm_project_transactions_insert ON public.crm_project_transactions
 CREATE POLICY crm_project_transactions_update ON public.crm_project_transactions
   FOR UPDATE TO authenticated
   USING (app_private.has_division_financial_access(division_id, true))
-  WITH CHECK (app_private.has_division_financial_access(division_id, true));
+  WITH CHECK (
+    app_private.has_division_financial_access(division_id, true)
+    AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = project_id AND p.division_id = division_id)
+  );
 GRANT SELECT, INSERT, UPDATE ON public.crm_project_transactions TO authenticated;
 
 CREATE OR REPLACE FUNCTION app_private.sync_project_transaction_totals()
@@ -429,8 +432,11 @@ DECLARE
   invoice_total numeric(14,2);
   payment_total numeric(14,2);
 BEGIN
-  target_project_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.project_id ELSE NEW.project_id END;
-  target_division_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.division_id ELSE NEW.division_id END;
+  target_project_id := NEW.project_id;
+  target_division_id := NEW.division_id;
+  IF TG_OP = 'UPDATE' AND (NEW.project_id IS DISTINCT FROM OLD.project_id OR NEW.division_id IS DISTINCT FROM OLD.division_id) THEN
+    RAISE EXCEPTION 'Transaction project and division cannot be changed';
+  END IF;
   IF NOT app_private.has_division_financial_access(target_division_id, true) THEN
     RAISE EXCEPTION 'Not authorized to update project financial transactions';
   END IF;
@@ -445,14 +451,10 @@ BEGIN
       collected_amount = payment_total,
       updated_at = now()
   WHERE id = target_project_id AND division_id = target_division_id;
-  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  RETURN NEW;
 END;
 $function$;
-CREATE TRIGGER crm_project_transactions_sync_totals
-  AFTER INSERT OR UPDATE ON public.crm_project_transactions
-  FOR EACH ROW EXECUTE FUNCTION app_private.sync_project_transaction_totals();
-
--- Preserve any existing project invoice and collection balances as opening ledger entries.
+-- Preserve existing balances before enabling the authenticated-user transaction trigger.
 INSERT INTO public.crm_project_transactions
   (division_id, project_id, transaction_type, amount, transaction_date, reference_number, notes, entered_by)
 SELECT division_id, id, 'invoice', invoiced_amount, created_at::date,
@@ -465,6 +467,21 @@ SELECT division_id, id, 'payment', collected_amount, created_at::date,
        'Opening balance', 'Migrated from the existing project collected amount.', created_by
 FROM public.crm_projects
 WHERE collected_amount > 0;
+
+-- Initialize project totals from the opening ledger entries, then enable the authenticated-user trigger.
+UPDATE public.crm_projects p
+SET invoiced_amount = COALESCE((
+      SELECT sum(t.amount) FROM public.crm_project_transactions t
+      WHERE t.project_id = p.id AND t.transaction_type = 'invoice' AND t.status = 'recorded'
+    ), 0),
+    collected_amount = COALESCE((
+      SELECT sum(t.amount) FROM public.crm_project_transactions t
+      WHERE t.project_id = p.id AND t.transaction_type = 'payment' AND t.status = 'recorded'
+    ), 0);
+
+CREATE TRIGGER crm_project_transactions_sync_totals
+  AFTER INSERT OR UPDATE ON public.crm_project_transactions
+  FOR EACH ROW EXECUTE FUNCTION app_private.sync_project_transaction_totals();
 
 -- Accounting can update only the financial fields through this narrowly scoped RPC.
 CREATE OR REPLACE FUNCTION public.crm_update_project_financials(
