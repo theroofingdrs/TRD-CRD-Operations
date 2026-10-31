@@ -147,7 +147,8 @@ async function makeProposalPdf(
     page = pdf.addPage([612, 792]);
     pages.push(page);
     page.drawRectangle({ x: 0, y: 0, width: 612, height: 792, color: rgb(1, 1, 1) });
-    page.drawRectangle({ x: 0, y: 746, width: 612, height: 46, color: navy });
+    page.drawRectangle({ x: 0, y: 746, width: 612, height: 46, color: rgb(1, 1, 1) });
+    page.drawRectangle({ x: 0, y: 786, width: 612, height: 6, color: navy });
     page.drawRectangle({ x: 0, y: 742, width: 612, height: 4, color: orange });
     if (logo) {
       const fitted = logo.scaleToFit(178, 36);
@@ -155,7 +156,7 @@ async function makeProposalPdf(
     } else {
       page.drawText(brand.toUpperCase(), { x: margin, y: 762, size: 12, font: bold, color: rgb(1, 1, 1), maxWidth: 300 });
     }
-    page.drawText("PROJECT PROPOSAL", { x: 405, y: 762, size: 8, font: bold, color: rgb(1, 1, 1) });
+    page.drawText("PROJECT PROPOSAL", { x: 405, y: 762, size: 8, font: bold, color: navy });
     page.drawLine({ start: { x: margin, y: 39 }, end: { x: 570, y: 39 }, thickness: 0.6, color: rgb(0.84, 0.85, 0.86) });
     y = 720;
   };
