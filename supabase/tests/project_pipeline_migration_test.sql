@@ -155,6 +155,10 @@ INSERT INTO public.crm_division_financial_settings
   (division_id, stale_stage_days, updated_by)
 VALUES ('TRD', 10, auth.uid());
 
+INSERT INTO public.crm_workflow_stage_settings
+  (division_id, pipeline_type, stage_key, display_label, sort_order, updated_by)
+VALUES ('TRD', 'retail', 'new_lead', 'New opportunity', 0, auth.uid());
+
 INSERT INTO public.crm_files
   (division_id, related_type, related_id, bucket_id, object_path, original_filename, content_type, uploaded_by, metadata)
 VALUES
@@ -192,6 +196,9 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.crm_project_cost_estimates WHERE project_id = (SELECT project_id FROM pg_temp.test_ids) AND category = 'materials') THEN
     RAISE EXCEPTION 'Cost estimate was not saved';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.crm_workflow_stage_settings WHERE division_id = 'TRD' AND pipeline_type = 'retail' AND stage_key = 'new_lead' AND display_label = 'New opportunity') THEN
+    RAISE EXCEPTION 'Workflow stage customization was not saved';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.crm_project_transaction_history WHERE transaction_id = (SELECT transaction_id FROM pg_temp.test_ids)) THEN
     RAISE EXCEPTION 'Transaction history was not recorded';
