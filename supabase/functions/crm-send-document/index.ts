@@ -154,7 +154,7 @@ Deno.serve(async (req: Request) => {
   const sections: { heading: string; body: string[] }[] = [];
   const photoImages: { label: string; caption: string; section: string; bytes: Uint8Array; contentType: string }[] = [];
   if (type === "proposal") {
-    const { data, error } = await client.from("crm_proposals").select("id,division_id,customer_id,property_id,title,proposal_number,pricing_mode,line_items,lump_sum_amount,subtotal,tax_amount,total_amount,scope_of_work,existing_conditions,exclusions,payment_terms,warranty_summary,valid_until,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
+    const { data, error } = await client.from("crm_proposals").select("id,division_id,customer_id,property_id,title,proposal_number,pricing_mode,line_items,lump_sum_amount,subtotal,tax_amount,total_amount,scope_of_work,existing_conditions,exclusions,payment_terms,warranty_summary,valid_until,template_data,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
     if (error || !data) return json({ error: "Proposal not found or access denied." }, 404);
     division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
     recipient = clean(data.crm_customers?.email); customerName = clean(data.crm_customers?.display_name);
@@ -167,6 +167,24 @@ Deno.serve(async (req: Request) => {
     if (savedTemplate?.introduction) sections.push({ heading: "Introduction", body: [savedTemplate.introduction] });
     sections.push({ heading: "Customer and property", body: [customerName, address, data.proposal_number ? "Proposal " + data.proposal_number : ""] });
     if (data.existing_conditions) sections.push({ heading: "Existing conditions", body: [data.existing_conditions] });
+    const roofrReportId = clean(data.template_data?.roofr_report_id);
+    if (roofrReportId) {
+      const { data: roofrFile } = await client.from("crm_files")
+        .select("original_filename,bucket_id,object_path,metadata")
+        .eq("id", roofrReportId).eq("division_id", division).eq("related_type", "property").eq("related_id", propertyId).maybeSingle();
+      if (roofrFile?.metadata?.document_type === "roofr_measurement_report") {
+        sections.push({ heading: "Roofr measurement report", body: [
+          "Source report: " + clean(roofrFile.original_filename),
+          "Reviewed extracted measurements are included in the estimate line items where selected.",
+          "The original Roofr PDF is attached separately to this email."
+        ] });
+        const { data: roofrPdf } = await client.storage.from(roofrFile.bucket_id).download(roofrFile.object_path);
+        if (roofrPdf) extraAttachments.push({
+          filename: "Roofr-" + clean(roofrFile.original_filename).replace(/[^a-zA-Z0-9._-]/g, "_"),
+          content: toBase64(new Uint8Array(await roofrPdf.arrayBuffer()))
+        });
+      }
+    }
     const proposalScope = clean(data.scope_of_work) || clean(savedTemplate?.default_scope);
     if (proposalScope) sections.push({ heading: "Scope of work", body: [proposalScope] });
     if (Array.isArray(data.line_items) && data.line_items.length) sections.push({ heading: "Itemized pricing", body: data.line_items.map((item: any) => String(item.description) + " | Qty " + item.quantity + " | " + money(item.unit_price) + " each | " + money(item.amount)) });
@@ -255,7 +273,7 @@ Deno.serve(async (req: Request) => {
     body: JSON.stringify({
       from, to: [recipient], subject,
       html: "<p>Hello " + customerName.replace(/[&<>"]/g, "") + ",</p><p>Attached is your " + (type === "inspection" ? "roof inspection report" : type) + " from " + brand + " for " + address.replace(/[&<>"]/g, "") + ".</p><p>Please contact our office with any questions.</p>",
-      attachments: [{ filename: fileName, content: base64 }]
+      attachments: [{ filename: fileName, content: base64 }, ...extraAttachments]
     })
   });
   const responseBody = await response.json().catch(() => ({}));
