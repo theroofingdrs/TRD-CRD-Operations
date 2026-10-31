@@ -7,13 +7,14 @@ import Warranties from "./Warranties";
 import DocumentDeliveries from "./DocumentDeliveries";
 import RoofrMeasurements from "./RoofrMeasurements";
 import ProposalTemplates from "./ProposalTemplates";
+import PriceBook from "./PriceBook";
 import ImportCenter from "./Invoice2goImport";
 import { AddressAutocomplete, CompletedProjectsMap } from "./GoogleMaps";
 
 type DivisionId = "TRD" | "CRD";
 type Role = "owner" | "division_admin" | "office_manager" | "sales_rep" | "project_manager" | "field_inspector" | "production_manager" | "accounting" | "read_only";
 type Membership = { division_id: DivisionId; role: Role };
-type View = "overview" | "leads" | "customers" | "import" | "contacts" | "properties" | "claims" | "roofs" | "documents" | "appointments" | "proposals" | "proposal_templates" | "warranties" | "deliveries" | "inspections" | "projects" | "tasks" | "team" | "completed_map";
+type View = "overview" | "leads" | "customers" | "import" | "contacts" | "properties" | "claims" | "roofs" | "documents" | "appointments" | "proposals" | "proposal_templates" | "price_book" | "warranties" | "deliveries" | "inspections" | "projects" | "tasks" | "team" | "completed_map";
 type Lead = { id: string; service_interest: string | null; status: string; priority: string; source: string | null; description: string | null; created_at: string };
 type Customer = { id: string; display_name: string; customer_type: string; email: string | null; phone: string | null; billing_address_line1?: string | null; billing_city?: string | null; billing_state?: string | null; billing_postal_code?: string | null; created_at: string };
 type GenericRow = Record<string, string | number | null>;
@@ -32,6 +33,7 @@ const navigation: { id: View; label: string; icon: string }[] = [
   { id: "inspections", label: "Inspections", icon: "⌕" },
   { id: "proposals", label: "Proposals", icon: "▧" },
   { id: "proposal_templates", label: "Proposal templates", icon: "⚙" },
+  { id: "price_book", label: "Price book", icon: "$" },
   { id: "warranties", label: "Warranties", icon: "▤" },
   { id: "deliveries", label: "Delivery history", icon: "✉" },
   { id: "projects", label: "Projects", icon: "▤" },
@@ -123,7 +125,7 @@ function App() {
         const allowedDivision = savedDivision && memberships.some((item) => item.division_id === savedDivision) ? savedDivision : memberships[0].division_id;
         const validView = navigation.some((item) => item.id === preference.view);
         const savedView = validView ? preference.view as View : "overview";
-        const canAccessSavedView = savedView !== "completed_map" && savedView !== "team" && savedView !== "proposal_templates"
+        const canAccessSavedView = savedView !== "completed_map" && savedView !== "team" && savedView !== "proposal_templates" && savedView !== "price_book"
           ? true
           : memberships.some((item) => item.role === "owner");
         setDivision(allowedDivision);
@@ -207,7 +209,7 @@ function App() {
     <aside className="sidebar">
       <div className="sidebar-brand"><div className="brand-mark small">RD</div><div><strong>ROOF DOCTORS</strong><span>OPERATIONS</span></div></div>
       <div className="division-picker"><label>WORKSPACE</label><div className="division-toggle" role="group" aria-label="Select workspace"><button type="button" className={division === "TRD" ? "division-option active" : "division-option"} aria-pressed={division === "TRD"} disabled={!memberships.some((item) => item.division_id === "TRD")} onClick={() => { setDivision("TRD"); setView("overview"); }}>Residential <span>TRD</span></button><button type="button" className={division === "CRD" ? "division-option active" : "division-option"} aria-pressed={division === "CRD"} disabled={!memberships.some((item) => item.division_id === "CRD")} onClick={() => { setDivision("CRD"); setView("overview"); }}>Commercial <span>CRD</span></button></div></div>
-      <nav className="main-nav">{navigation.filter((item) => ((item.id !== "team" && item.id !== "proposal_templates" && item.id !== "completed_map") || isOwner) && (item.id !== "import" || canWriteCustomers)).map((item) => <button key={item.id} className={view === item.id ? "nav-item active" : "nav-item"} onClick={() => setView(item.id)}><span className="nav-icon">{item.icon}</span>{item.label}</button>)}</nav>
+      <nav className="main-nav">{navigation.filter((item) => ((item.id !== "team" && item.id !== "proposal_templates" && item.id !== "price_book" && item.id !== "completed_map") || isOwner) && (item.id !== "import" || canWriteCustomers)).map((item) => <button key={item.id} className={view === item.id ? "nav-item active" : "nav-item"} onClick={() => setView(item.id)}><span className="nav-icon">{item.icon}</span>{item.label}</button>)}</nav>
       <div className="sidebar-bottom"><div className="secure-note"><span className="status-dot"></span> Secure employee access</div><button className="signout-button" onClick={signOut}>Sign out</button></div>
     </aside>
     <main className="main-area">
@@ -226,6 +228,7 @@ function App() {
       {view === "inspections" && <Inspections division={division} userId={session.user.id} canWrite={canWriteInspections} initialCustomerId={workflowLaunch?.type === "inspection" ? workflowLaunch.customerId : ""} initialPropertyId={workflowLaunch?.type === "inspection" ? workflowLaunch.propertyId : ""} onLaunchConsumed={() => setWorkflowLaunch(null)} />}
       {view === "proposals" && <Proposals division={division} userId={session.user.id} canWrite={canWriteLeads} initialCustomerId={workflowLaunch?.type === "proposal" ? workflowLaunch.customerId : ""} initialPropertyId={workflowLaunch?.type === "proposal" ? workflowLaunch.propertyId : ""} onLaunchConsumed={() => setWorkflowLaunch(null)} />}
       {view === "proposal_templates" && isOwner && <ProposalTemplates division={division} userId={session.user.id} />}
+      {view === "price_book" && isOwner && <PriceBook division={division} userId={session.user.id} />}
       {view === "warranties" && <Warranties division={division} userId={session.user.id} canWrite={canWriteProjects} />}
       {view === "deliveries" && <DocumentDeliveries division={division} />}
       {view === "projects" && <DataList division={division} view="projects" userId={session.user.id} canWrite={canWriteProjects} />}
