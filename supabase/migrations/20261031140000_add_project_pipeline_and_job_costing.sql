@@ -71,7 +71,7 @@ CREATE POLICY crm_project_stage_history_insert ON public.crm_project_stage_histo
     AND (changed_by IS NULL OR changed_by = (SELECT auth.uid()))
     AND EXISTS (
       SELECT 1 FROM public.crm_projects p
-      WHERE p.id = project_id AND p.division_id = division_id
+      WHERE p.id = crm_project_stage_history.project_id AND p.division_id = crm_project_stage_history.division_id
     )
   );
 GRANT SELECT, INSERT ON public.crm_project_stage_history TO authenticated;
@@ -138,14 +138,14 @@ CREATE POLICY crm_project_supplements_insert ON public.crm_project_supplements
   WITH CHECK (
     app_private.has_division_resource_access(division_id, 'projects', true)
     AND (created_by IS NULL OR created_by = (SELECT auth.uid()))
-    AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = project_id AND p.division_id = division_id AND p.pipeline_type = 'insurance')
+    AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = crm_project_supplements.project_id AND p.division_id = crm_project_supplements.division_id AND p.pipeline_type = 'insurance')
   );
 CREATE POLICY crm_project_supplements_update ON public.crm_project_supplements
   FOR UPDATE TO authenticated
   USING (app_private.has_division_resource_access(division_id, 'projects', true))
   WITH CHECK (
     app_private.has_division_resource_access(division_id, 'projects', true)
-    AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = project_id AND p.division_id = division_id AND p.pipeline_type = 'insurance')
+    AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = crm_project_expenses.project_id AND p.division_id = crm_project_expenses.division_id AND p.pipeline_type = 'insurance')
   );
 GRANT SELECT, INSERT, UPDATE ON public.crm_project_supplements TO authenticated;
 
@@ -205,10 +205,10 @@ CREATE POLICY crm_project_expenses_insert ON public.crm_project_expenses
   WITH CHECK (
     app_private.has_division_financial_access(division_id, true)
     AND (entered_by IS NULL OR entered_by = (SELECT auth.uid()))
-    AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = project_id AND p.division_id = division_id)
+    AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = crm_project_transactions.project_id AND p.division_id = crm_project_transactions.division_id)
     AND (receipt_file_id IS NULL OR EXISTS (
       SELECT 1 FROM public.crm_files f
-      WHERE f.id = receipt_file_id AND f.division_id = division_id
+      WHERE f.id = crm_project_expenses.receipt_file_id AND f.division_id = crm_project_expenses.division_id
         AND f.related_type = 'project' AND f.related_id = project_id
     ))
   );
@@ -217,7 +217,7 @@ CREATE POLICY crm_project_expenses_update ON public.crm_project_expenses
   USING (app_private.has_division_financial_access(division_id, true))
   WITH CHECK (
     app_private.has_division_financial_access(division_id, true)
-    AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = project_id AND p.division_id = division_id)
+    AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = crm_project_cost_estimates.project_id AND p.division_id = crm_project_cost_estimates.division_id)
   );
 GRANT SELECT, INSERT, UPDATE ON public.crm_project_expenses TO authenticated;
 
@@ -255,7 +255,7 @@ CREATE POLICY crm_files_expense_receipt_insert ON public.crm_files
     AND (uploaded_by IS NULL OR uploaded_by = (SELECT auth.uid()))
     AND EXISTS (
       SELECT 1 FROM public.crm_projects p
-      WHERE p.id = related_id AND p.division_id = division_id
+      WHERE p.id = crm_files.related_id AND p.division_id = crm_files.division_id
     )
   );
 CREATE POLICY crm_files_expense_receipt_read ON public.crm_files
@@ -266,7 +266,7 @@ CREATE POLICY crm_files_expense_receipt_read ON public.crm_files
     AND app_private.has_division_financial_access(division_id, false)
     AND EXISTS (
       SELECT 1 FROM public.crm_project_expenses e
-      WHERE e.receipt_file_id = id AND e.division_id = division_id
+      WHERE e.receipt_file_id = crm_files.id AND e.division_id = crm_files.division_id
     )
   );
 
@@ -652,7 +652,7 @@ CREATE POLICY crm_files_supplement_attachment_insert ON public.crm_files
     AND EXISTS (
       SELECT 1 FROM public.crm_project_supplements s
       JOIN public.crm_projects p ON p.id = s.project_id
-      WHERE s.id = related_id AND p.division_id = division_id
+      WHERE s.id = crm_files.related_id AND p.division_id = crm_files.division_id
     )
   );
 CREATE POLICY crm_files_supplement_attachment_read ON public.crm_files
