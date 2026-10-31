@@ -5,7 +5,7 @@ import { supabase } from "./lib/supabase";
 type DivisionId = "TRD" | "CRD";
 type Role = "owner" | "division_admin" | "office_manager" | "sales_rep" | "project_manager" | "field_inspector" | "production_manager" | "accounting" | "read_only";
 type Membership = { division_id: DivisionId; role: Role };
-type View = "overview" | "leads" | "customers" | "contacts" | "properties" | "roofs" | "documents" | "appointments" | "inspections" | "projects" | "tasks" | "team";
+type View = "overview" | "leads" | "customers" | "contacts" | "properties" | "claims" | "roofs" | "documents" | "appointments" | "inspections" | "projects" | "tasks" | "team";
 type Lead = { id: string; service_interest: string | null; status: string; priority: string; source: string | null; description: string | null; created_at: string };
 type Customer = { id: string; display_name: string; customer_type: string; email: string | null; phone: string | null; created_at: string };
 type GenericRow = Record<string, string | number | null>;
@@ -16,6 +16,7 @@ const navigation: { id: View; label: string; icon: string }[] = [
   { id: "customers", label: "Customers", icon: "♙" },
   { id: "contacts", label: "Contacts", icon: "♧" },
   { id: "properties", label: "Properties", icon: "⌂" },
+  { id: "claims", label: "Insurance claims", icon: "▤" },
   { id: "roofs", label: "Roof systems", icon: "⌃" },
   { id: "documents", label: "Files and photos", icon: "▧" },
   { id: "appointments", label: "Schedule", icon: "▣" },
@@ -97,6 +98,7 @@ function App() {
   const canWriteCustomers = currentMembership ? ["owner","division_admin","office_manager","sales_rep","project_manager"].includes(currentMembership.role) : false;
   const canWriteContacts = canWriteCustomers;
   const canWriteRoofs = currentMembership ? ["owner","division_admin","office_manager","project_manager","production_manager"].includes(currentMembership.role) : false;
+  const canWriteClaims = currentMembership ? ["owner","division_admin","office_manager","sales_rep","project_manager","production_manager"].includes(currentMembership.role) : false;
   const canWriteFiles = currentMembership ? ["owner","division_admin","office_manager","sales_rep","project_manager","field_inspector","production_manager"].includes(currentMembership.role) : false;
   const canWriteAppointments = currentMembership ? ["owner","division_admin","office_manager","sales_rep","project_manager","field_inspector"].includes(currentMembership.role) : false;
   const canWriteInspections = currentMembership ? ["owner","division_admin","office_manager","project_manager","field_inspector","production_manager"].includes(currentMembership.role) : false;
@@ -162,6 +164,7 @@ function App() {
       {view === "customers" && <Customers division={division} userId={session.user.id} canWrite={canWriteCustomers} />}
       {view === "contacts" && <Contacts division={division} canWrite={canWriteContacts} />}
       {view === "properties" && <Properties division={division} canWrite={canWriteCustomers} />}
+      {view === "claims" && <Claims division={division} userId={session.user.id} canWrite={canWriteClaims} />}
       {view === "roofs" && <Roofs division={division} canWrite={canWriteRoofs} />}
       {view === "documents" && <Documents division={division} userId={session.user.id} canWrite={canWriteFiles} />}
       {view === "appointments" && <DataList division={division} view="appointments" userId={session.user.id} canWrite={canWriteAppointments} />}
@@ -276,9 +279,21 @@ function Customers({ division, userId, canWrite }: { division: DivisionId; userI
   const [type, setType] = useState("individual");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [billingAddress, setBillingAddress] = useState("");
+  const [billingCity, setBillingCity] = useState("");
+  const [billingState, setBillingState] = useState("TX");
+  const [billingPostal, setBillingPostal] = useState("");
+  const [selectedId, setSelectedId] = useState("");
+  const [properties, setProperties] = useState<GenericRow[]>([]);
+  const [contacts, setContacts] = useState<GenericRow[]>([]);
+  const [projects, setProjects] = useState<GenericRow[]>([]);
+  const [claims, setClaims] = useState<GenericRow[]>([]);
+  const [roofs, setRoofs] = useState<GenericRow[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
   const load = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
@@ -287,34 +302,179 @@ function Customers({ division, userId, canWrite }: { division: DivisionId; userI
     const ids = (links ?? []).map((item: { customer_id: string }) => item.customer_id);
     if (!ids.length) setRows([]);
     else {
-      const { data, error } = await supabase.from("crm_customers").select("id,display_name,customer_type,email,phone,created_at").in("id", ids).order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("crm_customers")
+        .select("id,display_name,customer_type,email,phone,billing_address_line1,billing_city,billing_state,billing_postal_code,created_at")
+        .in("id", ids).order("created_at", { ascending: false });
       if (error) setMessage(error.message);
       setRows((data ?? []) as Customer[]);
     }
     setLoading(false);
   }, [division]);
+
   useEffect(() => { void load(); }, [load]);
+
+  async function loadCustomerDetails(customerId: string) {
+    if (!supabase) return;
+    setSelectedId(customerId);
+    setDetailLoading(true);
+    setMessage("");
+    const [propertyResult, contactResult, projectResult, claimResult] = await Promise.all([
+      supabase.from("crm_properties").select("id,address_line1,city,state,postal_code,property_type,county,parcel_number,building_name").eq("customer_id", customerId).order("created_at", { ascending: false }),
+      supabase.from("crm_contacts").select("id,full_name,title,email,phone,is_primary").eq("customer_id", customerId).order("is_primary", { ascending: false }),
+      supabase.from("crm_projects").select("id,project_name,project_type,status,contract_amount,property_id").eq("customer_id", customerId).order("created_at", { ascending: false }),
+      supabase.from("crm_claims").select("id,claim_number,insurance_carrier,date_of_loss,claim_status,adjuster_name,approved_amount,property_id").eq("customer_id", customerId).order("created_at", { ascending: false })
+    ]);
+    if (propertyResult.error) setMessage(propertyResult.error.message);
+    if (contactResult.error) setMessage(contactResult.error.message);
+    if (projectResult.error) setMessage(projectResult.error.message);
+    if (claimResult.error) setMessage(claimResult.error.message);
+    const propertyRows = (propertyResult.data ?? []) as GenericRow[];
+    setProperties(propertyRows);
+    setContacts((contactResult.data ?? []) as GenericRow[]);
+    setProjects((projectResult.data ?? []) as GenericRow[]);
+    setClaims((claimResult.data ?? []) as GenericRow[]);
+    const propertyIds = propertyRows.map((p) => String(p.id));
+    if (propertyIds.length) {
+      const { data, error } = await supabase.from("crm_roofs")
+        .select("id,property_id,roof_section,roof_type,covering_material,installation_year,approximate_area_sqft,condition_summary,warranty_notes")
+        .in("property_id", propertyIds).order("created_at", { ascending: false });
+      if (error) setMessage(error.message);
+      setRoofs((data ?? []) as GenericRow[]);
+    } else setRoofs([]);
+    setDetailLoading(false);
+  }
+
   async function createCustomer(event: FormEvent) {
     event.preventDefault();
     if (!supabase) return;
     setSaving(true);
     setMessage("");
-    const { data, error } = await supabase.from("crm_customers").insert({ display_name: name.trim(), customer_type: type, email: email.trim() || null, phone: phone.trim() || null, created_by: userId }).select("id").single();
+    const { data, error } = await supabase.from("crm_customers").insert({
+      display_name: name.trim(), customer_type: type, email: email.trim() || null,
+      phone: phone.trim() || null, billing_address_line1: billingAddress.trim() || null,
+      billing_city: billingCity.trim() || null, billing_state: billingState.trim().toUpperCase() || null,
+      billing_postal_code: billingPostal.trim() || null, created_by: userId
+    }).select("id").single();
     if (error) setMessage(error.message);
     else {
       const { error: linkError } = await supabase.from("crm_customer_divisions").insert({ customer_id: data.id, division_id: division });
       if (linkError) setMessage("Customer was created, but division linking failed: " + linkError.message);
       else {
-        setName(""); setEmail(""); setPhone(""); setShowForm(false); setMessage("Customer created.");
+        setName(""); setEmail(""); setPhone(""); setBillingAddress(""); setBillingCity(""); setBillingPostal("");
+        setShowForm(false); setMessage("Customer created.");
       }
       await load();
+      if (!linkError) await loadCustomerDetails(data.id);
     }
     setSaving(false);
   }
-  return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">CUSTOMER DIRECTORY</p><h2>Customers and accounts</h2><p className="muted">Shared customer identities can be linked to both divisions.</p></div>{canWrite && <button className="primary-button compact" onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "+ Add customer"}</button>}</div>
-    {showForm && <form className="inline-form" onSubmit={createCustomer}><div className="form-grid"><label>Customer or account name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Name or business" /></label><label>Customer type<select value={type} onChange={(event) => setType(event.target.value)}><option value="individual">Homeowner / Individual</option><option value="business">Business</option><option value="property_manager">Property manager</option><option value="organization">Organization</option></select></label><label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label><label>Phone<input value={phone} onChange={(event) => setPhone(event.target.value)} /></label></div><button className="primary-button" disabled={saving}>{saving ? "Saving..." : "Save customer"}</button></form>}
-    {message && <p className="inline-message">{message}</p>}
-    {loading ? <div className="empty-state">Loading customers...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Email</th><th>Phone</th><th>Added</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><strong>{row.display_name}</strong></td><td>{row.customer_type.replaceAll("_"," ")}</td><td>{row.email || "—"}</td><td>{row.phone || "—"}</td><td>{new Date(row.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No customer records yet</strong><span>Add a customer to start building the shared customer and property history.</span>{canWrite && <button className="secondary-button" onClick={() => setShowForm(true)}>Add first customer</button>}</div>}
+
+  const selected = rows.find((row) => row.id === selectedId);
+  const propertyAddress = (id: unknown) => {
+    const p = properties.find((item) => item.id === id);
+    return p ? [p.address_line1, p.city, p.state].filter(Boolean).join(", ") : "Property not selected";
+  };
+
+  return <div className="content-stack">
+    <section className="panel">
+      <div className="panel-heading"><div><p className="eyebrow">CUSTOMER DIRECTORY</p><h2>Customer and organization records</h2><p className="muted">One customer record connects every property, roof system, claim, project, contact, and document.</p></div>{canWrite && <button className="primary-button compact" onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "+ Add customer"}</button>}</div>
+      {showForm && <form className="inline-form" onSubmit={createCustomer}><div className="form-grid">
+        <label>Customer or organization name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Name or business" /></label>
+        <label>Customer type<select value={type} onChange={(event) => setType(event.target.value)}><option value="individual">Homeowner / Individual</option><option value="business">Business</option><option value="property_manager">Property manager</option><option value="organization">Organization</option></select></label>
+        <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+        <label>Phone<input value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
+        <label className="wide">Billing or mailing street address<input value={billingAddress} onChange={(event) => setBillingAddress(event.target.value)} /></label>
+        <label>City<input value={billingCity} onChange={(event) => setBillingCity(event.target.value)} /></label>
+        <label>State<input value={billingState} onChange={(event) => setBillingState(event.target.value)} maxLength={2} /></label>
+        <label>ZIP code<input value={billingPostal} onChange={(event) => setBillingPostal(event.target.value)} /></label>
+      </div><button className="primary-button" disabled={saving}>{saving ? "Saving..." : "Save customer"}</button></form>}
+      {message && <p className="inline-message">{message}</p>}
+      {loading ? <div className="empty-state">Loading customers...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Customer / organization</th><th>Type</th><th>Email</th><th>Phone</th><th>Billing address</th><th>Added</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><button className="text-button" onClick={() => void loadCustomerDetails(row.id)}><strong>{row.display_name}</strong></button></td><td>{row.customer_type.replaceAll("_"," ")}</td><td>{row.email || "—"}</td><td>{row.phone || "—"}</td><td>{[row.billing_address_line1,row.billing_city,row.billing_state,row.billing_postal_code].filter(Boolean).join(", ") || "—"}</td><td>{new Date(row.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No customer records yet</strong><span>Add a customer to start building the shared customer and property history.</span>{canWrite && <button className="secondary-button" onClick={() => setShowForm(true)}>Add first customer</button>}</div>}
+    </section>
+    {selected && <section className="panel">
+      <div className="panel-heading"><div><p className="eyebrow">CENTRAL CUSTOMER RECORD</p><h2>{selected.display_name}</h2><p className="muted">{selected.customer_type.replaceAll("_"," ")} · {selected.email || "No email"} · {selected.phone || "No phone"}</p></div><button className="secondary-button compact" onClick={() => setSelectedId("")}>Close details</button></div>
+      {detailLoading ? <div className="empty-state">Loading linked customer history...</div> : <div className="content-stack">
+        <div className="form-grid"><div><strong>Billing / mailing address</strong><p>{[selected.billing_address_line1,selected.billing_city,selected.billing_state,selected.billing_postal_code].filter(Boolean).join(", ") || "Not entered"}</p></div><div><strong>Linked records</strong><p>{properties.length} properties · {contacts.length} contacts · {projects.length} projects · {claims.length} claims · {roofs.length} roof systems</p></div></div>
+        <div><h3>Properties</h3>{properties.length ? <div className="table-wrap"><table><thead><tr><th>Property</th><th>Type</th><th>County</th><th>Parcel / building</th></tr></thead><tbody>{properties.map((p) => <tr key={String(p.id)}><td><strong>{[p.address_line1,p.city,p.state,p.postal_code].filter(Boolean).join(", ")}</strong></td><td>{String(p.property_type || "—")}</td><td>{String(p.county || "—")}</td><td>{[p.parcel_number,p.building_name].filter(Boolean).join(" · ") || "—"}</td></tr>)}</tbody></table></div> : <p className="muted">No properties linked yet.</p>}</div>
+        <div><h3>Roof systems</h3>{roofs.length ? <div className="table-wrap"><table><thead><tr><th>Property</th><th>Roof section</th><th>System / material</th><th>Installed</th><th>Condition</th></tr></thead><tbody>{roofs.map((roof) => <tr key={String(roof.id)}><td>{propertyAddress(roof.property_id)}</td><td>{String(roof.roof_section || "—")}</td><td>{[roof.roof_type,roof.covering_material].filter(Boolean).join(" · ") || "—"}</td><td>{String(roof.installation_year || "—")}</td><td>{String(roof.condition_summary || "—")}</td></tr>)}</tbody></table></div> : <p className="muted">No roof systems linked yet.</p>}</div>
+        <div><h3>Insurance claims</h3>{claims.length ? <div className="table-wrap"><table><thead><tr><th>Claim number</th><th>Property</th><th>Carrier</th><th>Date of loss</th><th>Status</th><th>Adjuster</th></tr></thead><tbody>{claims.map((claim) => <tr key={String(claim.id)}><td>{String(claim.claim_number || "Not entered")}</td><td>{propertyAddress(claim.property_id)}</td><td>{String(claim.insurance_carrier || "—")}</td><td>{String(claim.date_of_loss || "—")}</td><td>{String(claim.claim_status || "—")}</td><td>{String(claim.adjuster_name || "—")}</td></tr>)}</tbody></table></div> : <p className="muted">No insurance claims linked yet.</p>}</div>
+        <div><h3>Projects</h3>{projects.length ? <div className="table-wrap"><table><thead><tr><th>Project</th><th>Property</th><th>Type</th><th>Status</th><th>Contract</th></tr></thead><tbody>{projects.map((project) => <tr key={String(project.id)}><td>{String(project.project_name)}</td><td>{propertyAddress(project.property_id)}</td><td>{String(project.project_type || "—")}</td><td>{String(project.status || "—")}</td><td>{project.contract_amount == null ? "—" : "$"+Number(project.contract_amount).toLocaleString()}</td></tr>)}</tbody></table></div> : <p className="muted">No projects linked yet.</p>}</div>
+        <div><h3>Contacts</h3>{contacts.length ? <div className="table-wrap"><table><thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Phone</th><th>Primary</th></tr></thead><tbody>{contacts.map((contact) => <tr key={String(contact.id)}><td>{String(contact.full_name)}</td><td>{String(contact.title || "—")}</td><td>{String(contact.email || "—")}</td><td>{String(contact.phone || "—")}</td><td>{contact.is_primary ? "Yes" : "No"}</td></tr>)}</tbody></table></div> : <p className="muted">No contacts linked yet.</p>}</div>
+      </div>}
+    </section>}
+  </div>;
+}
+
+
+function Claims({ division, userId, canWrite }: { division: DivisionId; userId: string; canWrite: boolean }) {
+  const [rows,setRows]=useState<GenericRow[]>([]);
+  const [customers,setCustomers]=useState<{id:string;display_name:string}[]>([]);
+  const [properties,setProperties]=useState<{id:string;customer_id:string;address_line1:string;city:string;state:string}[]>([]);
+  const [customerId,setCustomerId]=useState("");
+  const [propertyId,setPropertyId]=useState("");
+  const [claimNumber,setClaimNumber]=useState("");
+  const [policyNumber,setPolicyNumber]=useState("");
+  const [carrier,setCarrier]=useState("");
+  const [dateOfLoss,setDateOfLoss]=useState("");
+  const [adjuster,setAdjuster]=useState("");
+  const [status,setStatus]=useState("open");
+  const [message,setMessage]=useState("");
+  const [loading,setLoading]=useState(true);
+  const [saving,setSaving]=useState(false);
+
+  const load=useCallback(async()=>{
+    if(!supabase)return;
+    setLoading(true);
+    const {data:links,error:linkError}=await supabase.from("crm_customer_divisions").select("customer_id").eq("division_id",division);
+    if(linkError)setMessage(linkError.message);
+    const ids=(links??[]).map((x:{customer_id:string})=>x.customer_id);
+    if(!ids.length){setCustomers([]);setProperties([]);setRows([]);setLoading(false);return;}
+    const [customerResult,propertyResult,claimResult]=await Promise.all([
+      supabase.from("crm_customers").select("id,display_name").in("id",ids).order("display_name"),
+      supabase.from("crm_properties").select("id,customer_id,address_line1,city,state").in("customer_id",ids).order("address_line1"),
+      supabase.from("crm_claims").select("id,customer_id,property_id,claim_number,policy_number,insurance_carrier,date_of_loss,claim_status,adjuster_name,approved_amount").eq("division_id",division).order("created_at",{ascending:false})
+    ]);
+    if(customerResult.error)setMessage(customerResult.error.message);
+    if(propertyResult.error)setMessage(propertyResult.error.message);
+    if(claimResult.error)setMessage(claimResult.error.message);
+    setCustomers(customerResult.data??[]);
+    setProperties(propertyResult.data??[]);
+    setRows((claimResult.data??[]) as GenericRow[]);
+    if(!customerId&&customerResult.data?.length)setCustomerId(customerResult.data[0].id);
+    setLoading(false);
+  },[division,customerId]);
+  useEffect(()=>{void load();},[load]);
+
+  async function createClaim(event:FormEvent){
+    event.preventDefault();
+    if(!supabase)return;
+    setSaving(true);setMessage("");
+    const {error}=await supabase.from("crm_claims").insert({
+      division_id:division,customer_id:customerId,property_id:propertyId,
+      claim_number:claimNumber.trim()||null,policy_number:policyNumber.trim()||null,
+      insurance_carrier:carrier.trim()||null,date_of_loss:dateOfLoss||null,
+      adjuster_name:adjuster.trim()||null,claim_status:status,created_by:userId
+    });
+    if(error)setMessage(error.message);
+    else{setClaimNumber("");setPolicyNumber("");setCarrier("");setDateOfLoss("");setAdjuster("");setMessage("Insurance claim saved.");await load();}
+    setSaving(false);
+  }
+  const customerName=(id:unknown)=>customers.find(c=>c.id===id)?.display_name||"Customer";
+  const propertyName=(id:unknown)=>{const p=properties.find(x=>x.id===id);return p?[p.address_line1,p.city,p.state].filter(Boolean).join(", "):"Property";};
+  return <div className="content-stack"><section className="panel">
+    <div className="panel-heading"><div><p className="eyebrow">CLAIM REGISTER</p><h2>Insurance claims</h2><p className="muted">Every claim is attached to the customer and the specific property. Projects can be linked to a claim.</p></div></div>
+    {canWrite&&customers.length>0&&<form className="inline-form" onSubmit={createClaim}><div className="form-grid">
+      <label>Customer / organization<select required value={customerId} onChange={e=>{setCustomerId(e.target.value);setPropertyId("");}}>{customers.map(c=><option key={c.id} value={c.id}>{c.display_name}</option>)}</select></label>
+      <label>Property<select required value={propertyId} onChange={e=>setPropertyId(e.target.value)}><option value="">Select property</option>{properties.filter(p=>p.customer_id===customerId).map(p=><option key={p.id} value={p.id}>{[p.address_line1,p.city,p.state].filter(Boolean).join(", ")}</option>)}</select></label>
+      <label>Insurance carrier<input value={carrier} onChange={e=>setCarrier(e.target.value)} placeholder="Carrier name"/></label>
+      <label>Claim number<input value={claimNumber} onChange={e=>setClaimNumber(e.target.value)}/></label>
+      <label>Policy number<input value={policyNumber} onChange={e=>setPolicyNumber(e.target.value)}/></label>
+      <label>Date of loss<input type="date" value={dateOfLoss} onChange={e=>setDateOfLoss(e.target.value)}/></label>
+      <label>Adjuster name<input value={adjuster} onChange={e=>setAdjuster(e.target.value)}/></label>
+      <label>Claim status<select value={status} onChange={e=>setStatus(e.target.value)}><option value="open">Open</option><option value="filed">Filed</option><option value="inspection_scheduled">Inspection scheduled</option><option value="under_review">Under review</option><option value="approved">Approved</option><option value="partially_approved">Partially approved</option><option value="denied">Denied</option><option value="supplement_pending">Supplement pending</option><option value="closed">Closed</option></select></label>
+    </div><button className="primary-button" disabled={saving||!customerId||!propertyId}>{saving?"Saving...":"Save claim"}</button></form>}
+    {message&&<p className="inline-message">{message}</p>}
+    {loading?<div className="empty-state">Loading claims...</div>:rows.length?<div className="table-wrap"><table><thead><tr><th>Customer</th><th>Property</th><th>Carrier</th><th>Claim number</th><th>Policy</th><th>Date of loss</th><th>Status</th><th>Adjuster</th></tr></thead><tbody>{rows.map(row=><tr key={String(row.id)}><td><strong>{customerName(row.customer_id)}</strong></td><td>{propertyName(row.property_id)}</td><td>{String(row.insurance_carrier||"—")}</td><td>{String(row.claim_number||"—")}</td><td>{String(row.policy_number||"—")}</td><td>{String(row.date_of_loss||"—")}</td><td>{String(row.claim_status||"—").replaceAll("_"," ")}</td><td>{String(row.adjuster_name||"—")}</td></tr>)}</tbody></table></div>:<div className="empty-state"><strong>No insurance claims yet</strong><span>Add a customer and property first, then attach the claim to that property.</span></div>}
   </section></div>;
 }
 
