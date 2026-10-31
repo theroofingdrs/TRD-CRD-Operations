@@ -6,6 +6,8 @@ The React application source and Supabase database foundation are committed. Git
 
 An owner only `crm-invite-employee` Supabase Edge Function is deployed with JWT verification enabled. It checks active owner membership in the requested division, does not allow assigning owner access, and keeps privileged credentials server side. The function has not yet been exercised by sending a real employee invitation.
 
+An owner only `crm-import-website-intake` function is also deployed with JWT verification enabled. It reads legacy website submissions without modifying them, maps residential and commercial payloads into CRM customer, contact, property, and lead records, and uses each original intake record ID to skip records already imported. The import is initiated manually from the Leads screen and requires owner confirmation. It has not yet been run against the two live submissions.
+
 ## Required environment
 
 The browser application requires:
@@ -33,11 +35,12 @@ Suggested service name: `trd-crd-operations`.
 4. Verify division isolation and each employee role.
 5. Verify customer, contact, property, roof system, lead, appointment, inspection, project, and task create flows.
 6. Test the owner only employee invitation function with a controlled test employee. Confirm a non owner receives a 403 response and owner role cannot be assigned.
-7. Verify private Storage upload and signed download using TRD and CRD folder prefixes, including a rejected oversized or unsupported file.
-8. Confirm no secret keys are present in the browser bundle.
-9. Confirm website lead intake remains unchanged and validate any future intake sync without altering source submissions.
-10. Review Supabase security and performance advisors.
-11. Generate and review a proper migration baseline from the live schema before further schema changes. Do not reset or recreate the database.
+7. Review the two existing website submissions, import them from the correct division, then repeat the import and confirm both are skipped as duplicates. Confirm the source `trd_records` remain unchanged.
+8. Verify private Storage upload and signed download using TRD and CRD folder prefixes, including a rejected oversized or unsupported file.
+9. Confirm no secret keys are present in the browser bundle.
+10. Confirm website lead intake remains unchanged and that the CRM import does not modify source submissions.
+11. Review Supabase security and performance advisors.
+12. Generate and review a proper migration baseline from the live schema before further schema changes. Do not reset or recreate the database.
 
 ## Explicit hold points
 
