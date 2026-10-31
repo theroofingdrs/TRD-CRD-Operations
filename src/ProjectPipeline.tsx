@@ -926,6 +926,8 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const projectsWithBudgets = filtered.filter(p=>projectBudgetSummary[p.id]!==undefined);
   const projectedProfit = projectsWithBudgets.reduce((sum,p)=>sum+(Number(p.contract_amount||p.initial_approved_amount||p.original_estimate_amount||0)+Number(p.supplements_approved_amount||0))-projectBudgetSummary[p.id],0);
   const recordedExpenses = filtered.reduce((sum,p)=>sum+(projectExpenseSummary[p.id]?.recorded||0),0);
+  const companyExpenseTotal = companyExpenses.reduce((sum,item)=>sum+Number(item.amount||0),0);
+  const unpaidCompanyBills = companyExpenses.reduce((sum,item)=>sum+Math.max(0,Number(item.amount||0)-Number(item.paid_amount||0)),0);
   const unpaidVendorBills = filtered.reduce((sum,p)=>sum+(projectExpenseSummary[p.id]?.unpaid||0),0);
   const materialsTotal = filtered.reduce((sum,p)=>sum+(projectExpenseSummary[p.id]?.materials||0),0);
   const laborTotal = filtered.reduce((sum,p)=>sum+(projectExpenseSummary[p.id]?.labor||0),0);
@@ -945,7 +947,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         <div><span>Active contract value</span><strong>{money(activeContractValue)}</strong></div>
         <div><span>Invoiced</span><strong>{money(invoicedTotal)}</strong></div><div><span>Collected revenue</span><strong>{money(collectedTotal)}</strong></div>
         <div><span>Collected this month</span><strong>{money(monthlyCollected)}</strong></div>
-        <div><span>Recorded expenses</span><strong>{money(recordedExpenses)}</strong></div><div><span>Materials</span><strong>{money(materialsTotal)}</strong></div><div><span>Labor</span><strong>{money(laborTotal)}</strong></div>
+        <div><span>Project expenses recorded</span><strong>{money(recordedExpenses)}</strong></div><div><span>Actual company expenses</span><strong>{money(companyExpenseTotal)}</strong></div><div><span>Unpaid company bills</span><strong>{money(unpaidCompanyBills)}</strong></div><div><span>Materials</span><strong>{money(materialsTotal)}</strong></div><div><span>Labor</span><strong>{money(laborTotal)}</strong></div>
         <div><span>Receivables</span><strong>{money(receivableTotal)}</strong></div>
         <div><span>Unpaid vendor bills</span><strong>{money(unpaidVendorBills)}</strong></div><div><span>Commission earned</span><strong>{money(commissionTotal)}</strong></div><div><span>Commission paid</span><strong>{money(commissionPaidTotal)}</strong></div><div><span>Commission remaining</span><strong>{money(commissionRemainingTotal)}</strong></div><div><span>Overhead allocated</span><strong>{money(overheadAllocatedTotal)}</strong></div>
         <div><span>Recorded gross profit</span><strong>{money(grossProfitTotal)}</strong></div><div><span>Recorded net profit</span><strong>{money(recordedNetProfit)}</strong></div>
@@ -969,6 +971,28 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
           <label>Stage order<input type="number" min="0" value={workflowEditOrder} onChange={e=>setWorkflowEditOrder(e.target.value)} /></label>
         </div><p className="muted">Core stages and dependencies stay in place. Administrators can rename stages and adjust their order, but cannot delete required stages.</p><button className="primary-button" disabled={busy}>Save workflow stage</button></form></>}
       {attention.length ? <div className="attention-list">{attention.slice(0,10).map(p=><button key={p.id} className="attention-item" onClick={()=>void openProject(p)}><strong>{p.project_name}</strong><span>{p.next_action_due_at && new Date(p.next_action_due_at).getTime()<Date.now() ? "Overdue next action" : "Stale project"} · {workflowLabel(p.workflow_stage || "unassigned", p.pipeline_type)}</span><small>{p.next_action || "Review project and set a next action"}</small></button>)}</div> : <p className="muted">No projects currently need attention.</p>}
+      <section className="panel company-expense-panel">
+        <div className="panel-heading subheading"><div><h3>Company expenses</h3><p className="muted">Actual division-level operating expenses and receipts. These remain separate from project overhead allocations to prevent double counting.</p></div>
+          {scope !== "combined" && canWriteFinancials && <button className="secondary-button compact" onClick={()=>setShowCompanyExpense(v=>!v)}>{showCompanyExpense?"Close":"Add company expense"}</button>}
+        </div>
+        {scope !== "combined" && canWriteFinancials && showCompanyExpense && <form className="inline-form" onSubmit={addCompanyExpense}>
+          <div className="form-grid">
+            <label>Category<select value={companyExpenseCategory} onChange={e=>setCompanyExpenseCategory(e.target.value)}><option value="overhead">General overhead</option><option value="rent">Rent</option><option value="utilities">Utilities</option><option value="insurance">Insurance</option><option value="vehicles">Vehicles</option><option value="fuel">Fuel</option><option value="marketing">Marketing</option><option value="software">Software</option><option value="office_supplies">Office supplies</option><option value="professional_services">Professional services</option><option value="taxes_fees">Taxes and fees</option><option value="other">Other</option></select></label>
+            <label>Amount ($)<input type="number" min="0.01" step="0.01" required value={companyExpenseAmount} onChange={e=>setCompanyExpenseAmount(e.target.value)} /></label>
+            <label>Expense date<input type="date" required value={companyExpenseDate} onChange={e=>setCompanyExpenseDate(e.target.value)} /></label>
+            <label>Vendor / payee<input value={companyExpenseVendor} onChange={e=>setCompanyExpenseVendor(e.target.value)} /></label>
+            <label className="wide">Description<input value={companyExpenseDescription} onChange={e=>setCompanyExpenseDescription(e.target.value)} /></label>
+            <label className="wide">Notes<input value={companyExpenseNotes} onChange={e=>setCompanyExpenseNotes(e.target.value)} /></label>
+            <label className="wide">Receipt attachment<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={e=>setCompanyExpenseReceipt(e.target.files?.[0]||null)} /></label>
+          </div>
+          <div className="form-actions"><button className="primary-button" disabled={busy}>Save company expense</button><button type="button" className="secondary-button" onClick={()=>setShowCompanyExpense(false)}>Cancel</button></div>
+        </form>}
+        {companyExpenses.length ? <div className="table-wrap"><table><thead><tr><th>Date</th>{scope==="combined"&&<th>Division</th>}<th>Category</th><th>Vendor</th><th>Description</th><th>Amount</th><th>Paid</th><th>Status</th><th>Receipt</th></tr></thead><tbody>{companyExpenses.map(item=><tr key={item.id}>
+          <td>{new Date(item.expense_date+"T12:00:00").toLocaleDateString()}</td>{scope==="combined"&&<td>{item.division_id}</td>}<td>{stageLabel(item.category)}</td><td>{item.vendor_payee||"—"}</td><td>{item.description||item.notes||"—"}</td><td>{money(item.amount)}</td><td>{money(item.paid_amount)}</td>
+          <td>{scope!=="combined"&&canWriteFinancials?<select value={item.payment_status} disabled={busy} onChange={e=>void updateCompanyExpense(item,e.target.value)}><option value="unpaid">Unpaid</option><option value="partially_paid">Partially paid</option><option value="paid">Paid</option></select>:stageLabel(item.payment_status)}</td>
+          <td>{item.receipt_file_id?<button className="secondary-button compact" onClick={()=>void openCompanyExpenseReceipt(item)}>View receipt</button>:"—"}</td>
+        </tr>)}</tbody></table></div> : <p className="muted">No company expenses recorded yet.</p>}
+      </section>
       <div className="pipeline-toolbar"><div className="segmented-filter">{availableDivisions.length > 1 && <><button className={scope==="division"?"active":""} onClick={()=>setScope("division")}>Current division</button><button className={scope==="combined"?"active":""} onClick={()=>{setScope("combined");setSelected(null);setShowCreate(false);setShowExpense(false);setShowSupplement(false);setSettingsOpen(false);}}>Combined TRD + CRD</button></>}</div><div className="segmented-filter"><button className={filter==="all"?"active":""} onClick={()=>setFilter("all")}>All</button><button className={filter==="retail"?"active":""} onClick={()=>setFilter("retail")}>Retail</button><button className={filter==="insurance"?"active":""} onClick={()=>setFilter("insurance")}>Insurance</button></div></div>
       {scope !== "combined" && showCreate && <form className="inline-form" onSubmit={createProject}><div className="form-grid">
         <label>Project name<input required value={projectName} onChange={e=>setProjectName(e.target.value)} placeholder="Customer or property project name" /></label>
