@@ -434,6 +434,48 @@ CREATE POLICY crm_project_transactions_update ON public.crm_project_transactions
   );
 GRANT SELECT, INSERT, UPDATE ON public.crm_project_transactions TO authenticated;
 
+
+CREATE TABLE public.crm_project_transaction_history (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  division_id text NOT NULL REFERENCES public.crm_divisions(id),
+  project_id uuid NOT NULL REFERENCES public.crm_projects(id),
+  transaction_id uuid NOT NULL REFERENCES public.crm_project_transactions(id),
+  changed_by uuid REFERENCES auth.users(id),
+  before_values jsonb NOT NULL,
+  after_values jsonb NOT NULL,
+  changed_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.crm_project_transaction_history ENABLE ROW LEVEL SECURITY;
+CREATE POLICY crm_project_transaction_history_read ON public.crm_project_transaction_history
+  FOR SELECT TO authenticated USING (app_private.has_division_financial_access(division_id, false));
+CREATE POLICY crm_project_transaction_history_insert ON public.crm_project_transaction_history
+  FOR INSERT TO authenticated WITH CHECK (
+    app_private.has_division_financial_access(division_id, true)
+    AND EXISTS (
+      SELECT 1 FROM public.crm_project_transactions t
+      WHERE t.id = crm_project_transaction_history.transaction_id
+        AND t.project_id = crm_project_transaction_history.project_id
+        AND t.division_id = crm_project_transaction_history.division_id
+    )
+  );
+GRANT SELECT, INSERT ON public.crm_project_transaction_history TO authenticated;
+
+CREATE OR REPLACE FUNCTION app_private.log_project_transaction_change()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path TO ''
+AS $function$
+BEGIN
+  INSERT INTO public.crm_project_transaction_history
+    (division_id, project_id, transaction_id, changed_by, before_values, after_values)
+  VALUES
+    (NEW.division_id, NEW.project_id, NEW.id, (SELECT auth.uid()), to_jsonb(OLD), to_jsonb(NEW));
+  RETURN NEW;
+END;
+$function$;
+REVOKE ALL ON FUNCTION app_private.log_project_transaction_change() FROM PUBLIC, anon, authenticated;
+CREATE TRIGGER crm_project_transactions_log_update
+  AFTER UPDATE ON public.crm_project_transactions
+  FOR EACH ROW EXECUTE FUNCTION app_private.log_project_transaction_change();
+
 CREATE OR REPLACE FUNCTION app_private.sync_project_transaction_totals()
 RETURNS trigger
 LANGUAGE plpgsql
