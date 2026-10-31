@@ -96,7 +96,7 @@ VALUES ('00000000-0000-0000-0000-000000000001', 'TRD', 'owner');
 
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
 SET ROLE authenticated;
-CREATE TEMP TABLE test_ids(project_id uuid, supplement_id uuid, expense_id uuid);
+CREATE TEMP TABLE test_ids(project_id uuid, supplement_id uuid, expense_id uuid, transaction_id uuid);
 
 INSERT INTO public.crm_projects
   (division_id, customer_id, property_id, project_name, pipeline_type, workflow_stage, created_by)
@@ -108,9 +108,13 @@ INSERT INTO pg_temp.test_ids(project_id) VALUES (:'test_project_id');
 
 INSERT INTO public.crm_project_transactions
   (division_id, project_id, transaction_type, amount, transaction_date, reference_number, entered_by)
-VALUES
-  ('TRD', :'test_project_id', 'invoice', 12000, CURRENT_DATE, 'INV-TEST-1', auth.uid()),
-  ('TRD', :'test_project_id', 'payment', 2500, CURRENT_DATE, 'PAY-TEST-1', auth.uid());
+VALUES ('TRD', :'test_project_id', 'invoice', 12000, CURRENT_DATE, 'INV-TEST-1', auth.uid());
+
+INSERT INTO public.crm_project_transactions
+  (division_id, project_id, transaction_type, amount, transaction_date, reference_number, entered_by)
+VALUES ('TRD', :'test_project_id', 'payment', 2500, CURRENT_DATE, 'PAY-TEST-1', auth.uid())
+RETURNING id AS test_transaction_id \\gset
+INSERT INTO pg_temp.test_ids(transaction_id) VALUES (:'test_transaction_id');
 
 DO $$
 BEGIN
@@ -126,6 +130,10 @@ SELECT public.crm_update_project_financials(
   :'test_project_id', 12000, 8000, 'contract_percent', 5, NULL, 'Test Salesperson',
   600, 100, 'contract_percent', 8, NULL, 960
 );
+
+UPDATE public.crm_project_transactions
+SET status = 'void', void_reason = 'Test correction'
+WHERE id = (SELECT transaction_id FROM pg_temp.test_ids);
 
 INSERT INTO public.crm_project_supplements
   (division_id, project_id, supplement_number, requested_amount, status, created_by)
@@ -184,6 +192,12 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.crm_project_cost_estimates WHERE project_id = (SELECT project_id FROM pg_temp.test_ids) AND category = 'materials') THEN
     RAISE EXCEPTION 'Cost estimate was not saved';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.crm_project_transaction_history WHERE transaction_id = (SELECT transaction_id FROM pg_temp.test_ids)) THEN
+    RAISE EXCEPTION 'Transaction history was not recorded';
+  END IF;
+  IF (SELECT collected_amount FROM public.crm_projects WHERE id = (SELECT project_id FROM pg_temp.test_ids)) <> 0 THEN
+    RAISE EXCEPTION 'Voided payment was not removed from collected total';
   END IF;
 END $$;
 
