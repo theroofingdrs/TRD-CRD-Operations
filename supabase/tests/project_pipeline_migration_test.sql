@@ -93,6 +93,7 @@ INSERT INTO public.crm_memberships(user_id, division_id, role)
 VALUES ('00000000-0000-0000-0000-000000000001', 'TRD', 'owner');
 
 \ir ../migrations/20261031140000_add_project_pipeline_and_job_costing.sql
+\ir ../migrations/20261031193000_complete_project_pipeline_stage_gates.sql
 
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
 SET ROLE authenticated;
@@ -207,6 +208,60 @@ BEGIN
     RAISE EXCEPTION 'Voided payment was not removed from collected total';
   END IF;
 END $$;
+
+\n-- Exercise purchase order, completion date, supplement approval, balance-close, and audit gates.
+DO $
+BEGIN
+  BEGIN
+    PERFORM public.crm_move_project_stage((SELECT project_id FROM pg_temp.test_ids), 'materials_ordered');
+    RAISE EXCEPTION 'Materials ordered gate did not reject a missing order reference';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = 'Materials ordered gate did not reject a missing order reference' THEN RAISE; END IF;
+  END;
+END $;
+
+SELECT public.crm_move_project_stage((SELECT project_id FROM pg_temp.test_ids), 'supplement_approved', 'Carrier approved the supplement');
+SELECT public.crm_move_project_stage((SELECT project_id FROM pg_temp.test_ids), 'materials_ordered', 'PO entered', 'PO-TEST-100');
+SELECT public.crm_move_project_stage((SELECT project_id FROM pg_temp.test_ids), 'work_completed', 'Completion confirmed', NULL, CURRENT_DATE);
+
+DO $
+BEGIN
+  IF (SELECT materials_order_reference FROM public.crm_projects WHERE id = (SELECT project_id FROM pg_temp.test_ids)) <> 'PO-TEST-100' THEN
+    RAISE EXCEPTION 'Materials order reference was not saved';
+  END IF;
+  IF (SELECT work_completed_at FROM public.crm_projects WHERE id = (SELECT project_id FROM pg_temp.test_ids)) <> CURRENT_DATE THEN
+    RAISE EXCEPTION 'Work completion date was not saved';
+  END IF;
+END $;
+
+SELECT public.crm_move_project_stage((SELECT project_id FROM pg_temp.test_ids), 'closed', 'Closing with documented owner override', NULL, NULL, true);
+
+DO $
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.crm_project_stage_history WHERE project_id = (SELECT project_id FROM pg_temp.test_ids) AND override_used = true AND note LIKE 'AUTHORIZED OVERRIDE%') THEN
+    RAISE EXCEPTION 'Authorized stage override was not audited';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.crm_project_stage_history WHERE project_id = (SELECT project_id FROM pg_temp.test_ids) AND to_pipeline_type = 'insurance') THEN
+    RAISE EXCEPTION 'Pipeline type history was not recorded';
+  END IF;
+END $;
+
+INSERT INTO public.crm_projects
+  (division_id, customer_id, property_id, project_name, pipeline_type, workflow_stage, created_by)
+VALUES
+  ('TRD', '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000021',
+   'Retail stage isolation test', 'retail', 'new_lead', auth.uid())
+RETURNING id AS retail_test_project \gset
+
+DO $
+BEGIN
+  BEGIN
+    PERFORM public.crm_move_project_stage(:'retail_test_project', 'claim_filed');
+    RAISE EXCEPTION 'Retail workflow accepted an insurance-only stage';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = 'Retail workflow accepted an insurance-only stage' THEN RAISE; END IF;
+  END;
+END $;
 
 RESET ROLE;
 SELECT 'project pipeline migration test passed' AS result;
