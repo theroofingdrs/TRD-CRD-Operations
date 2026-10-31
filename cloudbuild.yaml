@@ -1,0 +1,35 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg
+      - VITE_SUPABASE_URL=${_VITE_SUPABASE_URL}
+      - --build-arg
+      - VITE_SUPABASE_PUBLISHABLE_KEY=${_VITE_SUPABASE_PUBLISHABLE_KEY}
+      - --tag
+      - us-east1-docker.pkg.dev/$PROJECT_ID/trd-crd-operations/trd-crd-operations:$SHORT_SHA
+      - .
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - us-east1-docker.pkg.dev/$PROJECT_ID/trd-crd-operations/trd-crd-operations:$SHORT_SHA
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - trd-crd-operations
+      - --image
+      - us-east1-docker.pkg.dev/$PROJECT_ID/trd-crd-operations/trd-crd-operations:$SHORT_SHA
+      - --region
+      - us-east1
+      - --platform
+      - managed
+      - --quiet
+images:
+  - us-east1-docker.pkg.dev/$PROJECT_ID/trd-crd-operations/trd-crd-operations:$SHORT_SHA
+substitutions:
+  _VITE_SUPABASE_URL: https://gubvelngdohrfvqeeabu.supabase.co
+  _VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_o2OYRMRHrl8nz8mLdhX9Mg_Pk3jFz-K
+options:
+  logging: CLOUD_LOGGING_ONLY
