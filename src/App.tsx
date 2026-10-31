@@ -7,7 +7,7 @@ type Role = "owner" | "division_admin" | "office_manager" | "sales_rep" | "proje
 type Membership = { division_id: DivisionId; role: Role };
 type View = "overview" | "leads" | "customers" | "contacts" | "properties" | "claims" | "roofs" | "documents" | "appointments" | "inspections" | "projects" | "tasks" | "team";
 type Lead = { id: string; service_interest: string | null; status: string; priority: string; source: string | null; description: string | null; created_at: string };
-type Customer = { id: string; display_name: string; customer_type: string; email: string | null; phone: string | null; created_at: string };
+type Customer = { id: string; display_name: string; customer_type: string; email: string | null; phone: string | null; billing_address_line1?: string | null; billing_city?: string | null; billing_state?: string | null; billing_postal_code?: string | null; created_at: string };
 type GenericRow = Record<string, string | number | null>;
 
 const navigation: { id: View; label: string; icon: string }[] = [
@@ -598,6 +598,9 @@ function Properties({ division, canWrite }: { division: DivisionId; canWrite: bo
   const [state, setState] = useState("TX");
   const [postal, setPostal] = useState("");
   const [propertyType, setPropertyType] = useState("residential");
+  const [county, setCounty] = useState("");
+  const [parcelNumber, setParcelNumber] = useState("");
+  const [buildingName, setBuildingName] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -613,7 +616,7 @@ function Properties({ division, canWrite }: { division: DivisionId; canWrite: bo
     } else {
       const [customerResult, propertyResult] = await Promise.all([
         supabase.from("crm_customers").select("id,display_name").in("id", ids).order("display_name"),
-        supabase.from("crm_properties").select("id,address_line1,city,state,postal_code,property_type,created_at").in("customer_id", ids).order("created_at", {ascending:false})
+        supabase.from("crm_properties").select("id,address_line1,city,state,postal_code,property_type,county,parcel_number,building_name,created_at").in("customer_id", ids).order("created_at", {ascending:false})
       ]);
       if (customerResult.error) setMessage(customerResult.error.message);
       if (propertyResult.error) setMessage(propertyResult.error.message);
@@ -635,19 +638,22 @@ function Properties({ division, canWrite }: { division: DivisionId; canWrite: bo
       city: city.trim(),
       state: state.trim().toUpperCase(),
       postal_code: postal.trim() || null,
-      property_type: propertyType
+      property_type: propertyType,
+      county: county.trim() || null,
+      parcel_number: parcelNumber.trim() || null,
+      building_name: buildingName.trim() || null
     });
     if (error) setMessage(error.message);
     else {
-      setAddress(""); setCity(""); setPostal(""); setShowForm(false); setMessage("Property created.");
+      setAddress(""); setCity(""); setPostal(""); setCounty(""); setParcelNumber(""); setBuildingName(""); setShowForm(false); setMessage("Property created.");
       await load();
     }
     setSaving(false);
   }
   return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">PROPERTY RECORDS</p><h2>Properties and locations</h2><p className="muted">Each property is linked to a customer account and can hold multiple roof records.</p></div>{canWrite && customers.length > 0 && <button className="primary-button compact" onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "+ Add property"}</button>}</div>
-    {showForm && <form className="inline-form" onSubmit={createProperty}><div className="form-grid"><label>Customer account<select required value={customerId} onChange={(event) => setCustomerId(event.target.value)}>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.display_name}</option>)}</select></label><label>Property type<select value={propertyType} onChange={(event) => setPropertyType(event.target.value)}><option value="residential">Residential</option><option value="commercial">Commercial</option><option value="multifamily">Multifamily</option><option value="industrial">Industrial</option><option value="institutional">Church / School / Institutional</option></select></label><label className="wide">Street address<input required value={address} onChange={(event) => setAddress(event.target.value)} /></label><label>City<input required value={city} onChange={(event) => setCity(event.target.value)} /></label><label>State<input required value={state} onChange={(event) => setState(event.target.value)} maxLength={2} /></label><label>ZIP code<input value={postal} onChange={(event) => setPostal(event.target.value)} /></label></div><button className="primary-button" disabled={saving || !customerId}>{saving ? "Saving..." : "Save property"}</button></form>}
+    {showForm && <form className="inline-form" onSubmit={createProperty}><div className="form-grid"><label>Customer account<select required value={customerId} onChange={(event) => setCustomerId(event.target.value)}>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.display_name}</option>)}</select></label><label>Property type<select value={propertyType} onChange={(event) => setPropertyType(event.target.value)}><option value="residential">Residential</option><option value="commercial">Commercial</option><option value="multifamily">Multifamily</option><option value="industrial">Industrial</option><option value="institutional">Church / School / Institutional</option></select></label><label className="wide">Street address<input required value={address} onChange={(event) => setAddress(event.target.value)} /></label><label>City<input required value={city} onChange={(event) => setCity(event.target.value)} /></label><label>State<input required value={state} onChange={(event) => setState(event.target.value)} maxLength={2} /></label><label>ZIP code<input value={postal} onChange={(event) => setPostal(event.target.value)} /></label><label>County<input value={county} onChange={(event) => setCounty(event.target.value)} /></label><label>Parcel / account number<input value={parcelNumber} onChange={(event) => setParcelNumber(event.target.value)} /></label><label className="wide">Building or property name<input value={buildingName} onChange={(event) => setBuildingName(event.target.value)} placeholder="Building, campus, or property name" /></label></div><button className="primary-button" disabled={saving || !customerId}>{saving ? "Saving..." : "Save property"}</button></form>}
     {message && <p className="inline-message">{message}</p>}
-    {loading ? <div className="empty-state">Loading properties...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Street address</th><th>City</th><th>State</th><th>ZIP</th><th>Type</th><th>Added</th></tr></thead><tbody>{rows.map((row) => <tr key={String(row.id)}><td><strong>{String(row.address_line1 || "Property")}</strong></td><td>{String(row.city || "—")}</td><td>{String(row.state || "—")}</td><td>{String(row.postal_code || "—")}</td><td>{String(row.property_type || "—")}</td><td>{formatValue("created_at",row.created_at)}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No properties yet</strong><span>Add a customer first, then create the property record here.</span>{canWrite && customers.length > 0 && <button className="secondary-button" onClick={() => setShowForm(true)}>Add first property</button>}</div>}
+    {loading ? <div className="empty-state">Loading properties...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Street address</th><th>City</th><th>State</th><th>ZIP</th><th>Type</th><th>County</th><th>Parcel / building</th><th>Added</th></tr></thead><tbody>{rows.map((row) => <tr key={String(row.id)}><td><strong>{String(row.address_line1 || "Property")}</strong></td><td>{String(row.city || "—")}</td><td>{String(row.state || "—")}</td><td>{String(row.postal_code || "—")}</td><td>{String(row.property_type || "—")}</td><td>{String(row.county || "—")}</td><td>{[row.parcel_number,row.building_name].filter(Boolean).join(" · ") || "—"}</td><td>{formatValue("created_at",row.created_at)}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No properties yet</strong><span>Add a customer first, then create the property record here.</span>{canWrite && customers.length > 0 && <button className="secondary-button" onClick={() => setShowForm(true)}>Add first property</button>}</div>}
   </section></div>;
 }
 
