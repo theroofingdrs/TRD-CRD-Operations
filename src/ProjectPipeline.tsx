@@ -327,6 +327,12 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     event.preventDefault();
     if (!supabase || !canWriteFinancials || !selected) return;
     setBusy(true); setError("");
+    const expenseValue = cents(expenseAmount);
+    let duplicateQuery = supabase.from("crm_project_expenses").select("id").eq("project_id", selected.id).eq("category", expenseCategory).eq("amount", expenseValue).eq("expense_date", expenseDate);
+    duplicateQuery = vendor.trim() ? duplicateQuery.eq("vendor_payee", vendor.trim()) : duplicateQuery.is("vendor_payee", null);
+    const { data: possibleDuplicates, error: duplicateError } = await duplicateQuery.limit(1);
+    if (duplicateError) { setError(duplicateError.message); setBusy(false); return; }
+    if (possibleDuplicates?.length && !window.confirm("A matching expense already exists for this project, date, category, amount, and vendor. Add another anyway?")) { setBusy(false); return; }
     if (receiptFile && (!["image/jpeg","image/png","image/webp","application/pdf"].includes(receiptFile.type) || receiptFile.size > 15 * 1024 * 1024)) {
       setError("Receipt must be JPG, PNG, WebP, or PDF and no larger than 15 MB."); setBusy(false); return;
     }
@@ -608,6 +614,23 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const stageFor = (project: Project) => project.pipeline_type ? (project.workflow_stage || "new_lead") : "unassigned";
   const daysInStage = (project: Project) => Math.max(0, Math.floor((Date.now() - new Date(stageLastChanged[project.id] || project.created_at).getTime()) / 86400000));
   const addressFor = (id: string) => { const p = properties.find(x => x.id === id); return p ? [p.address_line1,p.city,p.state].filter(Boolean).join(", ") : "Property"; };
+  function exportProjectsCsv() {
+    const headers = ["Project","Division","Customer","Property","Workflow","Stage","Original Estimate","Contract or Approved Value","Invoiced","Collected","Receivable","Recorded Direct Costs","Commission Earned","Overhead Allocated","Next Action","Next Action Due","Project Manager"];
+    const rows = filtered.map(project => {
+      const value = Number(project.contract_amount||project.initial_approved_amount||0)+Number(project.supplements_approved_amount||0);
+      const direct = projectExpenseSummary[project.id]?.direct || 0;
+      const cell = (value: unknown) => '"' + String(value ?? "").replace(/"/g,'""') + '"';
+      return [project.project_name,project.division_id,customerNames[project.customer_id]||"",addressFor(project.property_id),project.pipeline_type||"",project.workflow_stage||"",project.original_estimate_amount||"",value,project.invoiced_amount||0,project.collected_amount||0,Math.max(0,Number(project.invoiced_amount||0)-Number(project.collected_amount||0)),direct,project.commission_earned_amount||0,project.overhead_allocated_amount||0,project.next_action||"",project.next_action_due_at||"",project.project_manager_id?staffNames[project.project_manager_id]||"Assigned":"Unassigned"].map(cell).join(",");
+    });
+    const csv = [headers.map(h=>'"'+h.replace(/"/g,'""')+'"').join(","),...rows].join("\r
+");
+    const blob = new Blob([csv],{type:"text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url; link.download = "project-pipeline-" + division.toLowerCase() + ".csv";
+    document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+  }
+
   const renderProjectCard = (project: Project) => {
     const stages = project.pipeline_type === "insurance" ? sortedStages("insurance") : sortedStages("retail");
     return <article className="pipeline-card" key={project.id} draggable={scope !== "combined" && canWrite && !!project.pipeline_type} onDragStart={(event: DragEvent<HTMLElement>) => { setDraggedProjectId(project.id); event.dataTransfer.setData("text/project", project.id); event.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => setDraggedProjectId(null)}>
@@ -644,7 +667,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
 
   return <div className="content-stack project-pipeline">
     <section className="panel">
-      <div className="panel-heading"><div><p className="eyebrow">{scope === "combined" ? "TRD + CRD" : division} PROJECT OPERATIONS</p><h2>Project pipeline</h2><p className="muted">Track each job from lead through completion. Customers and properties remain in the existing CRM records.</p></div><div className="panel-actions"><span className="record-count">{filtered.length} projects</span>{scope !== "combined" && canWrite && <button className="primary-button compact" onClick={() => setShowCreate(v => !v)}>+ New project</button>}</div></div>
+      <div className="panel-heading"><div><p className="eyebrow">{scope === "combined" ? "TRD + CRD" : division} PROJECT OPERATIONS</p><h2>Project pipeline</h2><p className="muted">Track each job from lead through completion. Customers and properties remain in the existing CRM records.</p></div><div className="panel-actions"><button className="secondary-button compact" onClick={exportProjectsCsv}>Export CSV</button><span className="record-count">{filtered.length} projects</span>{scope !== "combined" && canWrite && <button className="primary-button compact" onClick={() => setShowCreate(v => !v)}>+ New project</button>}</div></div>
       <div className="financial-summary pipeline-overview">
         <div><span>Active contract value</span><strong>{money(activeContractValue)}</strong></div>
         <div><span>Collected revenue</span><strong>{money(collectedTotal)}</strong></div>
@@ -677,7 +700,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       {scope !== "combined" && showCreate && <form className="inline-form" onSubmit={createProject}><div className="form-grid">
         <label>Project name<input required value={projectName} onChange={e=>setProjectName(e.target.value)} placeholder="Customer or property project name" /></label>
         <label>Project category<select value={projectType} onChange={e=>setProjectType(e.target.value)}><option value="roof_replacement">Roof replacement</option><option value="repair">Repair</option><option value="restoration">Restoration</option><option value="coating">Roof coating</option><option value="maintenance">Maintenance</option><option value="other">Other</option></select></label>
-        <label>Workflow<select value={pipelineType} onChange={e=>{const v=e.target.value as "retail"|"insurance";setPipelineType(v);setStage("new_lead");}}><option value="retail">Retail</option><option value="insurance">Insurance</option></select></label>
+        <div className="wide"><span className="form-label">Project workflow</span><div className="workflow-choice"><label><input type="radio" name="pipelineType" value="retail" required checked={pipelineType==="retail"} onChange={()=>{setPipelineType("retail");setStage("new_lead");}} /> Retail</label><label><input type="radio" name="pipelineType" value="insurance" required checked={pipelineType==="insurance"} onChange={()=>{setPipelineType("insurance");setStage("new_lead");}} /> Insurance</label></div></div>
         <label>Starting stage<select value={stage} onChange={e=>setStage(e.target.value)}>{(pipelineType==="retail"?sortedStages("retail"):sortedStages("insurance")).map(x=><option key={x} value={x}>{workflowLabel(x,pipelineType)}</option>)}</select></label>
         <label className="wide">Project manager<select value={projectManagerId} onChange={e=>setProjectManagerId(e.target.value)}><option value="">Unassigned</option>{teamMembers.filter(member=>member.role!=="read_only").map(member=><option key={member.user_id} value={member.user_id}>{member.display_name} · {stageLabel(member.role)}</option>)}</select></label>
         <label className="wide">Property<select required value={propertyId} onChange={e=>setPropertyId(e.target.value)}><option value="">Select property</option>{properties.map(p=><option key={p.id} value={p.id}>{p.address_line1}, {p.city}, {p.state} · {customerNames[p.customer_id] || "Customer"}</option>)}</select></label>
