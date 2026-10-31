@@ -90,6 +90,10 @@ function App() {
   const isOwner = memberships.some((item) => item.role === "owner");
   const canWriteLeads = currentMembership ? ["owner","division_admin","office_manager","sales_rep"].includes(currentMembership.role) : false;
   const canWriteCustomers = currentMembership ? ["owner","division_admin","office_manager","sales_rep","project_manager"].includes(currentMembership.role) : false;
+  const canWriteAppointments = currentMembership ? ["owner","division_admin","office_manager","sales_rep","project_manager","field_inspector"].includes(currentMembership.role) : false;
+  const canWriteInspections = currentMembership ? ["owner","division_admin","office_manager","project_manager","field_inspector","production_manager"].includes(currentMembership.role) : false;
+  const canWriteProjects = currentMembership ? ["owner","division_admin","office_manager","project_manager"].includes(currentMembership.role) : false;
+  const canWriteTasks = currentMembership ? ["owner","division_admin","office_manager","sales_rep","project_manager","production_manager"].includes(currentMembership.role) : false;
 
   async function sendSignInLink(event: FormEvent) {
     event.preventDefault();
@@ -136,10 +140,10 @@ function App() {
       {view === "leads" && <Leads division={division} userId={session.user.id} canWrite={canWriteLeads} />}
       {view === "customers" && <Customers division={division} userId={session.user.id} canWrite={canWriteCustomers} />}
       {view === "properties" && <Properties division={division} canWrite={canWriteCustomers} />}
-      {view === "appointments" && <DataList division={division} view="appointments" />}
-      {view === "inspections" && <DataList division={division} view="inspections" />}
-      {view === "projects" && <DataList division={division} view="projects" />}
-      {view === "tasks" && <DataList division={division} view="tasks" />}
+      {view === "appointments" && <DataList division={division} view="appointments" userId={session.user.id} canWrite={canWriteAppointments} />}
+      {view === "inspections" && <DataList division={division} view="inspections" userId={session.user.id} canWrite={canWriteInspections} />}
+      {view === "projects" && <DataList division={division} view="projects" userId={session.user.id} canWrite={canWriteProjects} />}
+      {view === "tasks" && <DataList division={division} view="tasks" userId={session.user.id} canWrite={canWriteTasks} />}
       {view === "team" && isOwner && <Team />}
     </main>
   </div>;
@@ -345,11 +349,23 @@ const listConfig: Record<Exclude<View,"overview"|"leads"|"customers"|"team">, { 
   tasks: { table: "crm_tasks", columns: "id,title,status,priority,due_at,assigned_to", order: "created_at", title: "Team tasks", labels: ["Task","Status","Priority","Due date","Assigned employee"] }
 };
 
-function DataList({ division, view }: { division: DivisionId; view: Exclude<View,"overview"|"leads"|"customers"|"team"> }) {
+function DataList({ division, view, userId, canWrite }: { division: DivisionId; view: Exclude<View,"overview"|"leads"|"customers"|"team"|"properties">; userId: string; canWrite: boolean }) {
   const config = listConfig[view];
   const [rows, setRows] = useState<GenericRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState("normal");
+  const [dueAt, setDueAt] = useState("");
+  const [appointmentType, setAppointmentType] = useState("inspection");
+  const [startsAt, setStartsAt] = useState("");
+  const [projectType, setProjectType] = useState("roof_replacement");
+  const [targetDate, setTargetDate] = useState("");
+  const [propertyId, setPropertyId] = useState("");
+  const [propertyOptions, setPropertyOptions] = useState<{id:string;customer_id:string;address_line1:string;city:string;state:string}[]>([]);
+  const [saving, setSaving] = useState(false);
   const load = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
@@ -373,11 +389,55 @@ function DataList({ division, view }: { division: DivisionId; view: Exclude<View
     }
     setError(errorMessage);
     setRows(data);
+    if (view === "projects" || view === "inspections") {
+      const { data: links } = await supabase.from("crm_customer_divisions").select("customer_id").eq("division_id", division);
+      const customerIds = (links ?? []).map((item: {customer_id:string}) => item.customer_id);
+      if (customerIds.length) {
+        const { data: properties } = await supabase.from("crm_properties").select("id,customer_id,address_line1,city,state").in("customer_id", customerIds).order("address_line1");
+        const options = properties ?? [];
+        setPropertyOptions(options);
+        if (!propertyId && options.length) setPropertyId(options[0].id);
+      } else setPropertyOptions([]);
+    }
     setLoading(false);
-  }, [config, division, view]);
+  }, [config, division, view, propertyId]);
   useEffect(() => { void load(); }, [load]);
   const fields = useMemo(() => config.columns.split(",").filter((column) => !["id","division_id","property_id","assigned_to","project_manager_id"].includes(column)), [config.columns]);
-  return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">{division} OPERATIONS</p><h2>{config.title}</h2></div><span className="record-count">{rows.length} records</span></div>{error && <p className="inline-message">{error}</p>}{loading ? <div className="empty-state">Loading records...</div> : rows.length ? <div className="table-wrap"><table><thead><tr>{fields.map((field) => <th key={field}>{field.replaceAll("_"," ")}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={String(row.id)}>{fields.map((field) => <td key={field}>{formatValue(field, row[field])}</td>)}</tr>)}</tbody></table></div> : <div className="empty-state"><strong>This workspace is ready</strong><span>No {config.title.toLowerCase()} have been entered for this division yet.</span></div>}</section></div>;
+  async function createRecord(event: FormEvent) {
+    event.preventDefault();
+    if (!supabase) return;
+    setSaving(true);
+    setError("");
+    let payload: Record<string, unknown>;
+    let table = config.table;
+    if (view === "appointments") {
+      payload = { division_id: division, appointment_type: appointmentType, starts_at: new Date(startsAt).toISOString(), internal_notes: description || null, created_by: userId };
+    } else if (view === "tasks") {
+      payload = { division_id: division, title: title.trim(), description: description || null, priority, due_at: dueAt ? new Date(dueAt).toISOString() : null, created_by: userId };
+    } else if (view === "projects") {
+      const property = propertyOptions.find((item) => item.id === propertyId);
+      if (!property) { setError("Add a property before creating a project."); setSaving(false); return; }
+      payload = { division_id: division, project_name: title.trim(), project_type: projectType, property_id: property.id, customer_id: property.customer_id, target_completion_date: targetDate || null, scope_of_work: description || null, created_by: userId };
+    } else {
+      if (!propertyId) { setError("Add a property before creating an inspection."); setSaving(false); return; }
+      payload = { division_id: division, property_id: propertyId, inspector_id: userId, summary: description || null, status: "draft" };
+    }
+    const { error: insertError } = await supabase.from(table).insert(payload);
+    if (insertError) setError(insertError.message);
+    else {
+      setShowForm(false); setTitle(""); setDescription(""); setDueAt(""); setStartsAt(""); setTargetDate("");
+      await load();
+    }
+    setSaving(false);
+  }
+  return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">{division} OPERATIONS</p><h2>{config.title}</h2></div><div className="panel-actions"><span className="record-count">{rows.length} records</span>{canWrite && <button className="primary-button compact" onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "+ Add record"}</button>}</div></div>
+    {showForm && <form className="inline-form" onSubmit={createRecord}><div className="form-grid">
+      {view === "appointments" && <><label>Appointment type<select value={appointmentType} onChange={(event) => setAppointmentType(event.target.value)}><option value="inspection">Roof inspection</option><option value="estimate">Estimate appointment</option><option value="repair">Repair service</option><option value="maintenance">Maintenance visit</option><option value="project_meeting">Project meeting</option></select></label><label>Date and time<input required type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /></label><label className="wide">Notes<textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} /></label></>}
+      {view === "tasks" && <><label>Task title<input required value={title} onChange={(event) => setTitle(event.target.value)} /></label><label>Priority<select value={priority} onChange={(event) => setPriority(event.target.value)}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label>Due date<input type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.target.value)} /></label><label className="wide">Details<textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} /></label></>}
+      {view === "projects" && <><label>Project name<input required value={title} onChange={(event) => setTitle(event.target.value)} /></label><label>Project type<select value={projectType} onChange={(event) => setProjectType(event.target.value)}><option value="roof_replacement">Roof replacement</option><option value="repair">Repair</option><option value="restoration">Roof restoration</option><option value="coating">Roof coating</option><option value="maintenance">Maintenance</option><option value="other">Other</option></select></label><label className="wide">Property<select required value={propertyId} onChange={(event) => setPropertyId(event.target.value)}><option value="">Select a property</option>{propertyOptions.map((item) => <option key={item.id} value={item.id}>{item.address_line1}, {item.city}, {item.state}</option>)}</select></label><label>Target completion<input type="date" value={targetDate} onChange={(event) => setTargetDate(event.target.value)} /></label><label className="wide">Scope of work<textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} /></label></>}
+      {view === "inspections" && <><label className="wide">Property<select required value={propertyId} onChange={(event) => setPropertyId(event.target.value)}><option value="">Select a property</option>{propertyOptions.map((item) => <option key={item.id} value={item.id}>{item.address_line1}, {item.city}, {item.state}</option>)}</select></label><label className="wide">Initial inspection notes<textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Add observations after field review. AI generated notes must be human verified." /></label></>}
+    </div><button className="primary-button" disabled={saving}>{saving ? "Saving..." : "Save record"}</button></form>}
+    {error && <p className="inline-message">{error}</p>}{loading ? <div className="empty-state">Loading records...</div> : rows.length ? <div className="table-wrap"><table><thead><tr>{fields.map((field) => <th key={field}>{field.replaceAll("_"," ")}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={String(row.id)}>{fields.map((field) => <td key={field}>{formatValue(field, row[field])}</td>)}</tr>)}</tbody></table></div> : <div className="empty-state"><strong>This workspace is ready</strong><span>No {config.title.toLowerCase()} have been entered for this division yet.</span>{canWrite && <button className="secondary-button" onClick={() => setShowForm(true)}>Add first record</button>}</div>}</section></div>;
 }
 
 function formatValue(field: string, value: string | number | null | undefined) {
