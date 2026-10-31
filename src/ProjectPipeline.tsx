@@ -11,7 +11,8 @@ type Project = {
   next_action: string | null; next_action_due_at: string | null; updated_at: string; commission_method: string | null; commission_rate: number | null; commission_fixed_amount: number | null; commission_earned_amount: number; commission_paid_amount: number; commission_salesperson_name: string | null; overhead_method: string | null; overhead_rate: number | null; overhead_fixed_amount: number | null; overhead_allocated_amount: number; created_at: string;
 };
 type Expense = { id: string; category: string; amount: number; paid_amount: number; payment_status: string; expense_date: string; vendor_payee: string | null; description: string | null; receipt_file_id: string | null };
-type Transaction = { id: string; transaction_type: "invoice" | "payment"; amount: number; transaction_date: string; reference_number: string | null; payment_method: string | null; notes: string | null; status: string };\ntype Supplement = { id: string; supplement_number: number; status: string; requested_amount: number; approved_amount: number; submitted_at: string | null; response_at: string | null; carrier_response: string | null; notes: string | null };
+type Transaction = { id: string; transaction_type: "invoice" | "payment"; amount: number; transaction_date: string; reference_number: string | null; payment_method: string | null; notes: string | null; status: string };
+type Supplement = { id: string; supplement_number: number; status: string; requested_amount: number; approved_amount: number; submitted_at: string | null; response_at: string | null; carrier_response: string | null; notes: string | null };
 
 const retailStages = [
   "new_lead", "contacted", "inspection_scheduled", "inspection_completed", "estimate_prepared",
@@ -34,12 +35,14 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [customerNames, setCustomerNames] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Project | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [supplements, setSupplements] = useState<Supplement[]>([]);\n  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [supplements, setSupplements] = useState<Supplement[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [showExpense, setShowExpense] = useState(false);
   const [showSupplement, setShowSupplement] = useState(false);
-  const [divisionExpenseTotal, setDivisionExpenseTotal] = useState(0);\n  const [monthlyCollected, setMonthlyCollected] = useState(0);
+  const [divisionExpenseTotal, setDivisionExpenseTotal] = useState(0);
+  const [monthlyCollected, setMonthlyCollected] = useState(0);
   const [staleDays, setStaleDays] = useState(7);
   const [stageLastChanged, setStageLastChanged] = useState<Record<string, string>>({});
   const [projectName, setProjectName] = useState("");
@@ -95,7 +98,8 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     if (projectResult.error) setError(projectResult.error.message);
     setProjects((projectResult.data ?? []) as Project[]);
     if (expenseResult.error) setError(expenseResult.error.message);
-    setDivisionExpenseTotal((expenseResult.data ?? []).reduce((sum: number, item: { amount: number }) => sum + Math.round(Number(item.amount || 0) * 100), 0) / 100);\n    setMonthlyCollected((transactionResult.data ?? []).reduce((sum: number, item: { amount: number }) => sum + Math.round(Number(item.amount || 0) * 100), 0) / 100);
+    setDivisionExpenseTotal((expenseResult.data ?? []).reduce((sum: number, item: { amount: number }) => sum + Math.round(Number(item.amount || 0) * 100), 0) / 100);
+    setMonthlyCollected((transactionResult.data ?? []).reduce((sum: number, item: { amount: number }) => sum + Math.round(Number(item.amount || 0) * 100), 0) / 100);
     if (settingsResult.data?.stale_stage_days) setStaleDays(settingsResult.data.stale_stage_days);
     const projectIds = (projectResult.data ?? []).map((p: any) => p.id);
     if (projectIds.length) {
@@ -299,9 +303,6 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     if (!supabase || !selected || !canWriteFinancials) return;
     const amount = cents(transactionAmount);
     if (amount <= 0) { setError("Enter an amount greater than zero."); return; }
-    if (transactionType === "payment" && amount + Number(selected.collected_amount || 0) > Number(selected.invoiced_amount || 0)) {
-      setError("Recorded payments cannot exceed the invoiced balance."); return;
-    }
     setBusy(true); setError("");
     const { error: insertError } = await supabase.from("crm_project_transactions").insert({
       division_id: division, project_id: selected.id, transaction_type: transactionType,
@@ -398,7 +399,8 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       <div className="panel-heading"><div><p className="eyebrow">{division} PROJECT OPERATIONS</p><h2>Project pipeline</h2><p className="muted">Track each job from lead through completion. Customers and properties remain in the existing CRM records.</p></div><div className="panel-actions"><span className="record-count">{filtered.length} projects</span>{canWrite && <button className="primary-button compact" onClick={() => setShowCreate(v => !v)}>+ New project</button>}</div></div>
       <div className="financial-summary pipeline-overview">
         <div><span>Active contract value</span><strong>{money(activeContractValue)}</strong></div>
-        <div><span>Collected revenue</span><strong>{money(collectedTotal)}</strong></div>\n        <div><span>Collected this month</span><strong>{money(monthlyCollected)}</strong></div>
+        <div><span>Collected revenue</span><strong>{money(collectedTotal)}</strong></div>
+        <div><span>Collected this month</span><strong>{money(monthlyCollected)}</strong></div>
         <div><span>Recorded expenses</span><strong>{money(divisionExpenseTotal)}</strong></div>
         <div><span>Needs attention</span><strong>{attention.length}</strong></div>
       </div>
@@ -439,7 +441,8 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       <div className="panel-heading"><div><p className="eyebrow">PROJECT DETAIL</p><h2>{selected.project_name}</h2><p className="muted">{addressFor(selected.property_id)} · {customerNames[selected.customer_id] || "Customer"}</p></div><button className="secondary-button compact" onClick={()=>setSelected(null)}>Close</button></div>
       <div className="financial-summary">
         <div><span>Contract / approved value</span><strong>{money(contractValue)}</strong></div>
-        <div><span>Invoiced</span><strong>{money(selected.invoiced_amount)}</strong></div>\n        <div><span>Receivable</span><strong>{money(Number(selected.invoiced_amount||0)-Number(selected.collected_amount||0))}</strong></div>
+        <div><span>Invoiced</span><strong>{money(selected.invoiced_amount)}</strong></div>
+        <div><span>Receivable</span><strong>{money(Math.max(0,Number(selected.invoiced_amount||0)-Number(selected.collected_amount||0)))}</strong></div><div><span>Unapplied payments</span><strong>{money(Math.max(0,Number(selected.collected_amount||0)-Number(selected.invoiced_amount||0)))}</strong></div>
         <div><span>Collected</span><strong>{money(selected.collected_amount)}</strong></div>
         <div><span>Recorded expenses</span><strong>{money(totalExpenses)}</strong></div>
         <div><span>Direct costs</span><strong>{money(directExpenses)}</strong></div>
