@@ -3,8 +3,7 @@
 -- Apply only after the migration has been reviewed and tested. This file is not applied to production.
 
 ALTER TABLE public.crm_projects
-  ADD COLUMN IF NOT EXISTS pipeline_type text
-    CHECK (pipeline_type IS NULL OR pipeline_type IN ('retail','insurance')),
+  ADD COLUMN IF NOT EXISTS pipeline_type text,
   ADD COLUMN IF NOT EXISTS workflow_stage text,
   ADD COLUMN IF NOT EXISTS next_action text,
   ADD COLUMN IF NOT EXISTS next_action_due_at timestamptz,
