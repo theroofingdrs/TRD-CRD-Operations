@@ -127,7 +127,7 @@ VALUES
    'TRD/' || :'test_project_id' || '/payment-receipt-test.pdf','payment-receipt-test.pdf',
    'application/pdf',100,auth.uid(),
    jsonb_build_object('document_category','payment_receipt','transaction_id',:'test_transaction_id'))
-RETURNING id AS test_transaction_file_id \gset;
+RETURNING id AS test_transaction_file_id \gset
 UPDATE public.crm_project_transactions
 SET attachment_file_id = :'test_transaction_file_id'
 WHERE id = :'test_transaction_id';
