@@ -52,7 +52,8 @@ function App() {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    // Do not unmount the active workspace while refreshing membership metadata.
+    // The initial app load already starts with loading=true.
     setWorkspaceError("");
     const [membershipResult, profileResult] = await Promise.all([
       supabase.from("crm_memberships").select("division_id,role").eq("user_id", activeSession.user.id).eq("active", true),
