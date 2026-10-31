@@ -137,7 +137,8 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       supabase.from("crm_division_financial_settings").select("stale_stage_days,default_commission_method,default_commission_rate,default_commission_fixed_amount,default_overhead_method,default_overhead_rate,default_overhead_fixed_amount").eq("division_id", division).maybeSingle(),
       supabase.from("crm_project_transactions").select("amount,transaction_date").in("division_id", visibleDivisions).eq("transaction_type", "payment").eq("status", "recorded").gte("transaction_date", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0,10)),
       supabase.from("crm_memberships").select("user_id,role").in("division_id", visibleDivisions).eq("active", true),
-      supabase.from("crm_workflow_stage_settings").select("pipeline_type,stage_key,display_label,sort_order").eq("division_id", division)
+      supabase.from("crm_workflow_stage_settings").select("pipeline_type,stage_key,display_label,sort_order").eq("division_id", division),
+      supabase.from("crm_project_cost_estimates").select("project_id,estimated_amount").in("division_id", visibleDivisions)
     ]);
     if (projectResult.error) setError(projectResult.error.message);
     setProjects((projectResult.data ?? []) as Project[]);
