@@ -81,7 +81,7 @@ BEGIN
   IF NOT FOUND OR NOT app_private.has_division_resource_access(project_row.division_id, 'projects', true) THEN
     RAISE EXCEPTION 'Not authorized to update this project';
   END IF;
-  IF project_row.pipeline_type NOT IN ('retail','insurance') THEN
+  IF project_row.pipeline_type IS NULL OR project_row.pipeline_type NOT IN ('retail','insurance') THEN
     RAISE EXCEPTION 'Assign a Retail or Insurance workflow before moving this project';
   END IF;
   IF p_next_stage NOT IN (
@@ -91,14 +91,15 @@ BEGIN
     'supplement_submitted','supplement_under_review','supplement_approved',
     'supplement_partially_approved','supplement_denied','contract_signed','deposit_pending',
     'deposit_received','materials_ordered','materials_received','scheduled','in_progress',
-    'work_completed','final_inspection','final_invoice_payment_pending','closed'
+    'work_completed','final_inspection','final_invoice_payment_pending','closed',
+    'adjuster_meeting','awaiting_carrier','supplement_review','invoiced'
   ) THEN
     RAISE EXCEPTION 'Unknown project workflow stage';
   END IF;
   IF project_row.pipeline_type = 'retail' AND p_next_stage IN (
     'scope_prepared','claim_filed','adjuster_meeting_scheduled','adjuster_met_awaiting_approval',
     'supplement_prepared','supplement_submitted','supplement_under_review','supplement_approved',
-    'supplement_partially_approved','supplement_denied'
+    'supplement_partially_approved','supplement_denied','adjuster_meeting','awaiting_carrier','supplement_review'
   ) THEN
     RAISE EXCEPTION 'Insurance stages cannot be used on a Retail project';
   END IF;
