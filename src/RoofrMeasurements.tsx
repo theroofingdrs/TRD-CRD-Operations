@@ -73,7 +73,7 @@ async function extractPdfMeasurements(file: File): Promise<{ text: string; measu
     if (item.area_sqft > 0) measurements.push({ label: "Area at " + item.pitch + " pitch", value: item.area_sqft, unit: "SF", source_label: "Pitch " + item.pitch + " Area (sqft)" });
     if (item.squares > 0) measurements.push({ label: "Squares at " + item.pitch + " pitch", value: item.squares, unit: "SQ", source_label: "Pitch " + item.pitch + " Squares" });
   });
-  return { text, measurements, predominantPitch, pitchDistribution };  return { text, measurements };
+  return { text, measurements, predominantPitch, pitchDistribution };
 }
 
 export default function RoofrMeasurements({ division, userId, properties, canWrite }: {
