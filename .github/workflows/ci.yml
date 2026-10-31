@@ -38,7 +38,7 @@ jobs:
             fi
             sleep 1
           done
-          docker exec --interactive --workdir /workspace/supabase/tests project-pipeline-test-db psql --username postgres --dbname postgres --file /workspace/supabase/tests/project_pipeline_migration_test.sql
+          docker exec --interactive --workdir /workspace/supabase/tests project-pipeline-test-db psql --host 127.0.0.1 --username postgres --dbname postgres --file /workspace/supabase/tests/project_pipeline_migration_test.sql
       - name: Set up Deno
         uses: denoland/setup-deno@v2
       - name: Type check Supabase Edge Functions
