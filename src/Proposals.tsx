@@ -7,7 +7,7 @@ type Customer = { id: string; display_name: string; email: string | null };
 type Property = { id: string; customer_id: string; address_line1: string; city: string; state: string };
 type LineItem = { description: string; quantity: string; unit: string; unit_price: string };
 type RoofrMeasurement = { label: string; value: number; unit: string };
-type RoofrReport = { id: string; original_filename: string; created_at: string; metadata: { document_type?: string; extraction_status?: string; extracted_measurements?: RoofrMeasurement[] } | null };
+type RoofrReport = { id: string; original_filename: string; created_at: string; metadata: { document_type?: string; extraction_status?: string; extracted_measurements?: RoofrMeasurement[]; waste_factor_percent?: number } | null };
 type Proposal = { id: string; title: string; status: string; pricing_mode: string; total_amount: number; lump_sum_amount: number | null; created_at: string; customer_id: string; property_id: string };
 
 export default function Proposals({ division, userId, canWrite }: { division: DivisionId; userId: string; canWrite: boolean }) {
@@ -88,12 +88,22 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
     const measurements = report.metadata?.extracted_measurements || [];
     setSelectedRoofrReportId(report.id);
     if (!measurements.length) return;
+    const wastePercent = Number(report.metadata?.waste_factor_percent || 10);
+    const pitchedSquares = measurements.find(item => item.label === "Pitched roof squares" && item.unit === "SQ");
+    const importable = measurements.filter(item => item.unit !== "PITCH");
+    if (pitchedSquares && wastePercent > 0) {
+      importable.push({
+        label: "Pitched roof squares including " + wastePercent + "% waste",
+        value: Math.round(pitchedSquares.value * (1 + wastePercent / 100) * 100) / 100,
+        unit: "SQ"
+      });
+    }
     setLineItems(current => {
       const existing = new Set(current.map(item => item.description.trim().toLowerCase()));
-      const imported = measurements.filter(item => !existing.has((item.label + " from Roofr").toLowerCase())).map(item => ({ description: item.label + " from Roofr", quantity: String(item.value), unit: item.unit, unit_price: "" }));
+      const imported = importable.filter(item => !existing.has((item.label + " from Roofr").toLowerCase())).map(item => ({ description: item.label + " from Roofr", quantity: String(item.value), unit: item.unit, unit_price: "" }));
       return [...current.filter(item => item.description.trim() || item.unit_price.trim()), ...imported];
     });
-    setMessage("Reviewed Roofr quantities added as new estimate lines. Existing line items were left unchanged.");
+    setMessage("Reviewed Roofr quantities and the selected waste adjusted pitched squares were added as new estimate lines. Existing line items were left unchanged.");
   }
   function addCatalogItem() {
     const selected = estimateCatalog.find(item => item.description === catalogSelection && item.category === catalogCategory);
