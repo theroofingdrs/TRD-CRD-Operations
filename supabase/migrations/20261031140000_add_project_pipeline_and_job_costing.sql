@@ -233,6 +233,24 @@ CREATE POLICY crm_project_expenses_update ON public.crm_project_expenses
   );
 GRANT SELECT, INSERT, UPDATE ON public.crm_project_expenses TO authenticated;
 
+CREATE OR REPLACE FUNCTION app_private.has_division_admin_access(p_division_id text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+  SELECT EXISTS (
+    SELECT 1 FROM public.crm_memberships m
+    WHERE m.user_id = (SELECT auth.uid())
+      AND m.division_id = p_division_id
+      AND m.active = true
+      AND m.role IN ('owner','division_admin','office_manager')
+  );
+$function$;
+REVOKE ALL ON FUNCTION app_private.has_division_admin_access(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION app_private.has_division_admin_access(text) TO authenticated;
+
 CREATE TABLE public.crm_division_financial_settings (
   division_id text PRIMARY KEY REFERENCES public.crm_divisions(id),
   default_commission_method text
@@ -253,8 +271,8 @@ CREATE POLICY crm_division_financial_settings_read ON public.crm_division_financ
   USING (app_private.has_division_financial_access(division_id, false));
 CREATE POLICY crm_division_financial_settings_write ON public.crm_division_financial_settings
   FOR ALL TO authenticated
-  USING (app_private.has_division_financial_access(division_id, true))
-  WITH CHECK (app_private.has_division_financial_access(division_id, true));
+  USING (app_private.has_division_admin_access(division_id))
+  WITH CHECK (app_private.has_division_admin_access(division_id));
 GRANT SELECT, INSERT, UPDATE ON public.crm_division_financial_settings TO authenticated;
 
 
