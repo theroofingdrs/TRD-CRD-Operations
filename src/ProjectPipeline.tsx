@@ -50,6 +50,12 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [divisionExpenseTotal, setDivisionExpenseTotal] = useState(0);
   const [monthlyCollected, setMonthlyCollected] = useState(0);
   const [staleDays, setStaleDays] = useState(7);
+  const [defaultCommissionMethod, setDefaultCommissionMethod] = useState("manual");
+  const [defaultCommissionRate, setDefaultCommissionRate] = useState("");
+  const [defaultCommissionFixed, setDefaultCommissionFixed] = useState("");
+  const [defaultOverheadMethod, setDefaultOverheadMethod] = useState("manual");
+  const [defaultOverheadRate, setDefaultOverheadRate] = useState("");
+  const [defaultOverheadFixed, setDefaultOverheadFixed] = useState("");
   const [stageLastChanged, setStageLastChanged] = useState<Record<string, string>>({});
   const [projectName, setProjectName] = useState("");
   const [projectType, setProjectType] = useState("roof_replacement");
@@ -110,7 +116,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       supabase.from("crm_projects").select("id,division_id,project_manager_id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").in("division_id", visibleDivisions).order("created_at", { ascending: false }),
       supabase.from("crm_customer_divisions").select("customer_id").in("division_id", visibleDivisions),
       supabase.from("crm_project_expenses").select("amount,category").in("division_id", visibleDivisions),
-      supabase.from("crm_division_financial_settings").select("stale_stage_days").eq("division_id", division).maybeSingle(),
+      supabase.from("crm_division_financial_settings").select("stale_stage_days,default_commission_method,default_commission_rate,default_commission_fixed_amount,default_overhead_method,default_overhead_rate,default_overhead_fixed_amount").eq("division_id", division).maybeSingle(),
       supabase.from("crm_project_transactions").select("amount,transaction_date").in("division_id", visibleDivisions).eq("transaction_type", "payment").eq("status", "recorded").gte("transaction_date", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0,10))
     ]);
     if (projectResult.error) setError(projectResult.error.message);
@@ -119,6 +125,14 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     setDivisionExpenseTotal((expenseResult.data ?? []).reduce((sum: number, item: { amount: number }) => sum + Math.round(Number(item.amount || 0) * 100), 0) / 100);
     setMonthlyCollected((transactionResult.data ?? []).reduce((sum: number, item: { amount: number }) => sum + Math.round(Number(item.amount || 0) * 100), 0) / 100);
     if (settingsResult.data?.stale_stage_days) setStaleDays(settingsResult.data.stale_stage_days);
+    if (settingsResult.data) {
+      setDefaultCommissionMethod(settingsResult.data.default_commission_method || "manual");
+      setDefaultCommissionRate(String(settingsResult.data.default_commission_rate ?? ""));
+      setDefaultCommissionFixed(String(settingsResult.data.default_commission_fixed_amount ?? ""));
+      setDefaultOverheadMethod(settingsResult.data.default_overhead_method || "manual");
+      setDefaultOverheadRate(String(settingsResult.data.default_overhead_rate ?? ""));
+      setDefaultOverheadFixed(String(settingsResult.data.default_overhead_fixed_amount ?? ""));
+    }
     const projectIds = (projectResult.data ?? []).map((p: any) => p.id);
     if (projectIds.length) {
       const { data: stageRows, error: stageError } = await supabase.from("crm_project_stage_history").select("project_id,changed_at").in("project_id", projectIds).order("changed_at", { ascending: false });
@@ -155,15 +169,15 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     setSelected(project); setMessage(""); setError("");
     setFinanceContract(String(project.contract_amount ?? ""));
     setFinanceApproved(String(project.initial_approved_amount ?? ""));
-    setCommissionMethod(project.commission_method || "manual");
-    setCommissionRate(String(project.commission_rate ?? ""));
-    setCommissionFixed(String(project.commission_fixed_amount ?? ""));
+    setCommissionMethod(project.commission_method || defaultCommissionMethod);
+    setCommissionRate(String(project.commission_rate ?? defaultCommissionRate));
+    setCommissionFixed(String(project.commission_fixed_amount ?? defaultCommissionFixed));
     setCommissionEarned(String(project.commission_earned_amount ?? ""));
     setCommissionPaid(String(project.commission_paid_amount ?? ""));
     setCommissionSalesperson(project.commission_salesperson_name || "");
-    setOverheadMethod(project.overhead_method || "manual");
-    setOverheadRate(String(project.overhead_rate ?? ""));
-    setOverheadFixed(String(project.overhead_fixed_amount ?? ""));
+    setOverheadMethod(project.overhead_method || defaultOverheadMethod);
+    setOverheadRate(String(project.overhead_rate ?? defaultOverheadRate));
+    setOverheadFixed(String(project.overhead_fixed_amount ?? defaultOverheadFixed));
     if (!supabase) return;
     const [e, s, h, t, fh, eh, sh, th] = await Promise.all([
       supabase.from("crm_project_expenses").select("id,category,amount,paid_amount,payment_status,expense_date,vendor_payee,description,receipt_file_id").eq("project_id", project.id).order("expense_date", { ascending: false }),
@@ -211,6 +225,8 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     const { error: insertError } = await supabase.from("crm_projects").insert({
       division_id: division, customer_id: property.customer_id, property_id: property.id,
       project_name: projectName.trim(), project_type: projectType, pipeline_type: pipelineType,
+      commission_method: defaultCommissionMethod, commission_rate: defaultCommissionRate ? cents(defaultCommissionRate) : null, commission_fixed_amount: defaultCommissionFixed ? cents(defaultCommissionFixed) : null,
+      overhead_method: defaultOverheadMethod, overhead_rate: defaultOverheadRate ? cents(defaultOverheadRate) : null, overhead_fixed_amount: defaultOverheadFixed ? cents(defaultOverheadFixed) : null,
       workflow_stage: stage, status: "planning", contract_amount: null,
       original_estimate_amount: contract ? cents(contract) : null,
       next_action: nextAction.trim() || null,
@@ -465,7 +481,14 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     if (!supabase || !canWrite) return;
     setBusy(true); setError("");
     const { error: settingsError } = await supabase.from("crm_division_financial_settings").upsert({
-      division_id: division, stale_stage_days: staleDays, updated_by: userId, updated_at: new Date().toISOString()
+      division_id: division, stale_stage_days: staleDays,
+      default_commission_method: defaultCommissionMethod,
+      default_commission_rate: defaultCommissionRate ? cents(defaultCommissionRate) : null,
+      default_commission_fixed_amount: defaultCommissionFixed ? cents(defaultCommissionFixed) : null,
+      default_overhead_method: defaultOverheadMethod,
+      default_overhead_rate: defaultOverheadRate ? cents(defaultOverheadRate) : null,
+      default_overhead_fixed_amount: defaultOverheadFixed ? cents(defaultOverheadFixed) : null,
+      updated_by: userId, updated_at: new Date().toISOString()
     }, { onConflict: "division_id" });
     if (settingsError) setError(settingsError.message);
     else { setMessage("Pipeline settings saved."); setSettingsOpen(false); }
@@ -516,7 +539,13 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         <div><span>Needs attention</span><strong>{attention.length}</strong></div>
       </div>
       <div className="panel-heading subheading"><div><h3>Needs attention</h3><p className="muted">Overdue next actions and projects unchanged for {staleDays} days or more.</p></div>{scope !== "combined" && <button className="secondary-button compact" onClick={()=>setSettingsOpen(v=>!v)}>Pipeline settings</button>}</div>
-      {scope !== "combined" && settingsOpen && <form className="inline-form" onSubmit={saveSettings}><div className="form-grid"><label>Stale stage threshold (days)<input type="number" min="1" max="365" value={staleDays} onChange={e=>setStaleDays(Math.max(1,Math.min(365,Number(e.target.value)||1)))} /></label></div><button className="primary-button" disabled={busy}>Save settings</button></form>}
+      {scope !== "combined" && settingsOpen && <form className="inline-form" onSubmit={saveSettings}><div className="form-grid"><label>Stale stage threshold (days)<input type="number" min="1" max="365" value={staleDays} onChange={e=>setStaleDays(Math.max(1,Math.min(365,Number(e.target.value)||1)))} /></label>
+        <label>Default commission method<select value={defaultCommissionMethod} onChange={e=>setDefaultCommissionMethod(e.target.value)}><option value="fixed">Fixed amount</option><option value="contract_percent">Percent of contract</option><option value="collected_percent">Percent of collected revenue</option><option value="gross_profit_percent">Percent of gross profit</option><option value="manual">Manual</option></select></label>
+        <label>Default commission rate (%)<input type="number" min="0" step="0.01" value={defaultCommissionRate} onChange={e=>setDefaultCommissionRate(e.target.value)} /></label>
+        <label>Default fixed commission ($)<input type="number" min="0" step="0.01" value={defaultCommissionFixed} onChange={e=>setDefaultCommissionFixed(e.target.value)} /></label>
+        <label>Default overhead method<select value={defaultOverheadMethod} onChange={e=>setDefaultOverheadMethod(e.target.value)}><option value="flat">Flat amount</option><option value="contract_percent">Percent of contract</option><option value="direct_cost_percent">Percent of direct costs</option><option value="manual">Manual</option></select></label>
+        <label>Default overhead rate (%)<input type="number" min="0" step="0.01" value={defaultOverheadRate} onChange={e=>setDefaultOverheadRate(e.target.value)} /></label>
+        <label>Default overhead amount ($)<input type="number" min="0" step="0.01" value={defaultOverheadFixed} onChange={e=>setDefaultOverheadFixed(e.target.value)} /></label></div><button className="primary-button" disabled={busy}>Save settings</button></form>}
       {attention.length ? <div className="attention-list">{attention.slice(0,10).map(p=><button key={p.id} className="attention-item" onClick={()=>void openProject(p)}><strong>{p.project_name}</strong><span>{p.next_action_due_at && new Date(p.next_action_due_at).getTime()<Date.now() ? "Overdue next action" : "Stale project"} · {stageLabel(p.workflow_stage || "unassigned")}</span><small>{p.next_action || "Review project and set a next action"}</small></button>)}</div> : <p className="muted">No projects currently need attention.</p>}
       <div className="pipeline-toolbar"><div className="segmented-filter">{availableDivisions.length > 1 && <><button className={scope==="division"?"active":""} onClick={()=>setScope("division")}>Current division</button><button className={scope==="combined"?"active":""} onClick={()=>{setScope("combined");setSelected(null);setShowCreate(false);setShowExpense(false);setShowSupplement(false);setSettingsOpen(false);}}>Combined TRD + CRD</button></>}</div><div className="segmented-filter"><button className={filter==="all"?"active":""} onClick={()=>setFilter("all")}>All</button><button className={filter==="retail"?"active":""} onClick={()=>setFilter("retail")}>Retail</button><button className={filter==="insurance"?"active":""} onClick={()=>setFilter("insurance")}>Insurance</button></div></div>
       {scope !== "combined" && showCreate && <form className="inline-form" onSubmit={createProject}><div className="form-grid">
