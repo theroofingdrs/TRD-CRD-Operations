@@ -166,3 +166,7 @@ input:focus,select:focus,textarea:focus{border-color:#e8895c;box-shadow:0 0 0 3p
 .project-pipeline .workflow-choice label{display:inline-flex;align-items:center;gap:8px;font-weight:600}
 .project-pipeline .workflow-choice input{accent-color:var(--accent,#b45309)}
 .project-pipeline .pipeline-list td{vertical-align:middle}
+
+
+.project-pipeline .company-expense-panel{margin-top:16px}
+.project-pipeline .form-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
