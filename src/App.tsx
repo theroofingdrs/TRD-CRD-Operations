@@ -96,6 +96,7 @@ function App() {
   const isOwner = memberships.some((item) => item.role === "owner");
   const canWriteLeads = currentMembership ? ["owner","division_admin","office_manager","sales_rep"].includes(currentMembership.role) : false;
   const canWriteCustomers = currentMembership ? ["owner","division_admin","office_manager","sales_rep","project_manager"].includes(currentMembership.role) : false;
+  const canWriteMaintenance = currentMembership ? ["owner","division_admin","office_manager","project_manager","field_inspector","production_manager"].includes(currentMembership.role) : false;
   const canShareCustomerAcrossDivisions = (["TRD","CRD"] as DivisionId[]).every((id) => { const m = memberships.find((item) => item.division_id === id); return !!m && ["owner","division_admin","office_manager","sales_rep","project_manager"].includes(m.role); });
   const canWriteContacts = canWriteCustomers;
   const canWriteRoofs = currentMembership ? ["owner","division_admin","office_manager","project_manager","production_manager"].includes(currentMembership.role) : false;
@@ -162,7 +163,7 @@ function App() {
       {workspaceError && <div className="error-banner">{workspaceError}</div>}
       {view === "overview" && <Overview division={division} onNavigate={setView} />}
       {view === "leads" && <Leads division={division} userId={session.user.id} canWrite={canWriteLeads} canImport={currentMembership?.role === "owner"} />}
-      {view === "customers" && <Customers division={division} userId={session.user.id} canWrite={canWriteCustomers} canShareBoth={canShareCustomerAcrossDivisions} />}
+      {view === "customers" && <Customers division={division} userId={session.user.id} canWrite={canWriteCustomers} canWriteMaintenance={canWriteMaintenance} canShareBoth={canShareCustomerAcrossDivisions} />}
       {view === "contacts" && <Contacts division={division} canWrite={canWriteContacts} />}
       {view === "properties" && <Properties division={division} canWrite={canWriteCustomers} />}
       {view === "claims" && <Claims division={division} userId={session.user.id} canWrite={canWriteClaims} />}
@@ -273,7 +274,7 @@ function Leads({ division, userId, canWrite, canImport }: { division: DivisionId
   </section></div>;
 }
 
-function Customers({ division, userId, canWrite, canShareBoth }: { division: DivisionId; userId: string; canWrite: boolean; canShareBoth: boolean }) {
+function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBoth }: { division: DivisionId; userId: string; canWrite: boolean; canWriteMaintenance: boolean; canShareBoth: boolean }) {
   const [rows, setRows] = useState<Customer[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
@@ -296,6 +297,23 @@ function Customers({ division, userId, canWrite, canShareBoth }: { division: Div
   const [appointments, setAppointments] = useState<GenericRow[]>([]);
   const [inspections, setInspections] = useState<GenericRow[]>([]);
   const [files, setFiles] = useState<GenericRow[]>([]);
+  const [maintenanceRecords, setMaintenanceRecords] = useState<GenericRow[]>([]);
+  const [showMaintenanceForm, setShowMaintenanceForm] = useState(false);
+  const [serviceType, setServiceType] = useState("preventive_maintenance");
+  const [serviceStatus, setServiceStatus] = useState("scheduled");
+  const [servicePriority, setServicePriority] = useState("normal");
+  const [servicePropertyId, setServicePropertyId] = useState("");
+  const [serviceRoofId, setServiceRoofId] = useState("");
+  const [serviceProjectId, setServiceProjectId] = useState("");
+  const [serviceScheduledFor, setServiceScheduledFor] = useState("");
+  const [serviceCompletedAt, setServiceCompletedAt] = useState("");
+  const [nextServiceDue, setNextServiceDue] = useState("");
+  const [serviceDescription, setServiceDescription] = useState("");
+  const [serviceFindings, setServiceFindings] = useState("");
+  const [serviceWork, setServiceWork] = useState("");
+  const [serviceRecommendations, setServiceRecommendations] = useState("");
+  const [serviceMaterials, setServiceMaterials] = useState("");
+  const [serviceCost, setServiceCost] = useState("");
   const [detailLoading, setDetailLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
