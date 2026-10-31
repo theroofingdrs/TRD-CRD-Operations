@@ -72,12 +72,14 @@ The legacy `public.trd_records` table contains two existing website submissions.
 - Verified mismatched customer, property, and project references are rejected by division integrity checks.
 - Verified a test customer, division link, and lead can be created under the authenticated owner role; the test transaction was rolled back and created no sample data.
 - Verified CRM tables have RLS policies.
+- Found and corrected inherited `TRUNCATE`, `TRIGGER`, `REFERENCES`, and `MAINTAIN` privileges on all 16 CRM tables. Anonymous access to CRM tables is now fully revoked, and authenticated users retain only the required CRUD grants governed by RLS.
+- Rechecked all 16 CRM tables: zero anonymous data privileges and zero excess truncate, trigger, references, or maintain privileges for authenticated users.
 - Supabase security advisor still reports the eight legacy intake tables as RLS enabled without policies. They have no direct anon or authenticated table grants and remain intentionally untouched.
 - Leaked password protection is unavailable on the current Supabase plan. Supabase indicates that this feature requires Pro.
 - The existing private bucket remains private, accepts JPEG, PNG, WebP, and PDF files up to 15 MB, and now has division scoped read, upload, update, and owner delete policies. Object paths must begin with TRD or CRD.
 
 ## Migration management note
 
-The CRM schema was applied additively to the live project. Supabase migration history now contains one recorded migration, `20261031004739_restrict_rls_auto_enable_execution`, which restricts direct execution of the SECURITY DEFINER RLS helper while leaving the `ensure_rls` event trigger enabled. Its source file is checked in under `supabase/migrations/`.
+The CRM schema was applied additively to the live project. Supabase migration history contains two recorded security migrations: `20261031004739_restrict_rls_auto_enable_execution`, which restricts direct execution of the SECURITY DEFINER RLS helper while leaving the `ensure_rls` event trigger enabled, and `20261031013644_restrict_crm_table_privileges`, which removes non row level privileges from the CRM API roles. Both source files are checked in under `supabase/migrations/`.
 
 A 58 KB live CRM schema snapshot is checked in at `supabase/baselines/20261030_live_crm_schema_snapshot.sql`. It captures the 16 CRM tables, constraints, helper functions, indexes, triggers, RLS policies, grants, and private storage policies. It is a reference snapshot, not an executable migration and not yet a reconciled Supabase CLI baseline. It excludes live user memberships and website intake records. Before any further schema changes or a fresh environment setup, use the Supabase CLI to pull and diff the live schema, reconcile the snapshot with migration history, and validate it against a disposable project. Never reset or recreate the existing production database.
