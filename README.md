@@ -37,6 +37,7 @@ Supabase project: `gubvelngdohrfvqeeabu` in the TRDCRD organization.
 - Dashboard, lead pipeline with status updates, customer directory, contact management, property creation, roof system records, appointment, inspection, project, and task workflows
 - Private property file and photo upload with signed file access
 - Owner only employee invitations and division role assignment through a JWT protected Supabase Edge Function
+- Owner controlled website lead import for TRD and CRD, using the original website record IDs to skip records already imported
 - Automated GitHub Actions type check and production build
 - AI generated inspection observations are explicitly marked unverified until a human verifies them
 
