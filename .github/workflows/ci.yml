@@ -2,9 +2,11 @@ name: CRM build validation
 
 on:
   push:
-    branches: [main]
+    branches:
+      - '**'
   pull_request:
-    branches: [main]
+    branches:
+      - '**'
   workflow_dispatch:
 
 permissions:
@@ -40,7 +42,7 @@ jobs:
             --tag trd-crd-operations:ci .
       - name: Smoke test Cloud Run container
         run: |
-          docker run --detach --rm --name trd-crm-ci --publish 8080:8080 trd-crd-operations:ci
+          docker run --detach --rm --name trd-crm-ci --publish 8080:8080 trd-crm-operations:ci
           for attempt in $(seq 1 15); do
             if curl --fail --silent http://localhost:8080/ > /tmp/crm-index.html; then
               break
