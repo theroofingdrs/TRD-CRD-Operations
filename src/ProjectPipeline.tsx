@@ -495,6 +495,84 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     else if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   }
 
+  async function addCompanyExpense(event: FormEvent) {
+    event.preventDefault();
+    if (!supabase || !canWriteFinancials || scope === "combined") return;
+    const amount = cents(companyExpenseAmount);
+    if (amount <= 0) { setError("Enter a company expense amount greater than zero."); return; }
+    if (companyExpenseReceipt && (!["image/jpeg","image/png","image/webp","application/pdf"].includes(companyExpenseReceipt.type) || companyExpenseReceipt.size > 15 * 1024 * 1024)) {
+      setError("Receipt must be JPG, PNG, WebP, or PDF and no larger than 15 MB."); return;
+    }
+    setBusy(true); setError("");
+    let duplicateQuery = supabase.from("crm_company_expenses").select("id").eq("division_id", division).eq("category", companyExpenseCategory).eq("amount", amount).eq("expense_date", companyExpenseDate);
+    duplicateQuery = companyExpenseVendor.trim() ? duplicateQuery.eq("vendor_payee", companyExpenseVendor.trim()) : duplicateQuery.is("vendor_payee", null);
+    const { data: possibleDuplicates, error: duplicateError } = await duplicateQuery.limit(1);
+    if (duplicateError) { setError(duplicateError.message); setBusy(false); return; }
+    if (possibleDuplicates?.length && !window.confirm("A matching company expense already exists for this division, date, category, amount, and vendor. Add another anyway?")) { setBusy(false); return; }
+    const { data: expenseRow, error: insertError } = await supabase.from("crm_company_expenses").insert({
+      division_id: division, expense_date: companyExpenseDate, category: companyExpenseCategory,
+      amount, paid_amount: 0, payment_status: "unpaid", vendor_payee: companyExpenseVendor.trim() || null,
+      description: companyExpenseDescription.trim() || null, notes: companyExpenseNotes.trim() || null, entered_by: userId
+    }).select("id").single();
+    if (insertError) setError(insertError.message);
+    else {
+      if (companyExpenseReceipt) {
+        const safeName = companyExpenseReceipt.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-120) || "receipt";
+        const path = division + "/company-expenses/" + crypto.randomUUID() + "-" + safeName;
+        const { error: uploadError } = await supabase.storage.from("roof-doctors-private").upload(path, companyExpenseReceipt, { contentType: companyExpenseReceipt.type, upsert: false });
+        if (uploadError) setError("Company expense saved, but receipt upload failed: " + uploadError.message);
+        else {
+          const { data: fileRow, error: fileError } = await supabase.from("crm_files").insert({
+            division_id: division, related_type: "company_expense", related_id: expenseRow.id,
+            bucket_id: "roof-doctors-private", object_path: path, original_filename: companyExpenseReceipt.name,
+            content_type: companyExpenseReceipt.type, file_size_bytes: companyExpenseReceipt.size, uploaded_by: userId,
+            metadata: { document_category: "company_expense_receipt", category: companyExpenseCategory, expense_date: companyExpenseDate }
+          }).select("id").single();
+          if (fileError) {
+            await supabase.storage.from("roof-doctors-private").remove([path]);
+            setError("Company expense saved, but receipt registration failed: " + fileError.message);
+          } else {
+            const { error: linkError } = await supabase.from("crm_company_expenses").update({ receipt_file_id: fileRow.id }).eq("id", expenseRow.id).eq("division_id", division);
+            if (linkError) setError("Company expense saved, but receipt linking failed: " + linkError.message);
+          }
+        }
+      }
+      setShowCompanyExpense(false); setCompanyExpenseAmount(""); setCompanyExpenseVendor(""); setCompanyExpenseDescription(""); setCompanyExpenseNotes(""); setCompanyExpenseReceipt(null);
+      setMessage("Company expense saved separately from project overhead allocations.");
+      await load();
+    }
+    setBusy(false);
+  }
+
+  async function updateCompanyExpense(expense: CompanyExpense, status: string) {
+    if (!supabase || !canWriteFinancials || scope === "combined") return;
+    let paidAmount = Number(expense.paid_amount || 0);
+    if (status === "paid") paidAmount = Number(expense.amount);
+    else if (status === "unpaid") paidAmount = 0;
+    else if (status === "partially_paid") {
+      const value = window.prompt("Enter the total amount paid so far:", String(paidAmount || ""));
+      if (value === null) return;
+      paidAmount = cents(value);
+      if (paidAmount <= 0 || paidAmount >= Number(expense.amount)) { setError("A partial payment must be greater than zero and less than the full expense amount."); return; }
+    }
+    setBusy(true); setError("");
+    const { error: updateError } = await supabase.from("crm_company_expenses").update({
+      payment_status: status, paid_amount: paidAmount, updated_at: new Date().toISOString()
+    }).eq("id", expense.id).eq("division_id", division);
+    if (updateError) setError(updateError.message);
+    else { setMessage("Company expense payment status updated and retained in history."); await load(); }
+    setBusy(false);
+  }
+
+  async function openCompanyExpenseReceipt(expense: CompanyExpense) {
+    if (!supabase || !expense.receipt_file_id) return;
+    const { data: fileRow, error: fileError } = await supabase.from("crm_files").select("bucket_id,object_path").eq("id", expense.receipt_file_id).eq("related_type", "company_expense").eq("related_id", expense.id).single();
+    if (fileError || !fileRow) { setError(fileError?.message || "Company receipt not found."); return; }
+    const { data, error: signedError } = await supabase.storage.from(fileRow.bucket_id).createSignedUrl(fileRow.object_path, 60);
+    if (signedError) setError(signedError.message);
+    else if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  }
+
   async function addSupplement(event: FormEvent) {
     event.preventDefault();
     if (!supabase || !selected || selected.pipeline_type !== "insurance" || !canWrite) return;
