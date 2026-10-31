@@ -617,6 +617,7 @@ CREATE OR REPLACE FUNCTION public.crm_update_project_financials(
   p_commission_salesperson_name text,
   p_commission_earned_amount numeric,
   p_commission_paid_amount numeric,
+  p_commission_paid_at date,
   p_overhead_method text,
   p_overhead_rate numeric,
   p_overhead_fixed_amount numeric,
@@ -659,6 +660,7 @@ BEGIN
     commission_salesperson_name = p_commission_salesperson_name,
     commission_earned_amount = COALESCE(p_commission_earned_amount, 0),
     commission_paid_amount = COALESCE(p_commission_paid_amount, 0),
+    commission_paid_at = p_commission_paid_at,
     overhead_method = p_overhead_method,
     overhead_rate = p_overhead_rate,
     overhead_fixed_amount = p_overhead_fixed_amount,
@@ -668,7 +670,7 @@ BEGIN
 END;
 $function$;
 REVOKE ALL ON FUNCTION public.crm_update_project_financials(uuid,numeric,numeric,text,numeric,numeric,text,numeric,numeric,date,text,numeric,numeric,numeric) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.crm_update_project_financials(uuid,numeric,numeric,text,numeric,numeric,text,numeric,numeric,text,numeric,numeric,numeric) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.crm_update_project_financials(uuid,numeric,numeric,text,numeric,numeric,text,numeric,numeric,date,text,numeric,numeric,numeric) TO authenticated;
 
 CREATE TABLE public.crm_project_expense_history (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
