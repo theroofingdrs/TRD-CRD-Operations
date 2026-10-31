@@ -1,0 +1,326 @@
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
+import { supabase } from "./lib/supabase";
+
+type DivisionId = "TRD" | "CRD";
+type Role = "owner" | "division_admin" | "office_manager" | "sales_rep" | "project_manager" | "field_inspector" | "production_manager" | "accounting" | "read_only";
+type Membership = { division_id: DivisionId; role: Role };
+type View = "overview" | "leads" | "customers" | "properties" | "appointments" | "inspections" | "projects" | "tasks" | "team";
+type Lead = { id: string; service_interest: string | null; status: string; priority: string; source: string | null; description: string | null; created_at: string };
+type Customer = { id: string; display_name: string; customer_type: string; email: string | null; phone: string | null; created_at: string };
+type GenericRow = Record<string, string | number | null>;
+
+const navigation: { id: View; label: string; icon: string }[] = [
+  { id: "overview", label: "Overview", icon: "▦" },
+  { id: "leads", label: "Leads", icon: "◎" },
+  { id: "customers", label: "Customers", icon: "♙" },
+  { id: "properties", label: "Properties", icon: "⌂" },
+  { id: "appointments", label: "Schedule", icon: "▣" },
+  { id: "inspections", label: "Inspections", icon: "⌕" },
+  { id: "projects", label: "Projects", icon: "▤" },
+  { id: "tasks", label: "Tasks", icon: "☷" },
+  { id: "team", label: "Team access", icon: "♧" }
+];
+
+const divisionNames: Record<DivisionId, string> = {
+  TRD: "The ROOF Doctors",
+  CRD: "Commercial ROOF Doctors"
+};
+
+function App() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [memberships, setMemberships] = useState<Membership[]>([]);
+  const [division, setDivision] = useState<DivisionId>("TRD");
+  const [view, setView] = useState<View>("overview");
+  const [loading, setLoading] = useState(true);
+  const [workspaceError, setWorkspaceError] = useState("");
+  const [email, setEmail] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [profileName, setProfileName] = useState("");
+
+  const loadMemberships = useCallback(async (activeSession: Session | null) => {
+    if (!supabase || !activeSession) {
+      setMemberships([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setWorkspaceError("");
+    const [membershipResult, profileResult] = await Promise.all([
+      supabase.from("crm_memberships").select("division_id,role").eq("user_id", activeSession.user.id).eq("active", true),
+      supabase.from("crm_profiles").select("display_name").eq("user_id", activeSession.user.id).maybeSingle()
+    ]);
+    if (membershipResult.error) {
+      setWorkspaceError(membershipResult.error.message);
+      setMemberships([]);
+    } else {
+      const rows = (membershipResult.data ?? []) as Membership[];
+      setMemberships(rows);
+      if (rows.length && !rows.some((item) => item.division_id === division)) {
+        setDivision(rows[0].division_id);
+      }
+    }
+    setProfileName(profileResult.data?.display_name ?? activeSession.user.email ?? "");
+    setLoading(false);
+  }, [division]);
+
+  useEffect(() => {
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+    let alive = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!alive) return;
+      setSession(data.session);
+      void loadMemberships(data.session);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      void loadMemberships(nextSession);
+    });
+    return () => {
+      alive = false;
+      listener.subscription.unsubscribe();
+    };
+  }, [loadMemberships]);
+
+  const currentMembership = memberships.find((item) => item.division_id === division);
+  const isOwner = memberships.some((item) => item.role === "owner");
+  const canWrite = currentMembership ? currentMembership.role !== "read_only" && currentMembership.role !== "accounting" : false;
+
+  async function sendSignInLink(event: FormEvent) {
+    event.preventDefault();
+    if (!supabase) return;
+    setAuthBusy(true);
+    setAuthMessage("");
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: {
+        shouldCreateUser: false,
+        emailRedirectTo: window.location.origin
+      }
+    });
+    setAuthMessage(error ? error.message : "Check your email for your secure sign in link.");
+    setAuthBusy(false);
+  }
+
+  async function signOut() {
+    if (supabase) await supabase.auth.signOut();
+  }
+
+  if (!supabase) {
+    return <div className="setup-screen"><div className="setup-card"><div className="brand-mark">RD</div><h1>Operations workspace</h1><p>Supabase environment settings are missing. Add the project URL and publishable key to the deployment environment.</p><code>VITE_SUPABASE_URL</code><code>VITE_SUPABASE_PUBLISHABLE_KEY</code></div></div>;
+  }
+
+  if (!session) {
+    return <div className="login-screen"><div className="login-card"><div className="brand-mark">RD</div><p className="eyebrow">PRIVATE EMPLOYEE PORTAL</p><h1>Roof Doctors Operations</h1><p className="muted">One secure workspace for residential and commercial roofing operations.</p><form onSubmit={sendSignInLink}><label htmlFor="email">Work email</label><input id="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@company.com" /><button className="primary-button" disabled={authBusy}>{authBusy ? "Sending link..." : "Email me a sign in link"}</button></form>{authMessage && <p className="auth-message">{authMessage}</p>}<p className="fine-print">Access is invitation only. New accounts cannot self register.</p></div></div>;
+  }
+
+  if (loading) return <div className="center-state">Loading your workspace...</div>;
+  if (!memberships.length) return <div className="center-state"><div className="setup-card"><h2>Access has not been assigned</h2><p>Your account is signed in, but it does not yet have an active division membership. Ask the CRM owner to assign your role.</p><button className="secondary-button" onClick={signOut}>Sign out</button></div></div>;
+
+  return <div className="app-shell">
+    <aside className="sidebar">
+      <div className="sidebar-brand"><div className="brand-mark small">RD</div><div><strong>ROOF DOCTORS</strong><span>OPERATIONS</span></div></div>
+      <div className="division-picker"><label htmlFor="division">WORKSPACE</label><select id="division" value={division} onChange={(event) => { setDivision(event.target.value as DivisionId); setView("overview"); }}><option value="TRD" disabled={!memberships.some((item) => item.division_id === "TRD")}>Residential · TRD</option><option value="CRD" disabled={!memberships.some((item) => item.division_id === "CRD")}>Commercial · CRD</option></select></div>
+      <nav className="main-nav">{navigation.filter((item) => item.id !== "team" || isOwner).map((item) => <button key={item.id} className={view === item.id ? "nav-item active" : "nav-item"} onClick={() => setView(item.id)}><span className="nav-icon">{item.icon}</span>{item.label}</button>)}</nav>
+      <div className="sidebar-bottom"><div className="secure-note"><span className="status-dot"></span> Secure employee access</div><button className="signout-button" onClick={signOut}>Sign out</button></div>
+    </aside>
+    <main className="main-area">
+      <header className="topbar"><div><p className="eyebrow">{division} DIVISION</p><h1>{view === "overview" ? "Operations overview" : navigation.find((item) => item.id === view)?.label}</h1></div><div className="user-menu"><div className="avatar">{(profileName || "U").slice(0,1).toUpperCase()}</div><div><strong>{profileName || "Employee"}</strong><span>{currentMembership?.role?.replaceAll("_"," ")}</span></div></div></header>
+      {workspaceError && <div className="error-banner">{workspaceError}</div>}
+      {view === "overview" && <Overview division={division} userId={session.user.id} onNavigate={setView} />}
+      {view === "leads" && <Leads division={division} userId={session.user.id} canWrite={canWrite} />}
+      {view === "customers" && <Customers division={division} userId={session.user.id} canWrite={canWrite} />}
+      {view === "properties" && <DataList division={division} view="properties" />}
+      {view === "appointments" && <DataList division={division} view="appointments" />}
+      {view === "inspections" && <DataList division={division} view="inspections" />}
+      {view === "projects" && <DataList division={division} view="projects" />}
+      {view === "tasks" && <DataList division={division} view="tasks" />}
+      {view === "team" && isOwner && <Team />}
+    </main>
+  </div>;
+}
+
+function Overview({ division, userId, onNavigate }: { division: DivisionId; userId: string; onNavigate: (view: View) => void }) {
+  const [counts, setCounts] = useState({ leads: 0, projects: 0, appointments: 0, tasks: 0 });
+  const [recent, setRecent] = useState<Lead[]>([]);
+  const [busy, setBusy] = useState(true);
+  const load = useCallback(async () => {
+    if (!supabase) return;
+    setBusy(true);
+    const [leads, projects, appointments, tasks, recentLeads] = await Promise.all([
+      supabase.from("crm_leads").select("id", { count: "exact", head: true }).eq("division_id", division),
+      supabase.from("crm_projects").select("id", { count: "exact", head: true }).eq("division_id", division),
+      supabase.from("crm_appointments").select("id", { count: "exact", head: true }).eq("division_id", division).in("status", ["scheduled","confirmed"]),
+      supabase.from("crm_tasks").select("id", { count: "exact", head: true }).eq("division_id", division).neq("status", "completed"),
+      supabase.from("crm_leads").select("id,service_interest,status,priority,source,description,created_at").eq("division_id", division).order("created_at", { ascending: false }).limit(5)
+    ]);
+    setCounts({ leads: leads.count ?? 0, projects: projects.count ?? 0, appointments: appointments.count ?? 0, tasks: tasks.count ?? 0 });
+    setRecent((recentLeads.data ?? []) as Lead[]);
+    setBusy(false);
+  }, [division]);
+  useEffect(() => { void load(); }, [load]);
+  const cards = [
+    { label: "Active leads", value: counts.leads, target: "leads", tone: "orange" },
+    { label: "Open projects", value: counts.projects, target: "projects", tone: "dark" },
+    { label: "Upcoming appointments", value: counts.appointments, target: "appointments", tone: "blue" },
+    { label: "Open tasks", value: counts.tasks, target: "tasks", tone: "green" }
+  ] as const;
+  return <div className="content-stack">
+    <section className="welcome-panel"><div><p className="eyebrow">YOUR WORKSPACE</p><h2>{divisionNames[division]}</h2><p>Manage customers, opportunities, field work, and production in one place.</p></div><div className="welcome-art">RD<span>ROOFING OPERATIONS</span></div></section>
+    <section className="stat-grid">{cards.map((card) => <button className="stat-card" key={card.label} onClick={() => onNavigate(card.target)}><span>{card.label}</span><strong className={card.tone}>{busy ? "…" : card.value}</strong><small>View records <span>↗</span></small></button>)}</section>
+    <section className="panel"><div className="panel-heading"><div><p className="eyebrow">PIPELINE</p><h2>Recently added leads</h2></div><button className="text-button" onClick={() => onNavigate("leads")}>View all leads ↗</button></div>{busy ? <div className="empty-state">Loading pipeline...</div> : recent.length ? <div className="table-wrap"><table><thead><tr><th>Opportunity</th><th>Status</th><th>Priority</th><th>Received</th></tr></thead><tbody>{recent.map((lead) => <tr key={lead.id}><td><strong>{lead.service_interest || "New roofing inquiry"}</strong><span className="subline">{lead.description || lead.source || "No additional details"}</span></td><td><span className={"pill " + lead.status}>{lead.status.replaceAll("_"," ")}</span></td><td><span className={"priority " + lead.priority}>{lead.priority}</span></td><td>{new Date(lead.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No leads yet</strong><span>New opportunities will appear here when they are entered or connected from website intake.</span><button className="secondary-button" onClick={() => onNavigate("leads")}>Open leads</button></div>}</section>
+  </div>;
+}
+
+function Leads({ division, userId, canWrite }: { division: DivisionId; userId: string; canWrite: boolean }) {
+  const [rows, setRows] = useState<Lead[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [service, setService] = useState("");
+  const [source, setSource] = useState("Phone");
+  const [priority, setPriority] = useState("normal");
+  const [description, setDescription] = useState("");
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const load = useCallback(async () => {
+    if (!supabase) return;
+    setLoading(true);
+    const { data, error } = await supabase.from("crm_leads").select("id,service_interest,status,priority,source,description,created_at").eq("division_id", division).order("created_at", { ascending: false });
+    if (error) setMessage(error.message);
+    setRows((data ?? []) as Lead[]);
+    setLoading(false);
+  }, [division]);
+  useEffect(() => { void load(); }, [load]);
+  async function createLead(event: FormEvent) {
+    event.preventDefault();
+    if (!supabase) return;
+    setSaving(true);
+    setMessage("");
+    const { error } = await supabase.from("crm_leads").insert({ division_id: division, service_interest: service.trim() || null, source, priority, description: description.trim() || null, created_by: userId });
+    if (error) setMessage(error.message);
+    else {
+      setShowForm(false);
+      setService("");
+      setDescription("");
+      setMessage("Lead created.");
+      await load();
+    }
+    setSaving(false);
+  }
+  return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">OPPORTUNITY MANAGEMENT</p><h2>Lead pipeline</h2><p className="muted">{rows.length} records in this division</p></div>{canWrite && <button className="primary-button compact" onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "+ Add lead"}</button>}</div>
+    {showForm && <form className="inline-form" onSubmit={createLead}><div className="form-grid"><label>Service requested<input value={service} onChange={(event) => setService(event.target.value)} placeholder="Roof replacement, repair, gutter cleaning..." /></label><label>Lead source<select value={source} onChange={(event) => setSource(event.target.value)}><option>Phone</option><option>Website</option><option>Referral</option><option>Google</option><option>Repeat customer</option><option>Other</option></select></label><label>Priority<select value={priority} onChange={(event) => setPriority(event.target.value)}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label className="wide">Notes<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={2} placeholder="What does the customer need?" /></label></div><button className="primary-button" disabled={saving}>{saving ? "Saving..." : "Save lead"}</button></form>}
+    {message && <p className="inline-message">{message}</p>}
+    {loading ? <div className="empty-state">Loading leads...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Service</th><th>Source</th><th>Status</th><th>Priority</th><th>Created</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><strong>{row.service_interest || "Unspecified service"}</strong><span className="subline">{row.description || "No notes"}</span></td><td>{row.source || "—"}</td><td><span className={"pill " + row.status}>{row.status.replaceAll("_"," ")}</span></td><td><span className={"priority " + row.priority}>{row.priority}</span></td><td>{new Date(row.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>Your lead pipeline is ready</strong><span>There are no CRM leads in this division yet. Existing public website submissions have not been copied or changed.</span>{canWrite && <button className="secondary-button" onClick={() => setShowForm(true)}>Add your first lead</button>}</div>}
+  </section></div>;
+}
+
+function Customers({ division, userId, canWrite }: { division: DivisionId; userId: string; canWrite: boolean }) {
+  const [rows, setRows] = useState<Customer[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [name, setName] = useState("");
+  const [type, setType] = useState("individual");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const load = useCallback(async () => {
+    if (!supabase) return;
+    setLoading(true);
+    const { data: links, error: linkError } = await supabase.from("crm_customer_divisions").select("customer_id").eq("division_id", division);
+    if (linkError) setMessage(linkError.message);
+    const ids = (links ?? []).map((item: { customer_id: string }) => item.customer_id);
+    if (!ids.length) setRows([]);
+    else {
+      const { data, error } = await supabase.from("crm_customers").select("id,display_name,customer_type,email,phone,created_at").in("id", ids).order("created_at", { ascending: false });
+      if (error) setMessage(error.message);
+      setRows((data ?? []) as Customer[]);
+    }
+    setLoading(false);
+  }, [division]);
+  useEffect(() => { void load(); }, [load]);
+  async function createCustomer(event: FormEvent) {
+    event.preventDefault();
+    if (!supabase) return;
+    setSaving(true);
+    setMessage("");
+    const { data, error } = await supabase.from("crm_customers").insert({ display_name: name.trim(), customer_type: type, email: email.trim() || null, phone: phone.trim() || null, created_by: userId }).select("id").single();
+    if (error) setMessage(error.message);
+    else {
+      const { error: linkError } = await supabase.from("crm_customer_divisions").insert({ customer_id: data.id, division_id: division });
+      if (linkError) setMessage("Customer was created, but division linking failed: " + linkError.message);
+      else {
+        setName(""); setEmail(""); setPhone(""); setShowForm(false); setMessage("Customer created.");
+      }
+      await load();
+    }
+    setSaving(false);
+  }
+  return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">CUSTOMER DIRECTORY</p><h2>Customers and accounts</h2><p className="muted">Shared customer identities can be linked to both divisions.</p></div>{canWrite && <button className="primary-button compact" onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "+ Add customer"}</button>}</div>
+    {showForm && <form className="inline-form" onSubmit={createCustomer}><div className="form-grid"><label>Customer or account name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Name or business" /></label><label>Customer type<select value={type} onChange={(event) => setType(event.target.value)}><option value="individual">Homeowner / Individual</option><option value="business">Business</option><option value="property_manager">Property manager</option><option value="organization">Organization</option></select></label><label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label><label>Phone<input value={phone} onChange={(event) => setPhone(event.target.value)} /></label></div><button className="primary-button" disabled={saving}>{saving ? "Saving..." : "Save customer"}</button></form>}
+    {message && <p className="inline-message">{message}</p>}
+    {loading ? <div className="empty-state">Loading customers...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Email</th><th>Phone</th><th>Added</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><strong>{row.display_name}</strong></td><td>{row.customer_type.replaceAll("_"," ")}</td><td>{row.email || "—"}</td><td>{row.phone || "—"}</td><td>{new Date(row.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No customer records yet</strong><span>Add a customer to start building the shared customer and property history.</span>{canWrite && <button className="secondary-button" onClick={() => setShowForm(true)}>Add first customer</button>}</div>}
+  </section></div>;
+}
+
+const listConfig: Record<Exclude<View,"overview"|"leads"|"customers"|"team">, { table: string; columns: string; order: string; title: string; labels: string[] }> = {
+  properties: { table: "crm_properties", columns: "id,address_line1,city,state,postal_code,property_type,created_at", order: "created_at", title: "Property records", labels: ["Address","City","State","Type","Added"] },
+  appointments: { table: "crm_appointments", columns: "id,appointment_type,status,starts_at,assigned_to,location_notes", order: "starts_at", title: "Appointments", labels: ["Appointment","Status","Scheduled","Assigned employee"] },
+  inspections: { table: "crm_inspections", columns: "id,status,inspected_at,overall_condition,summary,property_id", order: "created_at", title: "Inspection records", labels: ["Inspection","Status","Date","Condition","Summary"] },
+  projects: { table: "crm_projects", columns: "id,project_name,project_type,status,target_completion_date,project_manager_id", order: "created_at", title: "Production projects", labels: ["Project","Type","Status","Target completion","Manager"] },
+  tasks: { table: "crm_tasks", columns: "id,title,status,priority,due_at,assigned_to", order: "created_at", title: "Team tasks", labels: ["Task","Status","Priority","Due date","Assigned employee"] }
+};
+
+function DataList({ division, view }: { division: DivisionId; view: Exclude<View,"overview"|"leads"|"customers"|"team"> }) {
+  const config = listConfig[view];
+  const [rows, setRows] = useState<GenericRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    if (!supabase) return;
+    setLoading(true);
+    const { data, error: queryError } = await supabase.from(config.table).select(config.columns).eq("division_id", division).order(config.order, { ascending: view === "appointments" }).limit(100);
+    setError(queryError?.message ?? "");
+    setRows((data ?? []) as GenericRow[]);
+    setLoading(false);
+  }, [config, division, view]);
+  useEffect(() => { void load(); }, [load]);
+  const fields = useMemo(() => config.columns.split(",").filter((column) => !["id","division_id","property_id","assigned_to","project_manager_id"].includes(column)), [config.columns]);
+  return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">{division} OPERATIONS</p><h2>{config.title}</h2></div><span className="record-count">{rows.length} records</span></div>{error && <p className="inline-message">{error}</p>}{loading ? <div className="empty-state">Loading records...</div> : rows.length ? <div className="table-wrap"><table><thead><tr>{fields.map((field) => <th key={field}>{field.replaceAll("_"," ")}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={String(row.id)}>{fields.map((field) => <td key={field}>{formatValue(field, row[field])}</td>)}</tr>)}</tbody></table></div> : <div className="empty-state"><strong>This workspace is ready</strong><span>No {config.title.toLowerCase()} have been entered for this division yet.</span></div>}</section></div>;
+}
+
+function formatValue(field: string, value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (field.endsWith("_at") || field.endsWith("_date")) return new Date(String(value)).toLocaleString();
+  return String(value).replaceAll("_"," ");
+}
+
+function Team() {
+  const [rows, setRows] = useState<{ user_id: string; division_id: string; role: string; active: boolean }[]>([]);
+  const [profiles, setProfiles] = useState<Record<string, string>>({});
+  const [error, setError] = useState("");
+  useEffect(() => {
+    async function load() {
+      if (!supabase) return;
+      const { data, error: queryError } = await supabase.from("crm_memberships").select("user_id,division_id,role,active").order("division_id");
+      if (queryError) setError(queryError.message);
+      const membershipRows = data ?? [];
+      setRows(membershipRows);
+      const ids = [...new Set(membershipRows.map((item) => item.user_id))];
+      if (ids.length) {
+        const { data: profileRows } = await supabase.from("crm_profiles").select("user_id,display_name,email").in("user_id", ids);
+        const map: Record<string,string> = {};
+        (profileRows ?? []).forEach((item) => { map[item.user_id] = item.display_name || item.email || item.user_id; });
+        setProfiles(map);
+      }
+    }
+    void load();
+  }, []);
+  return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">ACCESS CONTROL</p><h2>Employee memberships</h2><p className="muted">Employee accounts are invitation only. Division roles control what each employee can read and change.</p></div></div>{error && <p className="inline-message">{error}</p>}<div className="table-wrap"><table><thead><tr><th>Employee</th><th>Division</th><th>Role</th><th>Status</th></tr></thead><tbody>{rows.map((row) => <tr key={row.user_id + row.division_id}><td><strong>{profiles[row.user_id] || row.user_id}</strong></td><td>{row.division_id}</td><td>{row.role.replaceAll("_"," ")}</td><td><span className={row.active ? "pill active" : "pill inactive"}>{row.active ? "Active" : "Inactive"}</span></td></tr>)}</tbody></table></div><p className="fine-print">Employee invitations and role changes are reserved for a later admin workflow. No one can self assign a role.</p></section></div>;
+}
+
+export default App;
