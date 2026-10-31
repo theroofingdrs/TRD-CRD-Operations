@@ -48,6 +48,7 @@ function App() {
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [division, setDivision] = useState<DivisionId>("TRD");
   const [view, setView] = useState<View>("overview");
+  const [restoredForUser, setRestoredForUser] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [workspaceError, setWorkspaceError] = useState("");
   const [email, setEmail] = useState("");
@@ -108,6 +109,37 @@ function App() {
       listener.subscription.unsubscribe();
     };
   }, [loadMemberships]);
+
+  useEffect(() => {
+    if (!session || loading || !memberships.length || restoredForUser === session.user.id) return;
+    try {
+      const saved = localStorage.getItem(`trd-crd-workspace-${session.user.id}`);
+      if (saved) {
+        const preference = JSON.parse(saved) as { view?: string; division?: string };
+        const savedDivision = preference.division === "CRD" || preference.division === "TRD" ? preference.division : null;
+        const allowedDivision = savedDivision && memberships.some((item) => item.division_id === savedDivision) ? savedDivision : memberships[0].division_id;
+        const validView = navigation.some((item) => item.id === preference.view);
+        const savedView = validView ? preference.view as View : "overview";
+        const canAccessSavedView = savedView !== "completed_map" && savedView !== "team" && savedView !== "proposal_templates"
+          ? true
+          : memberships.some((item) => item.role === "owner");
+        setDivision(allowedDivision);
+        setView(canAccessSavedView ? savedView : "overview");
+      }
+    } catch (error) {
+      console.warn("Could not restore the previous workspace tab:", error);
+    }
+    setRestoredForUser(session.user.id);
+  }, [session, loading, memberships, restoredForUser]);
+
+  useEffect(() => {
+    if (!session || restoredForUser !== session.user.id || !memberships.length) return;
+    try {
+      localStorage.setItem(`trd-crd-workspace-${session.user.id}`, JSON.stringify({ view, division }));
+    } catch (error) {
+      console.warn("Could not save the current workspace tab:", error);
+    }
+  }, [session, memberships, restoredForUser, view, division]);
 
   const currentMembership = memberships.find((item) => item.division_id === division);
   const isOwner = memberships.some((item) => item.role === "owner");
