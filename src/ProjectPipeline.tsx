@@ -15,7 +15,7 @@ type Expense = { id: string; category: string; amount: number; paid_amount: numb
 type AuditEvent = { id: string; kind: string; changed_at: string; before_values: Record<string, unknown>; after_values: Record<string, unknown> };
 type TeamMember = { user_id: string; display_name: string; role: string };
 type Attachment = { id: string; related_id: string; bucket_id: string; object_path: string; original_filename: string };
-type Transaction = { id: string; transaction_type: "invoice" | "payment"; amount: number; transaction_date: string; reference_number: string | null; payment_method: string | null; notes: string | null; status: string; attachment_file_id: string | null };
+type Transaction = { id: string; transaction_type: "invoice" | "payment"; amount: number; transaction_date: string; reference_number: string | null; payment_method: string | null; notes: string | null; status: string; void_reason: string | null; attachment_file_id: string | null };
 type Supplement = { id: string; supplement_number: number; status: string; requested_amount: number; approved_amount: number; submitted_at: string | null; response_at: string | null; carrier_response: string | null; notes: string | null };
 
 const retailStages = [
@@ -242,7 +242,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       supabase.from("crm_project_expenses").select("id,category,amount,paid_amount,payment_status,expense_date,vendor_payee,description,notes,receipt_file_id").eq("project_id", project.id).order("expense_date", { ascending: false }),
       supabase.from("crm_project_supplements").select("id,supplement_number,status,requested_amount,approved_amount,submitted_at,response_at,carrier_response,notes").eq("project_id", project.id).order("supplement_number"),
       supabase.from("crm_project_stage_history").select("id,from_stage,to_stage,from_pipeline_type,to_pipeline_type,override_used,changed_at,note").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(30),
-      supabase.from("crm_project_transactions").select("id,transaction_type,amount,transaction_date,reference_number,payment_method,notes,status,attachment_file_id").eq("project_id", project.id).order("transaction_date", { ascending: false }),
+      supabase.from("crm_project_transactions").select("id,transaction_type,amount,transaction_date,reference_number,payment_method,notes,status,void_reason,attachment_file_id").eq("project_id", project.id).order("transaction_date", { ascending: false }),
       supabase.from("crm_project_financial_history").select("id,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20),
       supabase.from("crm_project_expense_history").select("id,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20),
       supabase.from("crm_project_supplement_history").select("id,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20),
@@ -598,6 +598,26 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     setBusy(false);
   }
 
+  async function voidTransaction(transaction: Transaction) {
+    if (!supabase || !selected || !canWriteFinancials || transaction.status !== "recorded") return;
+    const reason = window.prompt("Enter the reason for voiding this invoice or payment:");
+    if (reason === null) return;
+    if (!reason.trim()) { setError("A reason is required to void a transaction."); return; }
+    if (!window.confirm("This will remove the transaction from project totals but preserve its record and audit history. Continue?")) return;
+    setBusy(true); setError("");
+    const { error: updateError } = await supabase.from("crm_project_transactions").update({
+      status: "void", void_reason: reason.trim(), updated_at: new Date().toISOString()
+    }).eq("id", transaction.id).eq("division_id", selected.division_id);
+    if (updateError) setError(updateError.message);
+    else {
+      setMessage("Transaction voided. Its original record and audit history were retained.");
+      await load();
+      const { data: fresh } = await supabase.from("crm_projects").select("*").eq("id", selected.id).single();
+      await openProject((fresh || selected) as Project);
+    }
+    setBusy(false);
+  }
+
   async function openTransactionAttachment(transaction: Transaction) {
     if (!supabase || !transaction.attachment_file_id) return;
     const { data: fileRow, error: fileError } = await supabase.from("crm_files").select("bucket_id,object_path").eq("id", transaction.attachment_file_id).single();
@@ -879,7 +899,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         <label className="wide">Notes<input value={transactionNotes} onChange={e=>setTransactionNotes(e.target.value)} /></label>
         <label className="wide">{transactionType==="invoice"?"Original invoice copy":"Payment receipt / proof"}<input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf" onChange={e=>setTransactionFile(e.target.files?.[0] || null)} /></label>
       </div><button className="primary-button" disabled={busy}>Record {transactionType}</button></form>}
-      {transactions.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Method</th><th>Amount</th><th>Status</th><th>Source document</th></tr></thead><tbody>{transactions.map(t=><tr key={t.id}><td>{new Date(t.transaction_date+"T12:00:00").toLocaleDateString()}</td><td>{stageLabel(t.transaction_type)}</td><td>{t.reference_number||"—"}</td><td>{t.payment_method||"—"}</td><td>{money(t.amount)}</td><td>{stageLabel(t.status)}</td><td>{t.attachment_file_id?<button className="secondary-button compact" onClick={()=>void openTransactionAttachment(t)}>View original</button>:"—"}</td></tr>)}</tbody></table></div> : <div className="empty-state">No invoices or payments recorded yet.</div>}
+      {transactions.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Method</th><th>Amount</th><th>Status / reason</th><th>Source document</th><th></th></tr></thead><tbody>{transactions.map(t=><tr key={t.id}><td>{new Date(t.transaction_date+"T12:00:00").toLocaleDateString()}</td><td>{stageLabel(t.transaction_type)}</td><td>{t.reference_number||"—"}</td><td>{t.payment_method||"—"}</td><td>{money(t.amount)}</td><td>{stageLabel(t.status)}{t.void_reason&&<small>{t.void_reason}</small>}</td><td>{t.attachment_file_id?<button className="secondary-button compact" onClick={()=>void openTransactionAttachment(t)}>View original</button>:"—"}</td><td>{scope !== "combined" && canWriteFinancials && t.status === "recorded" ? <button className="secondary-button compact" disabled={busy} onClick={()=>void voidTransaction(t)}>Void</button> : "—"}</td></tr>)}</tbody></table></div> : <div className="empty-state">No invoices or payments recorded yet.</div>}
       <div className="panel-heading subheading"><div><h3>Job costs</h3><p className="muted">Record actual expenses. Ordered materials are not counted until an expense is entered.</p></div>{scope !== "combined" && canWriteFinancials&&<button className="primary-button compact" onClick={()=>setShowExpense(v=>!v)}>+ Add expense</button>}</div>
       {scope !== "combined" && showExpense&&<form className="inline-form" onSubmit={addExpense}><div className="form-grid"><label>Category<select value={expenseCategory} onChange={e=>setExpenseCategory(e.target.value)}><option value="materials">Materials</option><option value="labor">Labor</option><option value="equipment">Equipment</option><option value="permits">Permits</option><option value="sales_commission">Sales commission</option><option value="overhead">Overhead allocation</option><option value="other">Other</option></select></label><label>Amount ($)<input type="number" min="0.01" step="0.01" required value={expenseAmount} onChange={e=>setExpenseAmount(e.target.value)} /></label><label>Date<input type="date" required value={expenseDate} onChange={e=>setExpenseDate(e.target.value)} /></label><label>Vendor / payee<input value={vendor} onChange={e=>setVendor(e.target.value)} /></label><label className="wide">Description<input value={expenseDescription} onChange={e=>setExpenseDescription(e.target.value)} /></label><label className="wide">Notes<input value={expenseNotes} onChange={e=>setExpenseNotes(e.target.value)} /></label><label className="wide">Receipt attachment<input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf" onChange={e=>setReceiptFile(e.target.files?.[0] || null)} /></label></div><button className="primary-button" disabled={busy}>Save expense</button></form>}
       {expenses.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Category</th><th>Vendor</th><th>Description</th><th>Notes</th><th>Amount</th><th>Payment</th><th>Paid</th><th>Receipt</th></tr></thead><tbody>{expenses.map(x=><tr key={x.id}><td>{new Date(x.expense_date+"T12:00:00").toLocaleDateString()}</td><td>{stageLabel(x.category)}</td><td>{x.vendor_payee||"—"}</td><td>{x.description||"—"}</td><td>{x.notes||"—"}</td><td>{money(x.amount)}</td><td>{scope !== "combined" && canWriteFinancials ? <select value={x.payment_status} disabled={busy} onChange={e=>void updateExpense(x,{payment_status:e.target.value})}><option value="unpaid">Unpaid</option><option value="partially_paid">Partially paid</option><option value="paid">Paid</option></select> : stageLabel(x.payment_status)}</td><td>{scope !== "combined" && canWriteFinancials ? <input aria-label="Paid amount" type="number" min="0" max={x.amount} step="0.01" defaultValue={x.paid_amount} onBlur={e=>{const v=cents(e.target.value);if(v!==x.paid_amount)void updateExpense(x,{paid_amount:v,payment_status:v===0?"unpaid":v>=x.amount?"paid":"partially_paid"});}} /> : money(x.paid_amount)}</td><td>{x.receipt_file_id ? <button className="secondary-button compact" onClick={()=>void openReceipt(x)}>View</button> : "—"}</td></tr>)}</tbody></table></div>:<div className="empty-state">No expenses recorded for this project.</div>}
