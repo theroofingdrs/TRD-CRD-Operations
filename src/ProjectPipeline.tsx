@@ -299,13 +299,20 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   }
 
   async function assignWorkflow(project: Project, value: "retail" | "insurance") {
-    if (!supabase || !canWrite) return;
+    if (!supabase || !canWrite || project.pipeline_type === value) return;
+    if (project.pipeline_type && !window.confirm("Switch this project to the " + value.toUpperCase() + " workflow? Its stage will reset to New Lead and the workflow change will be recorded in history.")) return;
     setBusy(true); setError("");
     const { error: updateError } = await supabase.from("crm_projects").update({
-      pipeline_type: value, workflow_stage: "new_lead", updated_at: new Date().toISOString()
+      pipeline_type: value, workflow_stage: "new_lead",
+      workflow_stage_note: "Workflow changed to " + value.toUpperCase() + "; stage reset to New Lead",
+      workflow_stage_override: false, updated_at: new Date().toISOString()
     }).eq("id", project.id).eq("division_id", project.division_id);
     if (updateError) setError(updateError.message);
-    else { setMessage("Project workflow assigned."); await load(); }
+    else {
+      setMessage("Project workflow assigned and recorded in history.");
+      await load();
+      if (selected?.id === project.id) await openProject({ ...project, pipeline_type: value, workflow_stage: "new_lead" });
+    }
     setBusy(false);
   }
 
@@ -791,6 +798,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
 
     {selected && <section className="panel project-detail">
       <div className="panel-heading"><div><p className="eyebrow">PROJECT DETAIL</p><h2>{selected.project_name}</h2><p className="muted">{selected.division_id} · {addressFor(selected.property_id)} · {customerNames[selected.customer_id] || "Customer"}</p></div><button className="secondary-button compact" onClick={()=>setSelected(null)}>Close</button></div>
+      {scope !== "combined" && canWrite && <div className="workflow-choice project-workflow-choice"><span className="form-label">Project workflow</span><label><input type="checkbox" checked={selected.pipeline_type==="retail"} disabled={selected.pipeline_type==="retail" || busy} onChange={()=>void assignWorkflow(selected,"retail")} /> Retail</label><label><input type="checkbox" checked={selected.pipeline_type==="insurance"} disabled={selected.pipeline_type==="insurance" || busy} onChange={()=>void assignWorkflow(selected,"insurance")} /> Insurance</label><p className="muted">Only one workflow can be active. Switching resets the current stage and records the previous and new workflow in history.</p></div>}
       <div className="financial-summary">
         <div><span>Original estimate</span><strong>{money(selected.original_estimate_amount)}</strong></div><div><span>Contract / approved value</span><strong>{money(contractValue)}</strong></div>
         <div><span>Invoiced</span><strong>{money(selected.invoiced_amount)}</strong></div>
