@@ -60,7 +60,7 @@ New user signups are not self service. The Auth trigger creates a basic profile 
 
 ## Existing website submissions
 
-The legacy `public.trd_records` table contains two existing website submissions. They remain untouched. CRM lead intake synchronization and deduplication are a separate implementation step so that the public website intake path is not interrupted.
+The legacy `public.trd_records` table contains two existing website submissions. They remain untouched. An owner only `crm-import-website-intake` Edge Function is deployed. It reads the original submissions, maps residential and commercial leads into CRM records, and uses the source record ID to skip previously imported leads. The import has not yet been run. The two original website submissions remain unchanged.
 
 ## Security checks performed
 
@@ -73,9 +73,11 @@ The legacy `public.trd_records` table contains two existing website submissions.
 - Verified a test customer, division link, and lead can be created under the authenticated owner role; the test transaction was rolled back and created no sample data.
 - Verified CRM tables have RLS policies.
 - Supabase security advisor still reports the eight legacy intake tables as RLS enabled without policies. They have no direct anon or authenticated table grants and remain intentionally untouched.
-- Leaked password protection is still disabled and requires an Auth dashboard setting change.
+- Leaked password protection is unavailable on the current Supabase plan. Supabase indicates that this feature requires Pro.
 - The existing private bucket remains private, accepts JPEG, PNG, WebP, and PDF files up to 15 MB, and now has division scoped read, upload, update, and owner delete policies. Object paths must begin with TRD or CRD.
 
 ## Migration management note
 
-The schema changes were applied additively through the connected Supabase database tool. The project previously had no migration history. Before additional schema changes, generate and review a proper Supabase migration baseline from the live schema and commit it to this repository. Do not reset or recreate this database.
+The CRM schema was applied additively to the live project. Supabase migration history now contains one recorded migration, `20261031004739_restrict_rls_auto_enable_execution`, which restricts direct execution of the SECURITY DEFINER RLS helper while leaving the `ensure_rls` event trigger enabled. Its source file is checked in under `supabase/migrations/`.
+
+A 58 KB live CRM schema snapshot is checked in at `supabase/baselines/20261030_live_crm_schema_snapshot.sql`. It captures the 16 CRM tables, constraints, helper functions, indexes, triggers, RLS policies, grants, and private storage policies. It is a reference snapshot, not an executable migration and not yet a reconciled Supabase CLI baseline. It excludes live user memberships and website intake records. Before any further schema changes or a fresh environment setup, use the Supabase CLI to pull and diff the live schema, reconcile the snapshot with migration history, and validate it against a disposable project. Never reset or recreate the existing production database.
