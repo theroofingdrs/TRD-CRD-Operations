@@ -52,6 +52,26 @@ CREATE TABLE public.crm_projects (
   updated_at timestamptz NOT NULL DEFAULT now(),
   claim_id uuid
 );
+CREATE TABLE public.crm_leads (
+  id uuid PRIMARY KEY,
+  division_id text NOT NULL,
+  customer_id uuid,
+  property_id uuid,
+  service_interest text,
+  status text NOT NULL DEFAULT 'new',
+  assigned_to uuid
+);
+CREATE TABLE public.crm_claims (
+  id uuid PRIMARY KEY,
+  division_id text NOT NULL,
+  customer_id uuid NOT NULL,
+  property_id uuid NOT NULL,
+  lead_id uuid,
+  project_id uuid,
+  claim_number text,
+  insurance_carrier text,
+  claim_status text NOT NULL DEFAULT 'open'
+);
 CREATE TABLE public.crm_files (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   division_id text NOT NULL,
@@ -91,6 +111,11 @@ INSERT INTO public.crm_divisions(id) VALUES ('TRD');
 INSERT INTO auth.users(id) VALUES ('00000000-0000-0000-0000-000000000001'), ('00000000-0000-0000-0000-000000000002');
 INSERT INTO public.crm_memberships(user_id, division_id, role)
 VALUES ('00000000-0000-0000-0000-000000000001', 'TRD', 'owner'), ('00000000-0000-0000-0000-000000000002', 'TRD', 'project_manager');
+INSERT INTO public.crm_leads(id,division_id,customer_id,property_id,service_interest,status)
+VALUES ('00000000-0000-0000-0000-000000000030','TRD','00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000020','Roof replacement','new');
+INSERT INTO public.crm_claims(id,division_id,customer_id,property_id,lead_id,claim_number,insurance_carrier,claim_status)
+VALUES ('00000000-0000-0000-0000-000000000040','TRD','00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000020','00000000-0000-0000-0000-000000000030','CLM-TEST-1','Test Carrier','open'),
+       ('00000000-0000-0000-0000-000000000041','TRD','00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000022','00000000-0000-0000-0000-000000000030','CLM-WRONG-PROPERTY','Test Carrier','open');
 
 \ir ../migrations/20261031220000_add_project_pipeline_and_job_costing.sql
 \ir ../migrations/20261031220100_complete_project_pipeline_stage_gates.sql
@@ -101,12 +126,42 @@ SET ROLE authenticated;
 CREATE TEMP TABLE test_ids(project_id uuid, supplement_id uuid, expense_id uuid, transaction_id uuid);
 
 INSERT INTO public.crm_projects
-  (division_id, customer_id, property_id, project_name, pipeline_type, workflow_stage, created_by)
+  (division_id, lead_id, claim_id, customer_id, property_id, project_name, pipeline_type, workflow_stage, created_by)
 VALUES
-  ('TRD', '00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000020',
+  ('TRD', '00000000-0000-0000-0000-000000000030', '00000000-0000-0000-0000-000000000040',
+   '00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000020',
    'Pipeline migration test', 'insurance', 'new_lead', auth.uid())
 RETURNING id AS test_project_id \gset
 INSERT INTO pg_temp.test_ids(project_id) VALUES (:'test_project_id');
+UPDATE public.crm_claims SET project_id = :'test_project_id' WHERE id = '00000000-0000-0000-0000-000000000040';
+
+DO $body$
+BEGIN
+  IF (SELECT lead_id FROM public.crm_projects WHERE id = (SELECT project_id FROM pg_temp.test_ids)) <> '00000000-0000-0000-0000-000000000030' THEN
+    RAISE EXCEPTION 'Existing CRM lead was not linked to the project';
+  END IF;
+  IF (SELECT claim_id FROM public.crm_projects WHERE id = (SELECT project_id FROM pg_temp.test_ids)) <> '00000000-0000-0000-0000-000000000040' THEN
+    RAISE EXCEPTION 'Existing insurance claim was not linked to the project';
+  END IF;
+  IF (SELECT project_id FROM public.crm_claims WHERE id = '00000000-0000-0000-0000-000000000040') <> (SELECT project_id FROM pg_temp.test_ids) THEN
+    RAISE EXCEPTION 'Insurance claim was not linked back to its project';
+  END IF;
+END
+$body$;
+
+DO $body$
+BEGIN
+  BEGIN
+    INSERT INTO public.crm_projects
+      (division_id, customer_id, property_id, project_name, pipeline_type, workflow_stage, claim_id, created_by)
+    VALUES ('TRD','00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000020',
+      'Invalid claim link test','insurance','new_lead','00000000-0000-0000-0000-000000000041',auth.uid());
+    RAISE EXCEPTION 'A claim from another property was linked to a project';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = 'A claim from another property was linked to a project' THEN RAISE; END IF;
+  END;
+END
+$body$;
 
 -- Direct table writes must not bypass stage gates.
 DO $body$
