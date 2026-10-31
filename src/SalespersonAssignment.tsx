@@ -17,6 +17,7 @@ type History = { id: string; previous_assignee: string | null; new_assignee: str
 export default function SalespersonAssignment({ entityType, entityId, division, assignedTo, isOwner, compact = false }: Props) {
   const [people, setPeople] = useState<Salesperson[]>([]);
   const [history, setHistory] = useState<History[]>([]);
+  const [historyNames, setHistoryNames] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -41,7 +42,15 @@ export default function SalespersonAssignment({ entityType, entityId, division, 
       .select("id,previous_assignee,new_assignee,changed_at,changed_by")
       .eq("entity_type", entityType).eq("entity_id", entityId).order("changed_at", { ascending: false }).limit(8);
     if (error) { setMessage(error.message); return; }
-    setHistory((data ?? []) as History[]);
+    const rows = (data ?? []) as History[];
+    setHistory(rows);
+    const ids = [...new Set(rows.flatMap(item => [item.previous_assignee, item.new_assignee, item.changed_by].filter(Boolean) as string[]))];
+    if (ids.length) {
+      const { data: profiles } = await supabase.from("crm_profiles").select("user_id,display_name,email").in("user_id", ids);
+      const names: Record<string, string> = {};
+      (profiles ?? []).forEach((profile: any) => { names[profile.user_id] = profile.display_name || profile.email || "Former employee"; });
+      setHistoryNames(names);
+    } else setHistoryNames({});
   }, [entityId, entityType, isOwner]);
 
   useEffect(() => { void load(); void loadHistory(); }, [load, loadHistory]);
@@ -66,7 +75,7 @@ export default function SalespersonAssignment({ entityType, entityId, division, 
     </select>
     {message && <span className="assignment-message">{message}</span>}
     {!compact && history.length > 0 && <details className="assignment-history"><summary>Assignment history ({history.length})</summary>
-      {history.map(item => <div key={item.id}>{new Date(item.changed_at).toLocaleString()} · {people.find(p => p.user_id === item.previous_assignee)?.display_name || (item.previous_assignee ? "Former salesperson" : "Unassigned")} → {people.find(p => p.user_id === item.new_assignee)?.display_name || (item.new_assignee ? "Former salesperson" : "Unassigned")} · changed by admin</div>)}
+      {history.map(item => <div key={item.id}>{new Date(item.changed_at).toLocaleString()} · {historyNames[item.previous_assignee || ""] || (item.previous_assignee ? "Former salesperson" : "Unassigned")} → {historyNames[item.new_assignee || ""] || (item.new_assignee ? "Former salesperson" : "Unassigned")} · changed by {historyNames[item.changed_by] || "admin"}</div>)}
     </details>}
   </div>;
 }
