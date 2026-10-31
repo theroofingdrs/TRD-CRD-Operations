@@ -149,6 +149,12 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       (profiles ?? []).forEach((profile: {user_id:string;display_name:string}) => { profileMap[profile.user_id] = profile.display_name; });
       setTeamMembers((memberResult.data ?? []).map((item: {user_id:string;role:string}) => ({ user_id:item.user_id, display_name:profileMap[item.user_id] || "Team member", role:item.role })));
     } else setTeamMembers([]);
+    if (workflowSettingsResult.error) setError(workflowSettingsResult.error.message);
+    const workflowMap: Record<string,{display_label:string;sort_order:number}> = {};
+    (workflowSettingsResult.data ?? []).forEach((item: {pipeline_type:string;stage_key:string;display_label:string;sort_order:number}) => {
+      workflowMap[item.pipeline_type + ":" + item.stage_key] = { display_label: item.display_label, sort_order: item.sort_order };
+    });
+    setWorkflowStageSettings(workflowMap);
     if (settingsResult.data) {
       setDefaultCommissionMethod(settingsResult.data.default_commission_method || "manual");
       setDefaultCommissionRate(String(settingsResult.data.default_commission_rate ?? ""));
