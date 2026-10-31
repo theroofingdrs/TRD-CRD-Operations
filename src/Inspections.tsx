@@ -109,7 +109,8 @@ export default function Inspections({ division, userId, canWrite }: { division: 
     const { data: inspection, error } = await supabase.from("crm_inspections").insert({
       division_id: division, customer_id: customerId, property_id: propertyId, inspector_id: userId,
       status: "draft", inspected_at: new Date().toISOString(), inspection_type: division === "TRD" ? "residential" : "commercial",
-      weather_conditions: weather || null, overall_condition: overall, summary: summary || null, recommendations: recommendations || null,\n      claim_information: { carrier: carrier || null, policy_number: policyNumber || null, claim_number: claimNumber || null, adjuster_name: adjuster || null, adjuster_phone: adjusterPhone || null, adjuster_email: adjusterEmail || null },
+      weather_conditions: weather || null, overall_condition: overall, summary: summary || null, recommendations: recommendations || null,
+      claim_information: { carrier: carrier || null, policy_number: policyNumber || null, claim_number: claimNumber || null, adjuster_name: adjuster || null, adjuster_phone: adjusterPhone || null, adjuster_email: adjusterEmail || null },
       measurements: { roof_area_sq_ft: roofArea ? Number(roofArea) : null, roof_squares: squares ? Number(squares) : null, pitch: pitch || null },
       roof_sections: sectionList.map(name => ({ name }))
     }).select("id").single();
