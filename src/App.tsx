@@ -161,7 +161,7 @@ function App() {
   const canWriteProjects = currentMembership ? ["owner","division_admin","office_manager","project_manager"].includes(currentMembership.role) : false;
   const canWriteFinancials = currentMembership ? ["owner","division_admin","office_manager","project_manager","accounting"].includes(currentMembership.role) : false;
   const canManagePipelineSettings = currentMembership ? ["owner","division_admin","office_manager"].includes(currentMembership.role) : false;
-  const canOverrideProjectStageGates = currentMembership ? ["owner","division_admin","office_manager","accounting"].includes(currentMembership.role) : false;
+  const canOverrideProjectStageGates = currentMembership ? ["owner","division_admin","office_manager"].includes(currentMembership.role) : false;
   const canWriteTasks = currentMembership ? ["owner","division_admin","office_manager","sales_rep","project_manager","production_manager"].includes(currentMembership.role) : false;
 
   async function sendSignInLink(event: FormEvent) {
