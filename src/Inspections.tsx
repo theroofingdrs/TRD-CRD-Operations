@@ -21,6 +21,12 @@ export default function Inspections({ division, userId, canWrite }: { division: 
   const [recommendations, setRecommendations] = useState("");
   const [overall, setOverall] = useState("good");
   const [weather, setWeather] = useState("");
+  const [carrier, setCarrier] = useState("");
+  const [policyNumber, setPolicyNumber] = useState("");
+  const [claimNumber, setClaimNumber] = useState("");
+  const [adjuster, setAdjuster] = useState("");
+  const [adjusterPhone, setAdjusterPhone] = useState("");
+  const [adjusterEmail, setAdjusterEmail] = useState("");
   const [roofArea, setRoofArea] = useState("");
   const [squares, setSquares] = useState("");
   const [pitch, setPitch] = useState("");
@@ -64,7 +70,7 @@ export default function Inspections({ division, userId, canWrite }: { division: 
     const client = supabase;
     setLoadingReport(true); setMessage("");
     const { data, error } = await client.from("crm_inspections")
-      .select("id,division_id,inspection_type,status,inspected_at,weather_conditions,overall_condition,summary,recommendations,measurements,roof_sections,crm_customers(display_name),crm_properties(address_line1,city,state,postal_code)")
+      .select("id,division_id,inspection_type,status,inspected_at,weather_conditions,overall_condition,summary,recommendations,measurements,roof_sections,claim_information,crm_customers(display_name),crm_properties(address_line1,city,state,postal_code)")
       .eq("id", id).single();
     if (error || !data) {
       setMessage(error?.message || "Inspection report could not be loaded.");
@@ -103,7 +109,7 @@ export default function Inspections({ division, userId, canWrite }: { division: 
     const { data: inspection, error } = await supabase.from("crm_inspections").insert({
       division_id: division, customer_id: customerId, property_id: propertyId, inspector_id: userId,
       status: "draft", inspected_at: new Date().toISOString(), inspection_type: division === "TRD" ? "residential" : "commercial",
-      weather_conditions: weather || null, overall_condition: overall, summary: summary || null, recommendations: recommendations || null,
+      weather_conditions: weather || null, overall_condition: overall, summary: summary || null, recommendations: recommendations || null,\n      claim_information: { carrier: carrier || null, policy_number: policyNumber || null, claim_number: claimNumber || null, adjuster_name: adjuster || null, adjuster_phone: adjusterPhone || null, adjuster_email: adjusterEmail || null },
       measurements: { roof_area_sq_ft: roofArea ? Number(roofArea) : null, roof_squares: squares ? Number(squares) : null, pitch: pitch || null },
       roof_sections: sectionList.map(name => ({ name }))
     }).select("id").single();
@@ -136,7 +142,7 @@ export default function Inspections({ division, userId, canWrite }: { division: 
       if (photoError) setMessage("Photo uploaded but photo details were not saved: " + photoError.message);
     }
     setMessage(itemError ? "Inspection saved with checklist errors. " + itemError.message : "Inspection and selected photos saved to the customer and property.");
-    setCustomerId(""); setPropertyId(""); setItems(freshItems(division)); setSummary(""); setRecommendations(""); setWeather(""); setRoofArea(""); setSquares(""); setPitch(""); setSections(""); setPhotos([]);
+    setCustomerId(""); setPropertyId(""); setItems(freshItems(division)); setSummary(""); setRecommendations(""); setWeather(""); setCarrier(""); setPolicyNumber(""); setClaimNumber(""); setAdjuster(""); setAdjusterPhone(""); setAdjusterEmail(""); setRoofArea(""); setSquares(""); setPitch(""); setSections(""); setPhotos([]);
     await load(); setBusy(false);
   }
   return <div className="content-stack"><section className="panel">
@@ -146,6 +152,13 @@ export default function Inspections({ division, userId, canWrite }: { division: 
       <label className="wide">Property<select required value={propertyId} onChange={e => setPropertyId(e.target.value)}><option value="">Select property</option>{customerProperties.map(p => <option key={p.id} value={p.id}>{p.address_line1}, {p.city}, {p.state}</option>)}</select></label>
       <label>Overall condition<select value={overall} onChange={e => setOverall(e.target.value)}><option value="good">Good</option><option value="fair">Fair</option><option value="poor">Poor</option><option value="critical">Critical</option></select></label>
       <label>Weather conditions<input value={weather} onChange={e => setWeather(e.target.value)} placeholder="Clear, wet, windy..." /></label>
+      <div className="wide"><h3>Optional insurance information</h3><p className="muted">Complete any fields relevant to this inspection. These details are included in the report when provided.</p></div>
+      <label>Insurance carrier<input value={carrier} onChange={e => setCarrier(e.target.value)} placeholder="Carrier name" /></label>
+      <label>Policy number<input value={policyNumber} onChange={e => setPolicyNumber(e.target.value)} /></label>
+      <label>Claim number<input value={claimNumber} onChange={e => setClaimNumber(e.target.value)} /></label>
+      <label>Adjuster name<input value={adjuster} onChange={e => setAdjuster(e.target.value)} /></label>
+      <label>Adjuster phone<input type="tel" value={adjusterPhone} onChange={e => setAdjusterPhone(e.target.value)} /></label>
+      <label>Adjuster email<input type="email" value={adjusterEmail} onChange={e => setAdjusterEmail(e.target.value)} /></label>
       <label>Roof area (sq ft)<input type="number" min="0" value={roofArea} onChange={e => setRoofArea(e.target.value)} /></label>
       <label>Roof squares<input type="number" min="0" step="0.01" value={squares} onChange={e => setSquares(e.target.value)} /></label>
       <label>Pitch / slope<input value={pitch} onChange={e => setPitch(e.target.value)} placeholder="6:12, low slope..." /></label>
@@ -168,6 +181,12 @@ export default function Inspections({ division, userId, canWrite }: { division: 
       <div><strong>Inspection type</strong><p>{viewingInspection.inspection_type}</p></div>
       <div><strong>Overall condition</strong><p>{viewingInspection.overall_condition || "Not recorded"}</p></div>
       <div><strong>Weather</strong><p>{viewingInspection.weather_conditions || "Not recorded"}</p></div>
+      <div><strong>Insurance carrier</strong><p>{viewingInspection.claim_information?.carrier || "Not provided"}</p></div>
+      <div><strong>Policy number</strong><p>{viewingInspection.claim_information?.policy_number || "Not provided"}</p></div>
+      <div><strong>Claim number</strong><p>{viewingInspection.claim_information?.claim_number || "Not provided"}</p></div>
+      <div><strong>Adjuster</strong><p>{viewingInspection.claim_information?.adjuster_name || "Not provided"}</p></div>
+      <div><strong>Adjuster phone</strong><p>{viewingInspection.claim_information?.adjuster_phone || "Not provided"}</p></div>
+      <div><strong>Adjuster email</strong><p>{viewingInspection.claim_information?.adjuster_email || "Not provided"}</p></div>
       <div><strong>Roof area</strong><p>{viewingInspection.measurements?.roof_area_sq_ft ?? "Not recorded"} sq ft</p></div>
       <div><strong>Roof squares</strong><p>{viewingInspection.measurements?.roof_squares ?? "Not recorded"}</p></div>
       <div><strong>Pitch / slope</strong><p>{viewingInspection.measurements?.pitch || "Not recorded"}</p></div>
