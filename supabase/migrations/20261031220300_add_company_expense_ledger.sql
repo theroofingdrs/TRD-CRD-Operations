@@ -92,12 +92,23 @@ ALTER TABLE public.crm_company_expense_history ENABLE ROW LEVEL SECURITY;
 CREATE POLICY crm_company_expense_history_read ON public.crm_company_expense_history
   FOR SELECT TO authenticated
   USING (app_private.has_division_financial_access(division_id, false));
-GRANT SELECT ON public.crm_company_expense_history TO authenticated;
+CREATE POLICY crm_company_expense_history_insert ON public.crm_company_expense_history
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    app_private.has_division_financial_access(division_id, true)
+    AND (changed_by IS NULL OR changed_by = (SELECT auth.uid()))
+    AND EXISTS (
+      SELECT 1 FROM public.crm_company_expenses e
+      WHERE e.id = crm_company_expense_history.expense_id
+        AND e.division_id = crm_company_expense_history.division_id
+    )
+  );
+GRANT SELECT, INSERT ON public.crm_company_expense_history TO authenticated;
 
 CREATE OR REPLACE FUNCTION app_private.log_company_expense_change()
 RETURNS trigger
 LANGUAGE plpgsql
-SECURITY DEFINER
+SECURITY INVOKER
 SET search_path TO ''
 AS $function$
 BEGIN
