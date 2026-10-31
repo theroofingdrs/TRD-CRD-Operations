@@ -5,7 +5,7 @@ import { supabase } from "./lib/supabase";
 type DivisionId = "TRD" | "CRD";
 type Role = "owner" | "division_admin" | "office_manager" | "sales_rep" | "project_manager" | "field_inspector" | "production_manager" | "accounting" | "read_only";
 type Membership = { division_id: DivisionId; role: Role };
-type View = "overview" | "leads" | "customers" | "properties" | "appointments" | "inspections" | "projects" | "tasks" | "team";
+type View = "overview" | "leads" | "customers" | "contacts" | "properties" | "roofs" | "appointments" | "inspections" | "projects" | "tasks" | "team";
 type Lead = { id: string; service_interest: string | null; status: string; priority: string; source: string | null; description: string | null; created_at: string };
 type Customer = { id: string; display_name: string; customer_type: string; email: string | null; phone: string | null; created_at: string };
 type GenericRow = Record<string, string | number | null>;
@@ -14,7 +14,9 @@ const navigation: { id: View; label: string; icon: string }[] = [
   { id: "overview", label: "Overview", icon: "▦" },
   { id: "leads", label: "Leads", icon: "◎" },
   { id: "customers", label: "Customers", icon: "♙" },
+  { id: "contacts", label: "Contacts", icon: "♧" },
   { id: "properties", label: "Properties", icon: "⌂" },
+  { id: "roofs", label: "Roof systems", icon: "⌃" },
   { id: "appointments", label: "Schedule", icon: "▣" },
   { id: "inspections", label: "Inspections", icon: "⌕" },
   { id: "projects", label: "Projects", icon: "▤" },
@@ -90,6 +92,8 @@ function App() {
   const isOwner = memberships.some((item) => item.role === "owner");
   const canWriteLeads = currentMembership ? ["owner","division_admin","office_manager","sales_rep"].includes(currentMembership.role) : false;
   const canWriteCustomers = currentMembership ? ["owner","division_admin","office_manager","sales_rep","project_manager"].includes(currentMembership.role) : false;
+  const canWriteContacts = canWriteCustomers;
+  const canWriteRoofs = currentMembership ? ["owner","division_admin","office_manager","project_manager","production_manager"].includes(currentMembership.role) : false;
   const canWriteAppointments = currentMembership ? ["owner","division_admin","office_manager","sales_rep","project_manager","field_inspector"].includes(currentMembership.role) : false;
   const canWriteInspections = currentMembership ? ["owner","division_admin","office_manager","project_manager","field_inspector","production_manager"].includes(currentMembership.role) : false;
   const canWriteProjects = currentMembership ? ["owner","division_admin","office_manager","project_manager"].includes(currentMembership.role) : false;
@@ -139,7 +143,9 @@ function App() {
       {view === "overview" && <Overview division={division} onNavigate={setView} />}
       {view === "leads" && <Leads division={division} userId={session.user.id} canWrite={canWriteLeads} />}
       {view === "customers" && <Customers division={division} userId={session.user.id} canWrite={canWriteCustomers} />}
+      {view === "contacts" && <Contacts division={division} canWrite={canWriteContacts} />}
       {view === "properties" && <Properties division={division} canWrite={canWriteCustomers} />}
+      {view === "roofs" && <Roofs division={division} canWrite={canWriteRoofs} />}
       {view === "appointments" && <DataList division={division} view="appointments" userId={session.user.id} canWrite={canWriteAppointments} />}
       {view === "inspections" && <DataList division={division} view="inspections" userId={session.user.id} canWrite={canWriteInspections} />}
       {view === "projects" && <DataList division={division} view="projects" userId={session.user.id} canWrite={canWriteProjects} />}
@@ -278,6 +284,54 @@ function Customers({ division, userId, canWrite }: { division: DivisionId; userI
   </section></div>;
 }
 
+function Contacts({ division, canWrite }: { division: DivisionId; canWrite: boolean }) {
+  const [rows, setRows] = useState<{id:string;customer_id:string;full_name:string;title:string|null;email:string|null;phone:string|null;is_primary:boolean;customer_name:string}[]>([]);
+  const [customers, setCustomers] = useState<{id:string;display_name:string}[]>([]);
+  const [customerId, setCustomerId] = useState("");
+  const [name, setName] = useState("");
+  const [title, setTitle] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [primary, setPrimary] = useState(false);
+  const [notes, setNotes] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const load = useCallback(async () => {
+    if (!supabase) return;
+    setLoading(true);
+    const {data: links,error: linkError}=await supabase.from("crm_customer_divisions").select("customer_id").eq("division_id",division);
+    if(linkError) setMessage(linkError.message);
+    const ids=(links??[]).map((item:{customer_id:string})=>item.customer_id);
+    if(!ids.length){setCustomers([]);setRows([]);setLoading(false);return;}
+    const [customerResult,contactResult]=await Promise.all([
+      supabase.from("crm_customers").select("id,display_name").in("id",ids).order("display_name"),
+      supabase.from("crm_contacts").select("id,customer_id,full_name,title,email,phone,is_primary").in("customer_id",ids).order("full_name")
+    ]);
+    if(customerResult.error) setMessage(customerResult.error.message);
+    if(contactResult.error) setMessage(contactResult.error.message);
+    const customerRows=customerResult.data??[];
+    setCustomers(customerRows);
+    const names:Record<string,string>={};customerRows.forEach(item=>{names[item.id]=item.display_name;});
+    setRows((contactResult.data??[]).map(item=>({...item,customer_name:names[item.customer_id]??"Customer"})));
+    if(!customerId&&customerRows.length)setCustomerId(customerRows[0].id);
+    setLoading(false);
+  },[division,customerId]);
+  useEffect(()=>{void load();},[load]);
+  async function createContact(event:FormEvent){
+    event.preventDefault();if(!supabase)return;setSaving(true);setMessage("");
+    const {error}=await supabase.from("crm_contacts").insert({customer_id:customerId,full_name:name.trim(),title:title.trim()||null,email:email.trim()||null,phone:phone.trim()||null,is_primary:primary,notes:notes.trim()||null});
+    if(error)setMessage(error.message);else{setName("");setTitle("");setEmail("");setPhone("");setNotes("");setPrimary(false);setShowForm(false);setMessage("Contact created.");await load();}
+    setSaving(false);
+  }
+  return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">PEOPLE AND DECISION MAKERS</p><h2>Customer contacts</h2><p className="muted">Contacts are attached to customer accounts within the selected division.</p></div>{canWrite&&customers.length>0&&<button className="primary-button compact" onClick={()=>setShowForm(!showForm)}>{showForm?"Close form":"+ Add contact"}</button>}</div>
+    {showForm&&<form className="inline-form" onSubmit={createContact}><div className="form-grid"><label>Customer account<select required value={customerId} onChange={e=>setCustomerId(e.target.value)}>{customers.map(c=><option key={c.id} value={c.id}>{c.display_name}</option>)}</select></label><label>Full name<input required value={name} onChange={e=>setName(e.target.value)}/></label><label>Title or role<input value={title} onChange={e=>setTitle(e.target.value)} placeholder="Owner, property manager, adjuster..."/></label><label>Email<input type="email" value={email} onChange={e=>setEmail(e.target.value)}/></label><label>Phone<input value={phone} onChange={e=>setPhone(e.target.value)}/></label><label className="check-field"><span><input type="checkbox" checked={primary} onChange={e=>setPrimary(e.target.checked)}/> Primary contact</span></label><label className="wide">Notes<textarea rows={2} value={notes} onChange={e=>setNotes(e.target.value)}/></label></div><button className="primary-button" disabled={saving||!customerId}>{saving?"Saving...":"Save contact"}</button></form>}
+    {message&&<p className="inline-message">{message}</p>}
+    {loading?<div className="empty-state">Loading contacts...</div>:rows.length?<div className="table-wrap"><table><thead><tr><th>Name</th><th>Customer</th><th>Title</th><th>Email</th><th>Phone</th><th>Primary</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td><strong>{r.full_name}</strong></td><td>{r.customer_name}</td><td>{r.title||"—"}</td><td>{r.email||"—"}</td><td>{r.phone||"—"}</td><td>{r.is_primary?"Yes":"No"}</td></tr>)}</tbody></table></div>:<div className="empty-state"><strong>No contacts yet</strong><span>Create a customer first, then add the people associated with that account.</span>{canWrite&&customers.length>0&&<button className="secondary-button" onClick={()=>setShowForm(true)}>Add first contact</button>}</div>}
+  </section></div>;
+}
+
 function Properties({ division, canWrite }: { division: DivisionId; canWrite: boolean }) {
   const [rows, setRows] = useState<GenericRow[]>([]);
   const [customers, setCustomers] = useState<{id:string;display_name:string}[]>([]);
@@ -338,6 +392,53 @@ function Properties({ division, canWrite }: { division: DivisionId; canWrite: bo
     {showForm && <form className="inline-form" onSubmit={createProperty}><div className="form-grid"><label>Customer account<select required value={customerId} onChange={(event) => setCustomerId(event.target.value)}>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.display_name}</option>)}</select></label><label>Property type<select value={propertyType} onChange={(event) => setPropertyType(event.target.value)}><option value="residential">Residential</option><option value="commercial">Commercial</option><option value="multifamily">Multifamily</option><option value="industrial">Industrial</option><option value="institutional">Church / School / Institutional</option></select></label><label className="wide">Street address<input required value={address} onChange={(event) => setAddress(event.target.value)} /></label><label>City<input required value={city} onChange={(event) => setCity(event.target.value)} /></label><label>State<input required value={state} onChange={(event) => setState(event.target.value)} maxLength={2} /></label><label>ZIP code<input value={postal} onChange={(event) => setPostal(event.target.value)} /></label></div><button className="primary-button" disabled={saving || !customerId}>{saving ? "Saving..." : "Save property"}</button></form>}
     {message && <p className="inline-message">{message}</p>}
     {loading ? <div className="empty-state">Loading properties...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Street address</th><th>City</th><th>State</th><th>ZIP</th><th>Type</th><th>Added</th></tr></thead><tbody>{rows.map((row) => <tr key={String(row.id)}><td><strong>{String(row.address_line1 || "Property")}</strong></td><td>{String(row.city || "—")}</td><td>{String(row.state || "—")}</td><td>{String(row.postal_code || "—")}</td><td>{String(row.property_type || "—")}</td><td>{formatValue("created_at",row.created_at)}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No properties yet</strong><span>Add a customer first, then create the property record here.</span>{canWrite && customers.length > 0 && <button className="secondary-button" onClick={() => setShowForm(true)}>Add first property</button>}</div>}
+  </section></div>;
+}
+
+function Roofs({ division, canWrite }: { division: DivisionId; canWrite: boolean }) {
+  const [rows,setRows]=useState<any[]>([]);
+  const [properties,setProperties]=useState<{id:string;address_line1:string;city:string;state:string}[]>([]);
+  const [propertyId,setPropertyId]=useState("");
+  const [section,setSection]=useState("");
+  const [roofType,setRoofType]=useState("sloped");
+  const [material,setMaterial]=useState("asphalt_shingle");
+  const [year,setYear]=useState("");
+  const [area,setArea]=useState("");
+  const [pitch,setPitch]=useState("");
+  const [layers,setLayers]=useState("");
+  const [condition,setCondition]=useState("");
+  const [warranty,setWarranty]=useState("");
+  const [showForm,setShowForm]=useState(false);
+  const [message,setMessage]=useState("");
+  const [loading,setLoading]=useState(true);
+  const [saving,setSaving]=useState(false);
+  const load=useCallback(async()=>{
+    if(!supabase)return;setLoading(true);
+    const {data:links,error:linkError}=await supabase.from("crm_customer_divisions").select("customer_id").eq("division_id",division);
+    if(linkError)setMessage(linkError.message);
+    const ids=(links??[]).map((x:{customer_id:string})=>x.customer_id);
+    if(!ids.length){setProperties([]);setRows([]);setLoading(false);return;}
+    const {data:propertyRows,error:propertyError}=await supabase.from("crm_properties").select("id,address_line1,city,state").in("customer_id",ids).order("address_line1");
+    if(propertyError)setMessage(propertyError.message);
+    const options=propertyRows??[];setProperties(options);
+    if(!options.length){setRows([]);setLoading(false);return;}
+    const {data:roofRows,error:roofError}=await supabase.from("crm_roofs").select("id,property_id,roof_section,roof_type,covering_material,installation_year,approximate_area_sqft,pitch,layers_count,condition_summary,warranty_notes").in("property_id",options.map(x=>x.id)).order("created_at",{ascending:false});
+    if(roofError)setMessage(roofError.message);
+    const addresses:Record<string,string>={};options.forEach(p=>{addresses[p.id]=[p.address_line1,p.city,p.state].filter(Boolean).join(", ");});
+    setRows((roofRows??[]).map(r=>({...r,address:addresses[r.property_id]??"Property"})));
+    setLoading(false);
+  },[division]);
+  useEffect(()=>{void load();},[load]);
+  async function createRoof(event:FormEvent){
+    event.preventDefault();if(!supabase)return;setSaving(true);setMessage("");
+    const {error}=await supabase.from("crm_roofs").insert({property_id:propertyId,roof_section:section.trim()||null,roof_type:roofType,covering_material:material,installation_year:year?Number(year):null,approximate_area_sqft:area?Number(area):null,pitch:pitch.trim()||null,layers_count:layers?Number(layers):null,condition_summary:condition.trim()||null,warranty_notes:warranty.trim()||null});
+    if(error)setMessage(error.message);else{setSection("");setYear("");setArea("");setPitch("");setLayers("");setCondition("");setWarranty("");setShowForm(false);setMessage("Roof system created.");await load();}
+    setSaving(false);
+  }
+  return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">ROOF ASSET REGISTER</p><h2>Roof systems</h2><p className="muted">Track roof assemblies, materials, age, area, condition, and warranty notes by property.</p></div>{canWrite&&properties.length>0&&<button className="primary-button compact" onClick={()=>setShowForm(!showForm)}>{showForm?"Close form":"+ Add roof system"}</button>}</div>
+    {showForm&&<form className="inline-form" onSubmit={createRoof}><div className="form-grid"><label className="wide">Property<select required value={propertyId} onChange={e=>setPropertyId(e.target.value)}>{properties.map(p=><option key={p.id} value={p.id}>{p.address_line1}, {p.city}, {p.state}</option>)}</select></label><label>Roof section<input value={section} onChange={e=>setSection(e.target.value)} placeholder="Main building, north wing, garage..."/></label><label>Roof type<select value={roofType} onChange={e=>setRoofType(e.target.value)}><option value="sloped">Sloped</option><option value="low_slope">Low slope</option><option value="flat">Flat</option><option value="metal">Metal system</option><option value="other">Other</option></select></label><label>Covering material<select value={material} onChange={e=>setMaterial(e.target.value)}><option value="asphalt_shingle">Asphalt shingle</option><option value="standing_seam_metal">Standing seam metal</option><option value="metal_panel">Metal panel</option><option value="tpo">TPO</option><option value="epdm">EPDM</option><option value="pvc">PVC</option><option value="modified_bitumen">Modified bitumen</option><option value="built_up">Built up</option><option value="tile">Tile</option><option value="other">Other</option></select></label><label>Installation year<input type="number" min="1900" max="2100" value={year} onChange={e=>setYear(e.target.value)}/></label><label>Approximate area (sq ft)<input type="number" min="0" step="1" value={area} onChange={e=>setArea(e.target.value)}/></label><label>Pitch<input value={pitch} onChange={e=>setPitch(e.target.value)} placeholder="6/12, 1/12, flat..."/></label><label>Layers<input type="number" min="1" max="10" value={layers} onChange={e=>setLayers(e.target.value)}/></label><label className="wide">Condition summary<textarea rows={2} value={condition} onChange={e=>setCondition(e.target.value)}/></label><label className="wide">Warranty notes<textarea rows={2} value={warranty} onChange={e=>setWarranty(e.target.value)}/></label></div><button className="primary-button" disabled={saving||!propertyId}>{saving?"Saving...":"Save roof system"}</button></form>}
+    {message&&<p className="inline-message">{message}</p>}
+    {loading?<div className="empty-state">Loading roof systems...</div>:rows.length?<div className="table-wrap"><table><thead><tr><th>Property</th><th>Section</th><th>Type</th><th>Material</th><th>Year</th><th>Area sq ft</th><th>Condition</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td><strong>{r.address}</strong></td><td>{r.roof_section||"—"}</td><td>{String(r.roof_type||"—").replaceAll("_"," ")}</td><td>{String(r.covering_material||"—").replaceAll("_"," ")}</td><td>{r.installation_year||"—"}</td><td>{r.approximate_area_sqft??"—"}</td><td>{r.condition_summary||"—"}</td></tr>)}</tbody></table></div>:<div className="empty-state"><strong>No roof systems recorded</strong><span>Add a property first, then document each roof section or system.</span>{canWrite&&properties.length>0&&<button className="secondary-button" onClick={()=>setShowForm(true)}>Add first roof system</button>}</div>}
   </section></div>;
 }
 
