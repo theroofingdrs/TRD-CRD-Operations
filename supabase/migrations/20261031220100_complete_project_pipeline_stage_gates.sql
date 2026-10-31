@@ -260,3 +260,53 @@ DROP TRIGGER IF EXISTS crm_projects_enforce_stage_gate ON public.crm_projects;
 CREATE TRIGGER crm_projects_enforce_stage_gate
   BEFORE UPDATE OF workflow_stage, pipeline_type, workflow_stage_override ON public.crm_projects
   FOR EACH ROW EXECUTE FUNCTION app_private.enforce_project_stage_gate();
+
+
+-- Keep a project's lead and insurance claim attached to the same customer, property and division.
+CREATE OR REPLACE FUNCTION app_private.enforce_project_lead_claim_links()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path TO ''
+AS $function$
+DECLARE
+  lead_row public.crm_leads%ROWTYPE;
+  claim_row public.crm_claims%ROWTYPE;
+BEGIN
+  IF NEW.claim_id IS NOT NULL THEN
+    SELECT * INTO claim_row FROM public.crm_claims WHERE id = NEW.claim_id;
+    IF NOT FOUND
+       OR claim_row.division_id IS DISTINCT FROM NEW.division_id
+       OR claim_row.customer_id IS DISTINCT FROM NEW.customer_id
+       OR claim_row.property_id IS DISTINCT FROM NEW.property_id THEN
+      RAISE EXCEPTION 'The selected insurance claim must belong to this project customer, property and division';
+    END IF;
+    IF claim_row.project_id IS NOT NULL AND claim_row.project_id IS DISTINCT FROM NEW.id THEN
+      RAISE EXCEPTION 'This insurance claim is already linked to another project';
+    END IF;
+    IF claim_row.lead_id IS NOT NULL THEN
+      IF NEW.lead_id IS NULL THEN
+        NEW.lead_id := claim_row.lead_id;
+      ELSIF NEW.lead_id IS DISTINCT FROM claim_row.lead_id THEN
+        RAISE EXCEPTION 'The selected lead does not match the insurance claim';
+      END IF;
+    END IF;
+  END IF;
+
+  IF NEW.lead_id IS NOT NULL THEN
+    SELECT * INTO lead_row FROM public.crm_leads WHERE id = NEW.lead_id;
+    IF NOT FOUND
+       OR lead_row.division_id IS DISTINCT FROM NEW.division_id
+       OR lead_row.customer_id IS DISTINCT FROM NEW.customer_id
+       OR (lead_row.property_id IS NOT NULL AND lead_row.property_id IS DISTINCT FROM NEW.property_id) THEN
+      RAISE EXCEPTION 'The selected lead must belong to this project customer, property and division';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+REVOKE ALL ON FUNCTION app_private.enforce_project_lead_claim_links() FROM PUBLIC, anon, authenticated;
+DROP TRIGGER IF EXISTS crm_projects_enforce_lead_claim_links ON public.crm_projects;
+CREATE TRIGGER crm_projects_enforce_lead_claim_links
+  BEFORE INSERT OR UPDATE OF division_id, customer_id, property_id, lead_id, claim_id ON public.crm_projects
+  FOR EACH ROW EXECUTE FUNCTION app_private.enforce_project_lead_claim_links();
