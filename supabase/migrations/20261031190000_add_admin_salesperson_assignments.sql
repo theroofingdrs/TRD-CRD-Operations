@@ -103,3 +103,5 @@ DROP TRIGGER IF EXISTS crm_customers_assignment_guard ON public.crm_customers;
 CREATE TRIGGER crm_customers_assignment_guard
   BEFORE UPDATE OF assigned_to ON public.crm_customers
   FOR EACH ROW EXECUTE FUNCTION app_private.guard_and_log_salesperson_assignment();
+
+GRANT SELECT ON TABLE public.crm_assignment_history TO authenticated;
