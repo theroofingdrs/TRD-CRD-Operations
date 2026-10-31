@@ -178,7 +178,7 @@ function App() {
       {view === "documents" && <Documents division={division} userId={session.user.id} canWrite={canWriteFiles} />}
       {view === "appointments" && <DataList division={division} view="appointments" userId={session.user.id} canWrite={canWriteAppointments} />}
       {view === "inspections" && <DataList division={division} view="inspections" userId={session.user.id} canWrite={canWriteInspections} />}
-      {view === "proposals" && <Proposals division={division} userId={session.user.id} canWrite={canWriteProjects} />}
+      {view === "proposals" && <Proposals division={division} userId={session.user.id} canWrite={canWriteLeads} />}
       {view === "projects" && <DataList division={division} view="projects" userId={session.user.id} canWrite={canWriteProjects} />}
       {view === "tasks" && <DataList division={division} view="tasks" userId={session.user.id} canWrite={canWriteTasks} />}
       {view === "team" && isOwner && <Team division={division} />}
