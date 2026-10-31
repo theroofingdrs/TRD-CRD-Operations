@@ -84,7 +84,7 @@ BEGIN
   IF project_row.pipeline_type IS NULL OR project_row.pipeline_type NOT IN ('retail','insurance') THEN
     RAISE EXCEPTION 'Assign a Retail or Insurance workflow before moving this project';
   END IF;
-  IF p_next_stage NOT IN (
+  IF p_next_stage IS NULL OR p_next_stage NOT IN (
     'new_lead','contacted','appointment_set','inspection_scheduled','inspection_completed',
     'estimate_prepared','bid_issued','awaiting_customer','scope_prepared','claim_filed',
     'adjuster_meeting_scheduled','adjuster_met_awaiting_approval','supplement_prepared',
@@ -142,6 +142,9 @@ BEGIN
   END IF;
   IF p_authorized_override AND NOT override_allowed THEN
     RAISE EXCEPTION 'Your role is not authorized to override project stage gates';
+  END IF;
+  IF p_authorized_override AND NOT needs_override THEN
+    RAISE EXCEPTION 'An override may only be used when a required stage gate is not satisfied';
   END IF;
   IF needs_override THEN
     final_note := concat_ws(' | ', 'AUTHORIZED OVERRIDE', final_note);
