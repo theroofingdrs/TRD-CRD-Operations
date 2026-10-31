@@ -302,6 +302,7 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
   const [billingCity, setBillingCity] = useState("");
   const [billingState, setBillingState] = useState("TX");
   const [billingPostal, setBillingPostal] = useState("");
+  const [billingSameAsProperty, setBillingSameAsProperty] = useState(false);
   const emptyProperty = () => ({ property_name: "", address_line1: "", address_line2: "", city: "", state: "TX", postal_code: "", county: "", property_type: "residential", year_built: "", square_footage: "", parcel_number: "", building_name: "", occupancy_type: "", property_notes: "" });
   const [newProperties, setNewProperties] = useState([emptyProperty()]);
   const [showAddProperty, setShowAddProperty] = useState(false);
@@ -461,7 +462,28 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
   }
 
   function updateNewProperty(index: number, patch: Partial<ReturnType<typeof emptyProperty>>) {
-    setNewProperties(current => current.map((item, i) => i === index ? { ...item, ...patch } : item));
+    setNewProperties(current => {
+      const updated = current.map((item, i) => i === index ? { ...item, ...patch } : item);
+      if (index === 0 && billingSameAsProperty) {
+        const first = updated[0];
+        setBillingAddress(first.address_line1);
+        setBillingCity(first.city);
+        setBillingState(first.state);
+        setBillingPostal(first.postal_code);
+      }
+      return updated;
+    });
+  }
+
+  function toggleBillingSameAsProperty(checked: boolean) {
+    setBillingSameAsProperty(checked);
+    if (checked) {
+      const first = newProperties[0];
+      setBillingAddress(first.address_line1);
+      setBillingCity(first.city);
+      setBillingState(first.state);
+      setBillingPostal(first.postal_code);
+    }
   }
 
   function propertyInsertValues(customerId: string, items: typeof newProperties) {
@@ -568,10 +590,11 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
         <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
         <label>Phone<input value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
         <label>Primary contact name<input value={primaryContactName} onChange={(event) => setPrimaryContactName(event.target.value)} placeholder="Pastor, facilities manager, property manager..." /></label>
-        <label className="wide">Billing or mailing street address<input value={billingAddress} onChange={(event) => setBillingAddress(event.target.value)} /></label>
-        <label>City<input value={billingCity} onChange={(event) => setBillingCity(event.target.value)} /></label>
-        <label>State<input value={billingState} onChange={(event) => setBillingState(event.target.value)} maxLength={2} /></label>
-        <label>ZIP code<input value={billingPostal} onChange={(event) => setBillingPostal(event.target.value)} /></label>
+        <label className="wide">Billing or mailing street address<input value={billingAddress} onChange={(event) => setBillingAddress(event.target.value)} disabled={billingSameAsProperty} /></label>
+        <label>City<input value={billingCity} onChange={(event) => setBillingCity(event.target.value)} disabled={billingSameAsProperty} /></label>
+        <label>State<input value={billingState} onChange={(event) => setBillingState(event.target.value)} maxLength={2} disabled={billingSameAsProperty} /></label>
+        <label>ZIP code<input value={billingPostal} onChange={(event) => setBillingPostal(event.target.value)} disabled={billingSameAsProperty} /></label>
+        {!editingId && <label className="check-field wide"><span><input type="checkbox" checked={billingSameAsProperty} onChange={event => toggleBillingSameAsProperty(event.target.checked)} /> Billing address is the same as the first property address</span></label>}
         <div className="wide"><h3>Property details</h3><p className="muted">Add the first service property now. You can attach more properties to this customer.</p>
           {newProperties.map((property, index) => <div className="form-grid" key={index}>
             <label>Property name<input value={property.property_name} onChange={e => updateNewProperty(index,{property_name:e.target.value})} placeholder="Primary residence, Building A..." /></label>
