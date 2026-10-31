@@ -1,5 +1,0 @@
-alter table public.crm_files
-  add column if not exists metadata jsonb not null default '{}'::jsonb;
-
-comment on column public.crm_files.metadata is
-  'Structured metadata for property documents, including Roofr measurement extraction and review status.';
