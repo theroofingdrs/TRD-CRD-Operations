@@ -90,7 +90,10 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [supplementAmount, setSupplementAmount] = useState("");
   const [supplementStatus, setSupplementStatus] = useState("draft");
   const [supplementNotes, setSupplementNotes] = useState("");
-  const [filter, setFilter] = useState<"all" | "retail" | "insurance">("all");\n  const [scope, setScope] = useState<"division" | "combined">("division");\n  const availableDivisionKey = availableDivisions.join("|");\n  const visibleDivisions = useMemo(() => scope === "combined" ? availableDivisions : [division], [scope, division, availableDivisionKey]);
+  const [filter, setFilter] = useState<"all" | "retail" | "insurance">("all");
+  const [scope, setScope] = useState<"division" | "combined">("division");
+  const availableDivisionKey = availableDivisions.join("|");
+  const visibleDivisions = useMemo(() => scope === "combined" ? availableDivisions : [division], [scope, division, availableDivisionKey]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -99,9 +102,9 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     if (!supabase) return;
     setError(""); setBusy(true);
     const [projectResult, linkResult, expenseResult, settingsResult, transactionResult] = await Promise.all([
-      supabase.from("crm_projects").select("id,division_id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").eq("division_id", division).order("created_at", { ascending: false }),
-      supabase.from("crm_customer_divisions").select("customer_id").eq("division_id", division),
-      supabase.from("crm_project_expenses").select("amount,category").eq("division_id", division),
+      supabase.from("crm_projects").select("id,division_id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").in("division_id", visibleDivisions).order("created_at", { ascending: false }),
+      supabase.from("crm_customer_divisions").select("customer_id").in("division_id", visibleDivisions),
+      supabase.from("crm_project_expenses").select("amount,category").in("division_id", visibleDivisions),
       supabase.from("crm_division_financial_settings").select("stale_stage_days").eq("division_id", division).maybeSingle(),
       supabase.from("crm_project_transactions").select("amount,transaction_date").in("division_id", visibleDivisions).eq("transaction_type", "payment").eq("status", "recorded").gte("transaction_date", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0,10))
     ]);
@@ -204,7 +207,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     setBusy(true); setError("");
     const { error: updateError } = await supabase.from("crm_projects").update({
       pipeline_type: value, workflow_stage: "new_lead", updated_at: new Date().toISOString()
-    }).eq("id", project.id).eq("division_id", division);
+    }).eq("id", project.id).eq("division_id", project.division_id);
     if (updateError) setError(updateError.message);
     else { setMessage("Project workflow assigned."); await load(); }
     setBusy(false);
