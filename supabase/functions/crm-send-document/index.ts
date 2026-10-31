@@ -33,34 +33,80 @@ async function makePdf(brand: string, title: string, sections: { heading: string
   const pdf = await PDFDocument.create();
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const accent = rgb(0.88, 0.34, 0.12);
+  const ink = rgb(0.13, 0.15, 0.17);
+  const muted = rgb(0.38, 0.41, 0.44);
+  const pages: any[] = [];
   let page = pdf.addPage([612, 792]);
-  let y = 742;
-  const draw = (text: string, size = 10, isBold = false) => {
-    if (y < 54) { page = pdf.addPage([612, 792]); y = 742; }
-    page.drawText(text, { x: 48, y, size, font: isBold ? bold : regular, color: rgb(0.12, 0.15, 0.18), maxWidth: 516 });
-    y -= size + 7;
+  pages.push(page);
+  let y = 690;
+  const newPage = () => {
+    page = pdf.addPage([612, 792]);
+    pages.push(page);
+    y = 724;
   };
-  draw(brand.toUpperCase(), 11, true);
-  draw(title, 20, true);
-  y -= 8;
+  const draw = (text: string, size = 10, isBold = false, color = ink) => {
+    const words = text.split(/\s+/);
+    let line = "";
+    for (const word of words) {
+      const candidate = line ? line + " " + word : word;
+      if (candidate.length > 92 && line) {
+        if (y < 58) newPage();
+        page.drawText(line, { x: 48, y, size, font: isBold ? bold : regular, color, maxWidth: 516 });
+        y -= size + 6;
+        line = word;
+      } else line = candidate;
+    }
+    if (line) {
+      if (y < 58) newPage();
+      page.drawText(line, { x: 48, y, size, font: isBold ? bold : regular, color, maxWidth: 516 });
+      y -= size + 7;
+    }
+  };
+  page.drawRectangle({ x: 0, y: 748, width: 612, height: 44, color: accent });
+  page.drawText(brand.toUpperCase(), { x: 48, y: 765, size: 12, font: bold, color: rgb(1, 1, 1), maxWidth: 516 });
+  page.drawText(title, { x: 48, y: 718, size: 21, font: bold, color: ink, maxWidth: 516 });
+  page.drawText("Prepared " + new Date().toLocaleDateString("en-US"), { x: 48, y: 700, size: 8, font: regular, color: muted });
+  y = 670;
   for (const section of sections) {
-    draw(section.heading, 12, true);
-    for (const line of section.body) for (const wrapped of wrap(line)) draw(wrapped, 9);
-    y -= 8;
+    if (y < 82) newPage();
+    page.drawRectangle({ x: 42, y: y - 5, width: 528, height: 22, color: rgb(0.96, 0.96, 0.95) });
+    page.drawRectangle({ x: 42, y: y - 5, width: 4, height: 22, color: accent });
+    page.drawText(section.heading, { x: 54, y, size: 11, font: bold, color: ink, maxWidth: 500 });
+    y -= 28;
+    for (const line of section.body) {
+      if (!line) continue;
+      draw(line, 9, false, ink);
+    }
+    y -= 9;
+  }
+  if (photos.length) {
+    if (y < 100) newPage();
+    page.drawRectangle({ x: 42, y: y - 5, width: 528, height: 22, color: rgb(0.96, 0.96, 0.95) });
+    page.drawRectangle({ x: 42, y: y - 5, width: 4, height: 22, color: accent });
+    page.drawText("PHOTO DOCUMENTATION", { x: 54, y, size: 11, font: bold, color: ink });
+    y -= 34;
   }
   for (const photo of photos) {
-    draw(photo.label || "Inspection photo", 10, true);
-    if (photo.section) draw("Roof section: " + photo.section, 8);
-    if (photo.caption) draw(photo.caption, 8);
+    if (y < 120) newPage();
+    draw(photo.label || "Inspection photo", 10, true, ink);
+    if (photo.section) draw("Location: " + photo.section, 8, false, muted);
+    if (photo.caption) draw(photo.caption, 8, false, ink);
     try {
       const image = photo.contentType === "image/jpeg" ? await pdf.embedJpg(photo.bytes) : await pdf.embedPng(photo.bytes);
-      const size = image.scaleToFit(516, 250);
-      if (y < size.height + 60) { page = pdf.addPage([612, 792]); y = 742; }
+      const size = image.scaleToFit(516, 300);
+      if (y < size.height + 54) newPage();
       page.drawImage(image, { x: 48, y: y - size.height, width: size.width, height: size.height });
-      y -= size.height + 18;
-    } catch { draw("Image could not be embedded. View the original photo in the CRM.", 8); }
+      y -= size.height + 22;
+    } catch {
+      draw("Image could not be embedded. View the original photo in the CRM.", 8, false, muted);
+    }
   }
-  draw("Prepared from the Roof Doctors Operations CRM.", 8);
+  pages.forEach((currentPage, index) => {
+    currentPage.drawLine({ start: { x: 48, y: 42 }, end: { x: 564, y: 42 }, thickness: 0.6, color: rgb(0.82, 0.83, 0.83) });
+    currentPage.drawText(brand + " | " + title, { x: 48, y: 27, size: 7, font: regular, color: muted, maxWidth: 420 });
+    currentPage.drawText("Page " + (index + 1) + " of " + pages.length, { x: 490, y: 27, size: 7, font: regular, color: muted });
+  });
   return await pdf.save();
 }
 Deno.serve(async (req: Request) => {
