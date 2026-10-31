@@ -501,14 +501,14 @@ $function$
 
 
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA app_private FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION app_private.appointment_links_match_division(p_division_id text, p_lead_id uuid, p_customer_id uuid, p_property_id uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION app_private.appointment_links_match_division(text, uuid, uuid, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION app_private.has_any_active_membership() TO authenticated;
-GRANT EXECUTE ON FUNCTION app_private.has_division_access(p_division_id text, p_write boolean) TO authenticated;
-GRANT EXECUTE ON FUNCTION app_private.has_division_resource_access(p_division_id text, p_resource text, p_write boolean) TO authenticated;
+GRANT EXECUTE ON FUNCTION app_private.has_division_access(text, boolean) TO authenticated;
+GRANT EXECUTE ON FUNCTION app_private.has_division_resource_access(text, text, boolean) TO authenticated;
 GRANT EXECUTE ON FUNCTION app_private.is_crm_owner() TO authenticated;
-GRANT EXECUTE ON FUNCTION app_private.lead_links_match_division(p_division_id text, p_customer_id uuid, p_property_id uuid, p_contact_id uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION app_private.project_links_match_division(p_division_id text, p_customer_id uuid, p_property_id uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION app_private.property_in_division(p_division_id text, p_property_id uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION app_private.lead_links_match_division(text, uuid, uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION app_private.project_links_match_division(text, uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION app_private.property_in_division(text, uuid) TO authenticated;
 
 CREATE INDEX crm_activity_actor_idx ON public.crm_activity_events USING btree (actor_id);
 CREATE INDEX crm_activity_entity_idx ON public.crm_activity_events USING btree (division_id, entity_type, entity_id, created_at DESC);
