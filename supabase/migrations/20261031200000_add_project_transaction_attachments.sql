@@ -29,3 +29,26 @@ CREATE POLICY crm_files_project_transaction_read ON public.crm_files
       WHERE t.attachment_file_id = crm_files.id AND t.division_id = crm_files.division_id
     )
   );
+
+DROP POLICY IF EXISTS crm_project_transactions_update ON public.crm_project_transactions;
+CREATE POLICY crm_project_transactions_update ON public.crm_project_transactions
+  FOR UPDATE TO authenticated
+  USING (app_private.has_division_financial_access(division_id, true))
+  WITH CHECK (
+    app_private.has_division_financial_access(division_id, true)
+    AND EXISTS (
+      SELECT 1 FROM public.crm_projects p
+      WHERE p.id = crm_project_transactions.project_id AND p.division_id = crm_project_transactions.division_id
+    )
+    AND (
+      attachment_file_id IS NULL
+      OR EXISTS (
+        SELECT 1 FROM public.crm_files f
+        WHERE f.id = crm_project_transactions.attachment_file_id
+          AND f.division_id = crm_project_transactions.division_id
+          AND f.related_type = 'project'
+          AND f.related_id = crm_project_transactions.project_id
+          AND f.metadata->>'document_category' IN ('invoice_document','payment_receipt')
+      )
+    )
+  );
