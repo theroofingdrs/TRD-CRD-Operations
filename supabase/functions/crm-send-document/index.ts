@@ -18,7 +18,7 @@ function money(value: unknown): string {
   return Number(value || 0).toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 function wrap(value: string, max = 88): string[] {
-  const words = value.split(/\\s+/);
+  const words = value.split(/\s+/);
   const lines: string[] = [];
   let line = "";
   for (const word of words) {
@@ -109,7 +109,7 @@ async function makePdf(brand: string, title: string, sections: { heading: string
   });
   return await pdf.save();
 }
-Deno.serve(async (req: Request) => {
+function toBase64(bytes: Uint8Array): string {\n  let binary = \"\";\n  const chunkSize = 0x8000;\n  for (let offset = 0; offset < bytes.length; offset += chunkSize) {\n    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));\n  }\n  return btoa(binary);\n}\n\nDeno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
   const authorization = req.headers.get("Authorization") || "";
@@ -209,10 +209,10 @@ Deno.serve(async (req: Request) => {
     if (data.exclusions) sections.push({ heading: "Exclusions", body: [data.exclusions] });
     if (data.maintenance_requirements) sections.push({ heading: "Maintenance requirements", body: [data.maintenance_requirements] });
   }
-  if (!recipient || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(recipient)) return json({ error: "This customer does not have a valid email address on file." }, 400);
+  if (!recipient || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) return json({ error: "This customer does not have a valid email address on file." }, 400);
   const subject = brand + ": " + (type === "inspection" ? "Roof inspection report" : title);
   const pdfBytes = await makePdf(brand, title, sections, photoImages);
-  const base64 = btoa(String.fromCharCode(...new Uint8Array(pdfBytes)));
+  const base64 = toBase64(new Uint8Array(pdfBytes));
   const fileName = type + "-" + id + ".pdf";
   const { data: delivery, error: deliveryError } = await client.from("crm_document_deliveries").insert({
     division_id: division, document_type: type, document_id: id, customer_id: customerId, property_id: propertyId,
