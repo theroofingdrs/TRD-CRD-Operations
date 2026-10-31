@@ -349,11 +349,10 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     }).eq("id", supplement.id).eq("division_id", selected.division_id);
     if (updateError) setError(updateError.message);
     else {
-      const { data: rows } = await supabase.from("crm_project_supplements").select("approved_amount").eq("project_id", selected.id);
-      const approved = (rows || []).reduce((sum: number, row: { approved_amount: number }) => sum + Math.round(Number(row.approved_amount || 0) * 100), 0) / 100;
-      await supabase.from("crm_projects").update({ supplements_approved_amount: approved, updated_at: new Date().toISOString() }).eq("id", selected.id).eq("division_id", selected.division_id);
       setSupplementEditing(null); setSupplementApproved(""); setSupplementResponse(""); setSupplementResponseDate("");
-      await load(); await openProject({ ...selected, supplements_approved_amount: approved });
+      await load();
+      const { data: fresh } = await supabase.from("crm_projects").select("*").eq("id", selected.id).single();
+      await openProject((fresh || selected) as Project);
     }
     setBusy(false);
   }
