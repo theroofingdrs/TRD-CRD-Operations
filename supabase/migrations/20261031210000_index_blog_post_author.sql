@@ -1,0 +1,2 @@
+-- Cover the blog author foreign key for dashboard and audit lookups.
+create index if not exists crm_blog_posts_author_idx on public.crm_blog_posts(author_id);
