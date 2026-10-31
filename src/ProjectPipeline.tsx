@@ -87,7 +87,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     if (!supabase) return;
     setError(""); setBusy(true);
     const [projectResult, linkResult, expenseResult, settingsResult] = await Promise.all([
-      supabase.from("crm_projects").select("id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,updated_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").eq("division_id", division).order("created_at", { ascending: false }),
+      supabase.from("crm_projects").select("id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").eq("division_id", division).order("created_at", { ascending: false }),
       supabase.from("crm_customer_divisions").select("customer_id").eq("division_id", division),
       supabase.from("crm_project_expenses").select("amount,category").eq("division_id", division),
       supabase.from("crm_division_financial_settings").select("stale_stage_days").eq("division_id", division).maybeSingle()
@@ -193,7 +193,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
 
   async function addExpense(event: FormEvent) {
     event.preventDefault();
-    if (!supabase || !selected) return;
+    if (!supabase || !canWriteFinancials || !selected) return;
     setBusy(true); setError("");
     const { error: insertError } = await supabase.from("crm_project_expenses").insert({
       division_id: division, project_id: selected.id, category: expenseCategory,
@@ -222,7 +222,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   }
 
   async function updateExpense(expense: Expense, changes: Partial<Expense>) {
-    if (!supabase || !canWriteFinancials || !selected) return;
+    if (!supabase || !canWrite || !selected) return;
     setBusy(true); setError("");
     const nextPaid = changes.paid_amount ?? expense.paid_amount;
     const nextStatus = changes.payment_status ?? expense.payment_status;
@@ -266,7 +266,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
 
   async function saveFinancials(event: FormEvent) {
     event.preventDefault();
-    if (!supabase || !selected || !canWrite) return;
+    if (!supabase || !selected || !canWriteFinancials) return;
     const direct = expenses.filter(x => x.category !== "overhead" && x.category !== "sales_commission").reduce((sum, x) => sum + Math.round(Number(x.amount) * 100), 0) / 100;
     const approved = cents(financeApproved);
     const contractAmount = cents(financeContract);
