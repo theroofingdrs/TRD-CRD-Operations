@@ -143,7 +143,7 @@ function App() {
       <header className="topbar"><div><p className="eyebrow">{division} DIVISION</p><h1>{view === "overview" ? "Operations overview" : navigation.find((item) => item.id === view)?.label}</h1></div><div className="user-menu"><div className="avatar">{(profileName || "U").slice(0,1).toUpperCase()}</div><div><strong>{profileName || "Employee"}</strong><span>{currentMembership?.role?.replaceAll("_"," ")}</span></div></div></header>
       {workspaceError && <div className="error-banner">{workspaceError}</div>}
       {view === "overview" && <Overview division={division} onNavigate={setView} />}
-      {view === "leads" && <Leads division={division} userId={session.user.id} canWrite={canWriteLeads} />}
+      {view === "leads" && <Leads division={division} userId={session.user.id} canWrite={canWriteLeads} canImport={currentMembership?.role === "owner"} />}
       {view === "customers" && <Customers division={division} userId={session.user.id} canWrite={canWriteCustomers} />}
       {view === "contacts" && <Contacts division={division} canWrite={canWriteContacts} />}
       {view === "properties" && <Properties division={division} canWrite={canWriteCustomers} />}
@@ -190,7 +190,7 @@ function Overview({ division, onNavigate }: { division: DivisionId; onNavigate: 
   </div>;
 }
 
-function Leads({ division, userId, canWrite }: { division: DivisionId; userId: string; canWrite: boolean }) {
+function Leads({ division, userId, canWrite, canImport }: { division: DivisionId; userId: string; canWrite: boolean; canImport: boolean }) {
   const [rows, setRows] = useState<Lead[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [service, setService] = useState("");
@@ -200,6 +200,7 @@ function Leads({ division, userId, canWrite }: { division: DivisionId; userId: s
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [importing, setImporting] = useState(false);
   const load = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
@@ -214,6 +215,21 @@ function Leads({ division, userId, canWrite }: { division: DivisionId; userId: s
     const { error } = await supabase.from("crm_leads").update({ status }).eq("id", id);
     if (error) setMessage(error.message);
     else await load();
+  }
+  async function importWebsiteLeads() {
+    if (!supabase || !canImport) return;
+    const confirmed = window.confirm("Import website inquiries into this division's CRM? Existing website submissions will remain unchanged. Previously imported records will be skipped.");
+    if (!confirmed) return;
+    setImporting(true);
+    setMessage("");
+    const { data, error } = await supabase.functions.invoke("crm-import-website-intake", { body: { division_id: division } });
+    if (error) setMessage(error.message);
+    else if (data?.error) setMessage(data.error);
+    else {
+      setMessage("Website intake import finished. Imported: " + data.imported + ". Already imported: " + data.skipped + ". Failed: " + data.failed + ".");
+      await load();
+    }
+    setImporting(false);
   }
   async function createLead(event: FormEvent) {
     event.preventDefault();
@@ -231,7 +247,7 @@ function Leads({ division, userId, canWrite }: { division: DivisionId; userId: s
     }
     setSaving(false);
   }
-  return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">OPPORTUNITY MANAGEMENT</p><h2>Lead pipeline</h2><p className="muted">{rows.length} records in this division</p></div>{canWrite && <button className="primary-button compact" onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "+ Add lead"}</button>}</div>
+  return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">OPPORTUNITY MANAGEMENT</p><h2>Lead pipeline</h2><p className="muted">{rows.length} records in this division</p></div><div className="panel-actions">{canImport && <button className="secondary-button" disabled={importing} onClick={() => void importWebsiteLeads()}>{importing ? "Importing..." : "Import website leads"}</button>}{canWrite && <button className="primary-button compact" onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "+ Add lead"}</button>}</div></div>
     {showForm && <form className="inline-form" onSubmit={createLead}><div className="form-grid"><label>Service requested<input value={service} onChange={(event) => setService(event.target.value)} placeholder="Roof replacement, repair, gutter cleaning..." /></label><label>Lead source<select value={source} onChange={(event) => setSource(event.target.value)}><option>Phone</option><option>Website</option><option>Referral</option><option>Google</option><option>Repeat customer</option><option>Other</option></select></label><label>Priority<select value={priority} onChange={(event) => setPriority(event.target.value)}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label className="wide">Notes<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={2} placeholder="What does the customer need?" /></label></div><button className="primary-button" disabled={saving}>{saving ? "Saving..." : "Save lead"}</button></form>}
     {message && <p className="inline-message">{message}</p>}
     {loading ? <div className="empty-state">Loading leads...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Service</th><th>Source</th><th>Status</th><th>Priority</th><th>Created</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><strong>{row.service_interest || "Unspecified service"}</strong><span className="subline">{row.description || "No notes"}</span></td><td>{row.source || "—"}</td><td>{canWrite ? <select className="table-select" value={row.status} onChange={(event) => void updateStatus(row.id, event.target.value)}><option value="new">New</option><option value="contacted">Contacted</option><option value="qualified">Qualified</option><option value="appointment_set">Appointment set</option><option value="inspection_pending">Inspection pending</option><option value="estimate_in_progress">Estimate in progress</option><option value="proposal_sent">Proposal sent</option><option value="won">Won</option><option value="lost">Lost</option><option value="on_hold">On hold</option></select> : <span className={"pill " + row.status}>{row.status.replaceAll("_"," ")}</span>}</td><td><span className={"priority " + row.priority}>{row.priority}</span></td><td>{new Date(row.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>Your lead pipeline is ready</strong><span>There are no CRM leads in this division yet. Existing public website submissions have not been copied or changed.</span>{canWrite && <button className="secondary-button" onClick={() => setShowForm(true)}>Add your first lead</button>}</div>}
