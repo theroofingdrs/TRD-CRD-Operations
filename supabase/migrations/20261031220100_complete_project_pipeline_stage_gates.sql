@@ -178,7 +178,7 @@ DECLARE
 BEGIN
   override_requested := NEW.workflow_stage_override AND (NOT OLD.workflow_stage_override OR NEW.workflow_stage_note IS DISTINCT FROM OLD.workflow_stage_note);
   IF NEW.pipeline_type IS DISTINCT FROM OLD.pipeline_type THEN
-    IF NEW.pipeline_type NOT IN ('retail','insurance') OR NEW.workflow_stage IS DISTINCT FROM 'new_lead' THEN
+    IF NEW.pipeline_type IS NULL OR NEW.pipeline_type NOT IN ('retail','insurance') OR NEW.workflow_stage IS DISTINCT FROM 'new_lead' THEN
       RAISE EXCEPTION 'Assign or switch a project workflow by resetting its stage to New Lead';
     END IF;
     IF NEW.workflow_stage_override THEN
@@ -194,7 +194,7 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  IF NEW.pipeline_type NOT IN ('retail','insurance') OR NEW.workflow_stage IS NULL OR NEW.workflow_stage NOT IN (
+  IF NEW.pipeline_type IS NULL OR NEW.pipeline_type NOT IN ('retail','insurance') OR NEW.workflow_stage IS NULL OR NEW.workflow_stage NOT IN (
     'new_lead','contacted','appointment_set','inspection_scheduled','inspection_completed',
     'estimate_prepared','bid_issued','awaiting_customer','scope_prepared','claim_filed',
     'adjuster_meeting_scheduled','adjuster_met_awaiting_approval','supplement_prepared',
