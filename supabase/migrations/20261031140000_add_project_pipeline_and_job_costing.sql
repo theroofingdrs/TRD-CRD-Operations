@@ -238,6 +238,7 @@ CREATE TABLE public.crm_division_financial_settings (
   default_commission_method text
     CHECK (default_commission_method IS NULL OR default_commission_method IN ('fixed','contract_percent','collected_percent','gross_profit_percent','manual')),
   default_commission_rate numeric(8,4),
+  default_commission_fixed_amount numeric(14,2),
   default_overhead_method text
     CHECK (default_overhead_method IS NULL OR default_overhead_method IN ('flat','contract_percent','direct_cost_percent','manual')),
   default_overhead_rate numeric(8,4),
