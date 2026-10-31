@@ -157,10 +157,10 @@ function Overview({ division, onNavigate }: { division: DivisionId; onNavigate: 
     if (!supabase) return;
     setBusy(true);
     const [leads, projects, appointments, tasks, recentLeads] = await Promise.all([
-      supabase.from("crm_leads").select("id", { count: "exact", head: true }).eq("division_id", division),
-      supabase.from("crm_projects").select("id", { count: "exact", head: true }).eq("division_id", division),
-      supabase.from("crm_appointments").select("id", { count: "exact", head: true }).eq("division_id", division).in("status", ["scheduled","confirmed"]),
-      supabase.from("crm_tasks").select("id", { count: "exact", head: true }).eq("division_id", division).neq("status", "completed"),
+      supabase.from("crm_leads").select("id", { count: "exact", head: true }).eq("division_id", division).not("status", "in", "(won,lost)"),
+      supabase.from("crm_projects").select("id", { count: "exact", head: true }).eq("division_id", division).not("status", "in", "(completed,cancelled)"),
+      supabase.from("crm_appointments").select("id", { count: "exact", head: true }).eq("division_id", division).in("status", ["scheduled","confirmed"]).gte("starts_at", new Date().toISOString()),
+      supabase.from("crm_tasks").select("id", { count: "exact", head: true }).eq("division_id", division).not("status", "in", "(completed,cancelled)"),
       supabase.from("crm_leads").select("id,service_interest,status,priority,source,description,created_at").eq("division_id", division).order("created_at", { ascending: false }).limit(5)
     ]);
     setCounts({ leads: leads.count ?? 0, projects: projects.count ?? 0, appointments: appointments.count ?? 0, tasks: tasks.count ?? 0 });
@@ -169,7 +169,7 @@ function Overview({ division, onNavigate }: { division: DivisionId; onNavigate: 
   }, [division]);
   useEffect(() => { void load(); }, [load]);
   const cards = [
-    { label: "Active leads", value: counts.leads, target: "leads", tone: "orange" },
+    { label: "Open leads", value: counts.leads, target: "leads", tone: "orange" },
     { label: "Open projects", value: counts.projects, target: "projects", tone: "dark" },
     { label: "Upcoming appointments", value: counts.appointments, target: "appointments", tone: "blue" },
     { label: "Open tasks", value: counts.tasks, target: "tasks", tone: "green" }
