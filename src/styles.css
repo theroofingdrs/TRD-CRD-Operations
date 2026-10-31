@@ -161,3 +161,9 @@ input:focus,select:focus,textarea:focus{border-color:#e8895c;box-shadow:0 0 0 3p
 .project-pipeline .history-list details summary{display:flex;justify-content:space-between;gap:12px;cursor:pointer}
 .project-pipeline .history-list pre{overflow:auto;max-height:260px;padding:10px;background:var(--surface-muted,#f8f9fb);border-radius:7px;font-size:11px}
 @media(max-width:640px){.project-pipeline .kanban-column{flex-basis:250px;max-width:250px}.project-pipeline .pipeline-view-toolbar{align-items:flex-start;flex-direction:column}}
+
+
+.project-pipeline .workflow-choice{display:flex;flex-wrap:wrap;gap:18px;align-items:center;padding:9px 0}
+.project-pipeline .workflow-choice label{display:inline-flex;align-items:center;gap:8px;font-weight:600}
+.project-pipeline .workflow-choice input{accent-color:var(--accent,#b45309)}
+.project-pipeline .pipeline-list td{vertical-align:middle}
