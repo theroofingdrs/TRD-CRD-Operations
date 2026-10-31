@@ -49,6 +49,7 @@ function App() {
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [division, setDivision] = useState<DivisionId>("TRD");
   const [view, setView] = useState<View>("overview");
+  const [workflowLaunch, setWorkflowLaunch] = useState<{ type: "inspection" | "proposal"; customerId: string; propertyId: string } | null>(null);
   const [restoredForUser, setRestoredForUser] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [workspaceError, setWorkspaceError] = useState("");
@@ -215,15 +216,15 @@ function App() {
       {workspaceError && <div className="error-banner">{workspaceError}</div>}
       {view === "overview" && <Overview division={division} onNavigate={setView} />}
       {view === "leads" && <Leads division={division} userId={session.user.id} canWrite={canWriteLeads} canImport={currentMembership?.role === "owner"} />}
-      {view === "customers" && <Customers division={division} userId={session.user.id} canWrite={canWriteCustomers} canWriteMaintenance={canWriteMaintenance} canShareBoth={canShareCustomerAcrossDivisions} />}
+      {view === "customers" && <Customers division={division} userId={session.user.id} canWrite={canWriteCustomers} canWriteMaintenance={canWriteMaintenance} canShareBoth={canShareCustomerAcrossDivisions} canCreateInspection={canWriteInspections} canCreateProposal={canWriteLeads} onCreateInspection={(customerId, propertyId) => { setWorkflowLaunch({ type: "inspection", customerId, propertyId }); setView("inspections"); }} onCreateProposal={(customerId, propertyId) => { setWorkflowLaunch({ type: "proposal", customerId, propertyId }); setView("proposals"); }} />}
       {view === "contacts" && <Contacts division={division} canWrite={canWriteContacts} />}
       {view === "properties" && <Properties division={division} canWrite={canWriteCustomers} />}
       {view === "claims" && <Claims division={division} userId={session.user.id} canWrite={canWriteClaims} />}
       {view === "roofs" && <Roofs division={division} canWrite={canWriteRoofs} />}
       {view === "documents" && <Documents division={division} userId={session.user.id} canWrite={canWriteFiles} />}
       {view === "appointments" && <DataList division={division} view="appointments" userId={session.user.id} canWrite={canWriteAppointments} />}
-      {view === "inspections" && <Inspections division={division} userId={session.user.id} canWrite={canWriteInspections} />}
-      {view === "proposals" && <Proposals division={division} userId={session.user.id} canWrite={canWriteLeads} />}
+      {view === "inspections" && <Inspections division={division} userId={session.user.id} canWrite={canWriteInspections} initialCustomerId={workflowLaunch?.type === "inspection" ? workflowLaunch.customerId : ""} initialPropertyId={workflowLaunch?.type === "inspection" ? workflowLaunch.propertyId : ""} onLaunchConsumed={() => setWorkflowLaunch(null)} />}
+      {view === "proposals" && <Proposals division={division} userId={session.user.id} canWrite={canWriteLeads} initialCustomerId={workflowLaunch?.type === "proposal" ? workflowLaunch.customerId : ""} initialPropertyId={workflowLaunch?.type === "proposal" ? workflowLaunch.propertyId : ""} onLaunchConsumed={() => setWorkflowLaunch(null)} />}
       {view === "proposal_templates" && isOwner && <ProposalTemplates division={division} userId={session.user.id} />}
       {view === "warranties" && <Warranties division={division} userId={session.user.id} canWrite={canWriteProjects} />}
       {view === "deliveries" && <DocumentDeliveries division={division} />}
@@ -331,7 +332,7 @@ function Leads({ division, userId, canWrite, canImport }: { division: DivisionId
   </section></div>;
 }
 
-function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBoth }: { division: DivisionId; userId: string; canWrite: boolean; canWriteMaintenance: boolean; canShareBoth: boolean }) {
+function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBoth, canCreateInspection, canCreateProposal, onCreateInspection, onCreateProposal }: { division: DivisionId; userId: string; canWrite: boolean; canWriteMaintenance: boolean; canShareBoth: boolean; canCreateInspection: boolean; canCreateProposal: boolean; onCreateInspection: (customerId: string, propertyId: string) => void; onCreateProposal: (customerId: string, propertyId: string) => void }) {
   const [rows, setRows] = useState<Customer[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
@@ -694,7 +695,7 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
             <label>Occupancy type<input value={propertyDraft.occupancy_type} onChange={e=>setPropertyDraft(current=>({...current,occupancy_type:e.target.value}))} /></label>
             <label className="wide">Property notes<textarea rows={2} value={propertyDraft.property_notes} onChange={e=>setPropertyDraft(current=>({...current,property_notes:e.target.value}))} /></label>
           </div><button className="primary-button" disabled={saving}>{saving ? "Saving..." : "Save property"}</button></form>}
-          {properties.length ? <div className="table-wrap"><table><thead><tr><th>Property</th><th>Type</th><th>County</th><th>Parcel / building</th></tr></thead><tbody>{properties.map((p) => <tr key={String(p.id)}><td><strong>{[p.address_line1,p.city,p.state,p.postal_code].filter(Boolean).join(", ")}</strong></td><td>{String(p.property_type || "—")}</td><td>{String(p.county || "—")}</td><td>{[p.parcel_number,p.building_name].filter(Boolean).join(" · ") || "—"}</td></tr>)}</tbody></table></div> : <p className="muted">No properties linked yet.</p>}</div>
+          {properties.length ? <div className="table-wrap"><table><thead><tr><th>Property</th><th>Type</th><th>County</th><th>Parcel / building</th><th>Actions</th></tr></thead><tbody>{properties.map((p) => <tr key={String(p.id)}><td><strong>{[p.address_line1,p.city,p.state,p.postal_code].filter(Boolean).join(", ")}</strong></td><td>{String(p.property_type || "—")}</td><td>{String(p.county || "—")}</td><td>{[p.parcel_number,p.building_name].filter(Boolean).join(" · ") || "—"}</td><td><div className="button-row">{canCreateInspection && <button type="button" className="secondary-button compact" onClick={() => onCreateInspection(selected.id, String(p.id))}>Create Inspection</button>}{canCreateProposal && <button type="button" className="primary-button compact" onClick={() => onCreateProposal(selected.id, String(p.id))}>Create Proposal</button>}</div></td></tr>)}</tbody></table></div> : <p className="muted">No properties linked yet.</p>}</div>
         <RoofrMeasurements division={division} userId={userId} canWrite={canWrite} properties={properties.map(p => ({ id: String(p.id), address_line1: String(p.address_line1 || ""), city: String(p.city || ""), state: String(p.state || "") }))} />
         <div><h3>Roof systems</h3>{roofs.length ? <div className="table-wrap"><table><thead><tr><th>Property</th><th>Roof section</th><th>System / material</th><th>Installed</th><th>Condition</th></tr></thead><tbody>{roofs.map((roof) => <tr key={String(roof.id)}><td>{propertyAddress(roof.property_id)}</td><td>{String(roof.roof_section || "—")}</td><td>{[roof.roof_type,roof.covering_material].filter(Boolean).join(" · ") || "—"}</td><td>{String(roof.installation_year || "—")}</td><td>{String(roof.condition_summary || "—")}</td></tr>)}</tbody></table></div> : <p className="muted">No roof systems linked yet.</p>}</div>
         <div>

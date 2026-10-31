@@ -9,8 +9,9 @@ type ReportRow = {
 };
 
 type Measurement = { label: string; value: number; unit: string; source_label: string };
+type PitchDistribution = { pitch: string; area_sqft: number; squares: number };
 
-async function extractPdfMeasurements(file: File): Promise<{ text: string; measurements: Measurement[] }> {
+async function extractPdfMeasurements(file: File): Promise<{ text: string; measurements: Measurement[]; predominantPitch: string | null; pitchDistribution: PitchDistribution[] }> {
   // PDF.js is loaded only when a Roofr PDF is uploaded.
   // @ts-expect-error PDF.js is loaded from its versioned browser ESM distribution.
   const pdfjs = await import(/* @vite-ignore */ "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
@@ -25,24 +26,54 @@ async function extractPdfMeasurements(file: File): Promise<{ text: string; measu
   }
   const text = pages.join("\n");
   const patterns: { label: string; unit: string; regex: RegExp }[] = [
-    { label: "Total roof area", unit: "SF", regex: /(?:total\s+(?:roof\s+)?area|roof\s+area)\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft\.?|square\s*feet|sf)\b/i },
+    { label: "Total roof area", unit: "SF", regex: /(?:total\s+(?:roof\s+)?area|roof\s+area)\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft\.?|square\s*feet|sqft|sf)\b/i },
+    { label: "Pitched roof area", unit: "SF", regex: /(?:total\s+)?pitched\s+(?:roof\s+)?area\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft\.?|sqft|sf)\b/i },
+    { label: "Flat roof area", unit: "SF", regex: /(?:total\s+)?flat\s+(?:roof\s+)?area\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft\.?|sqft|sf)\b/i },
+    { label: "Unspecified pitch area", unit: "SF", regex: /(?:total\s+)?unspecified\s+(?:pitch\s+)?area\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft\.?|sqft|sf)\b/i },
+    { label: "Two story area", unit: "SF", regex: /(?:total\s+)?two\s+story\s+area\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft\.?|sqft|sf)\b/i },
+    { label: "Two layer area", unit: "SF", regex: /(?:total\s+)?two\s+layer\s+area\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft\.?|sqft|sf)\b/i },
     { label: "Roof squares", unit: "SQ", regex: /(?:total\s+)?(?:roof\s+)?squares\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*)?\b/i },
-    { label: "Ridge", unit: "LF", regex: /ridge(?:\s+length)?\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)/i },
-    { label: "Hip", unit: "LF", regex: /hip(?:\s+length)?\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)/i },
-    { label: "Valley", unit: "LF", regex: /valley(?:\s+length)?\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)/i },
-    { label: "Eaves", unit: "LF", regex: /eaves?(?:\s+length)?\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)/i },
-    { label: "Rakes", unit: "LF", regex: /rakes?(?:\s+length)?\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)/i },
-    { label: "Perimeter", unit: "LF", regex: /perimeter\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)/i }
+    { label: "Total roof facets", unit: "FACETS", regex: /total\s+roof\s+facets?\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*facets?\b/i },
+    { label: "Ridge", unit: "LF", regex: /(?:total\s+)?ridges?(?:\s+length)?\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)(?:\s*(\d+(?:\.\d+)?)\s*in\.?)?/i },
+    { label: "Hip", unit: "LF", regex: /(?:total\s+)?hips?(?:\s+length)?\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)(?:\s*(\d+(?:\.\d+)?)\s*in\.?)?/i },
+    { label: "Valley", unit: "LF", regex: /(?:total\s+)?valleys?(?:\s+length)?\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)(?:\s*(\d+(?:\.\d+)?)\s*in\.?)?/i },
+    { label: "Eaves", unit: "LF", regex: /(?:total\s+)?eaves?(?:\s+length)?\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)(?:\s*(\d+(?:\.\d+)?)\s*in\.?)?/i },
+    { label: "Rakes", unit: "LF", regex: /(?:total\s+)?rakes?(?:\s+length)?\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)(?:\s*(\d+(?:\.\d+)?)\s*in\.?)?/i },
+    { label: "Drip edge", unit: "LF", regex: /(?:total\s+)?drip\s+edge\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)(?:\s*(\d+(?:\.\d+)?)\s*in\.?)?/i },
+    { label: "Wall flashing", unit: "LF", regex: /(?:total\s+)?wall\s+flashing\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)(?:\s*(\d+(?:\.\d+)?)\s*in\.?)?/i },
+    { label: "Step flashing", unit: "LF", regex: /(?:total\s+)?step\s+flashing\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)(?:\s*(\d+(?:\.\d+)?)\s*in\.?)?/i },
+    { label: "Transitions", unit: "LF", regex: /(?:total\s+)?transitions?\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)(?:\s*(\d+(?:\.\d+)?)\s*in\.?)?/i },
+    { label: "Parapet wall", unit: "LF", regex: /(?:total\s+)?parapet\s+wall\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)(?:\s*(\d+(?:\.\d+)?)\s*in\.?)?/i },
+    { label: "Unspecified length", unit: "LF", regex: /(?:total\s+)?unspecified\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)(?:\s*(\d+(?:\.\d+)?)\s*in\.?)?/i },
+    { label: "Hips and ridges", unit: "LF", regex: /hips?\s*\+\s*ridges?\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)(?:\s*(\d+(?:\.\d+)?)\s*in\.?)?/i },
+    { label: "Eaves and rakes", unit: "LF", regex: /eaves?\s*\+\s*rakes?\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)(?:\s*(\d+(?:\.\d+)?)\s*in\.?)?/i },
+    { label: "Perimeter", unit: "LF", regex: /perimeter\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*(?:lf|linear\s*ft\.?|ft\.?)(?:\s*(\d+(?:\.\d+)?)\s*in\.?)?/i }
   ];
   const measurements: Measurement[] = [];
   for (const item of patterns) {
     const match = text.match(item.regex);
     if (match?.[1]) {
-      const value = Number(match[1].replace(/,/g, ""));
-      if (Number.isFinite(value) && value > 0) measurements.push({ label: item.label, value, unit: item.unit, source_label: match[0] });
+      const feetOrValue = Number(match[1].replace(/,/g, ""));
+      const inches = item.unit === "LF" ? Number(match[2] || 0) : 0;
+      const value = item.unit === "LF" ? feetOrValue + inches / 12 : feetOrValue;
+      if (Number.isFinite(value) && value > 0) measurements.push({ label: item.label, value: Math.round(value * 100) / 100, unit: item.unit, source_label: match[0] });
     }
   }
-  return { text, measurements };
+  const predominantPitch = text.match(/predominant\s+pitch\s*[:\-]?\s*(\d+\s*\/\s*\d+)/i)?.[1]?.replace(/\s/g, "") || null;
+  const pitchBlock = text.match(/\bPitch\s+((?:\d+\s*\/\s*\d+\s*)+?)\s+Area\s*\(sqft\)\s*((?:[\d,]+(?:\.\d+)?\s*)+?)\s+Squares\s*((?:[\d,]+(?:\.\d+)?\s*)+)/i);
+  const pitchTokens = pitchBlock?.[1].match(/\d+\s*\/\s*\d+/g) || [];
+  const areaTokens = pitchBlock?.[2].match(/[\d,]+(?:\.\d+)?/g) || [];
+  const squareTokens = pitchBlock?.[3].match(/[\d,]+(?:\.\d+)?/g) || [];
+  const pitchDistribution: PitchDistribution[] = pitchTokens.map((pitch, index) => ({
+    pitch: pitch.replace(/\s/g, ""),
+    area_sqft: Number((areaTokens[index] || "0").replace(/,/g, "")),
+    squares: Number((squareTokens[index] || "0").replace(/,/g, ""))
+  })).filter(item => item.area_sqft > 0 || item.squares > 0);
+  pitchDistribution.forEach(item => {
+    if (item.area_sqft > 0) measurements.push({ label: "Area at " + item.pitch + " pitch", value: item.area_sqft, unit: "SF", source_label: "Pitch " + item.pitch + " Area (sqft)" });
+    if (item.squares > 0) measurements.push({ label: "Squares at " + item.pitch + " pitch", value: item.squares, unit: "SQ", source_label: "Pitch " + item.pitch + " Squares" });
+  });
+  return { text, measurements, predominantPitch, pitchDistribution };  return { text, measurements };
 }
 
 export default function RoofrMeasurements({ division, userId, properties, canWrite }: {
@@ -80,7 +111,7 @@ export default function RoofrMeasurements({ division, userId, properties, canWri
     }
     if (file.size > 15 * 1024 * 1024) { setMessage("The PDF must be 15 MB or smaller because that is the current private storage limit."); return; }
     setBusy(true); setMessage("Reading the Roofr report...");
-    let extracted: { text: string; measurements: Measurement[] } = { text: "", measurements: [] };
+    let extracted: { text: string; measurements: Measurement[]; predominantPitch: string | null; pitchDistribution: PitchDistribution[] } = { text: "", measurements: [], predominantPitch: null, pitchDistribution: [] };
     let extractionError = "";
     try { extracted = await extractPdfMeasurements(file); }
     catch (error) { extractionError = error instanceof Error ? error.message : String(error); }
@@ -93,7 +124,7 @@ export default function RoofrMeasurements({ division, userId, properties, canWri
       division_id: division, related_type: "property", related_id: propertyId,
       bucket_id: "roof-doctors-private", object_path: path, original_filename: file.name,
       content_type: "application/pdf", file_size_bytes: file.size, uploaded_by: userId,
-      metadata: { document_type: "roofr_measurement_report", extraction_status: extractionError ? "extraction_failed" : extracted.measurements.length ? "review_required" : "no_text_matches", extraction_error: extractionError || null, extracted_at: new Date().toISOString(), extracted_measurements: extracted.measurements, extracted_text: extracted.text.slice(0, 100000) }
+      metadata: { document_type: "roofr_measurement_report", extraction_status: extractionError ? "extraction_failed" : extracted.measurements.length ? "review_required" : "no_text_matches", extraction_error: extractionError || null, extracted_at: new Date().toISOString(), extracted_measurements: extracted.measurements, predominant_pitch: extracted.predominantPitch, pitch_distribution: extracted.pitchDistribution, extracted_text: extracted.text.slice(0, 100000) }
     }).select("id").single();
     if (error) {
       await supabase.storage.from("roof-doctors-private").remove([path]);

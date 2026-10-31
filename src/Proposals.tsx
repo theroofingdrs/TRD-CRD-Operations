@@ -7,18 +7,18 @@ type Customer = { id: string; display_name: string; email: string | null };
 type Property = { id: string; customer_id: string; address_line1: string; city: string; state: string };
 type LineItem = { description: string; quantity: string; unit: string; unit_price: string };
 type RoofrMeasurement = { label: string; value: number; unit: string };
-type RoofrReport = { id: string; original_filename: string; created_at: string; metadata: { document_type?: string; extraction_status?: string; extracted_measurements?: RoofrMeasurement[] } | null };
+type RoofrReport = { id: string; original_filename: string; created_at: string; metadata: { document_type?: string; extraction_status?: string; extracted_measurements?: RoofrMeasurement[]; predominant_pitch?: string | null; pitch_distribution?: { pitch: string; area_sqft: number; squares: number }[] } | null };
 type Proposal = { id: string; title: string; status: string; pricing_mode: string; total_amount: number; lump_sum_amount: number | null; created_at: string; customer_id: string; property_id: string };
 
-export default function Proposals({ division, userId, canWrite }: { division: DivisionId; userId: string; canWrite: boolean }) {
+export default function Proposals({ division, userId, canWrite, initialCustomerId = "", initialPropertyId = "", onLaunchConsumed }: { division: DivisionId; userId: string; canWrite: boolean; initialCustomerId?: string; initialPropertyId?: string; onLaunchConsumed?: () => void }) {
   const [rows, setRows] = useState<Proposal[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
-  const [customerId, setCustomerId] = useState("");
-  const [propertyId, setPropertyId] = useState("");
+  const [customerId, setCustomerId] = useState(initialCustomerId);
+  const [propertyId, setPropertyId] = useState(initialPropertyId);
   const [roofrReports, setRoofrReports] = useState<RoofrReport[]>([]);
   const [selectedRoofrReportId, setSelectedRoofrReportId] = useState("");
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(initialPropertyId ? (division === "TRD" ? "Residential roof replacement proposal" : "Commercial roof replacement proposal") : "");
   const [pricingMode, setPricingMode] = useState("both");
   const [lumpSum, setLumpSum] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([{ description: "", quantity: "1", unit: "EA", unit_price: "" }]);
@@ -32,7 +32,10 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
   const [paymentTerms, setPaymentTerms] = useState("Due upon completion unless otherwise stated in writing.");
   const [warrantySummary, setWarrantySummary] = useState("");
   const [validUntil, setValidUntil] = useState("");
-  const [showForm, setShowForm] = useState(false);
+  const [wasteFactorPercent, setWasteFactorPercent] = useState("10");
+  const [complexityFactor, setComplexityFactor] = useState("standard");
+  const [pitchFactor, setPitchFactor] = useState("standard");
+  const [showForm, setShowForm] = useState(Boolean(initialPropertyId));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [sendingId, setSendingId] = useState("");
@@ -60,6 +63,7 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
     } else { setProperties([]); }
   }, [division]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (initialCustomerId && initialPropertyId) onLaunchConsumed?.(); }, []);
   useEffect(() => {
     let active = true;
     async function loadRoofrReports() {
@@ -70,12 +74,23 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
         .order("created_at", { ascending: false });
       if (!active) return;
       if (error) { setMessage(error.message); setRoofrReports([]); return; }
-      setRoofrReports(((data || []) as RoofrReport[]).filter(report => report.metadata?.document_type === "roofr_measurement_report" && report.metadata?.extraction_status === "reviewed" && (report.metadata?.extracted_measurements || []).length > 0));
+      const eligibleReports = ((data || []) as RoofrReport[]).filter(report => report.metadata?.document_type === "roofr_measurement_report" && report.metadata?.extraction_status === "reviewed" && (report.metadata?.extracted_measurements || []).length > 0);
+      setRoofrReports(eligibleReports);
+      if (eligibleReports.length === 1) {
+        const report = eligibleReports[0];
+        setSelectedRoofrReportId(report.id);
+        const imported = (report.metadata?.extracted_measurements || []).filter(item => typeof item.value === "number" && Number.isFinite(item.value)).map(item => ({ description: item.label + " from Roofr", quantity: String(item.value), unit: item.unit === "FACETS" ? "EA" : item.unit, unit_price: "" }));
+        setLineItems(current => [...current.filter(item => !item.description.toLowerCase().endsWith(" from roofr")), ...imported]);
+        setMessage("The only reviewed Roofr report for this property was automatically selected and its measurements were imported.");
+      }
     }
     void loadRoofrReports();
     return () => { active = false; };
   }, [division, propertyId]);
   const customerProperties = properties.filter((item) => item.customer_id === customerId);
+  const selectedRoofrReport = roofrReports.find(report => report.id === selectedRoofrReportId);
+  const roofSquares = selectedRoofrReport?.metadata?.extracted_measurements?.find(item => item.label.toLowerCase().includes("roof squares"))?.value;
+  const adjustedRoofSquares = typeof roofSquares === "number" ? roofSquares * (1 + Number(wasteFactorPercent) / 100) : null;
   const catalogMatches = estimateCatalog.filter(item => item.category === catalogCategory && (!catalogSearch.trim() || item.description.toLowerCase().includes(catalogSearch.trim().toLowerCase())));
   const itemSubtotal = lineItems.reduce((sum, item) => sum + Math.max(0, Number(item.quantity || 0)) * Math.max(0, Number(item.unit_price || 0)), 0);
   const subtotal = pricingMode === "lump_sum" ? Number(lumpSum || 0) : itemSubtotal;
@@ -89,9 +104,8 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
     setSelectedRoofrReportId(report.id);
     if (!measurements.length) return;
     setLineItems(current => {
-      const existing = new Set(current.map(item => item.description.trim().toLowerCase()));
-      const imported = measurements.filter(item => !existing.has((item.label + " from Roofr").toLowerCase())).map(item => ({ description: item.label + " from Roofr", quantity: String(item.value), unit: item.unit, unit_price: "" }));
-      return [...current.filter(item => item.description.trim() || item.unit_price.trim()), ...imported];
+      const imported = measurements.filter(item => typeof item.value === "number" && Number.isFinite(item.value)).map(item => ({ description: item.label + " from Roofr", quantity: String(item.value), unit: item.unit === "FACETS" ? "EA" : item.unit, unit_price: "" }));
+      return [...current.filter(item => item.description.trim() && !item.description.toLowerCase().endsWith(" from roofr")), ...imported];
     });
     setMessage("Reviewed Roofr quantities added as new estimate lines. Existing line items were left unchanged.");
   }
@@ -111,12 +125,6 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
   async function saveProposal(event: FormEvent) {
     event.preventDefault();
     if (!supabase || !customerId || !propertyId) return;
-    if (pricingMode !== "lump_sum" && !lineItems.some(item => item.description.trim())) {
-      setMessage("Add at least one described line item for itemized pricing."); return;
-    }
-    if (pricingMode !== "itemized" && !(Number(lumpSum) > 0)) {
-      setMessage("Enter the lump sum amount."); return;
-    }
     setBusy(true); setMessage("");
     const savedItems = pricingMode === "lump_sum" ? [] : lineItems.filter(item => item.description.trim()).map(item => ({
       description: item.description.trim(), quantity: Number(item.quantity || 1), unit: item.unit || "EA", unit_price: Number(item.unit_price || 0),
@@ -124,17 +132,17 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
     }));
     const { error } = await supabase.from("crm_proposals").insert({
       division_id: division, customer_id: customerId, property_id: propertyId, title: title.trim(),
-      pricing_mode: pricingMode, line_items: savedItems, lump_sum_amount: pricingMode === "itemized" ? null : Number(lumpSum),
+      pricing_mode: pricingMode, line_items: savedItems, lump_sum_amount: pricingMode === "itemized" || !lumpSum ? null : Number(lumpSum),
       subtotal, tax_amount: taxAmount, total_amount: total, scope_of_work: scope || null,
       existing_conditions: conditions || null, exclusions: exclusions || null, payment_terms: paymentTerms || null,
       valid_until: validUntil || null, warranty_summary: warrantySummary || null, created_by: userId,
-      template_data: { template: division === "TRD" ? "residential_standard_v1" : "commercial_standard_v1", tax_rate_percent: Number(taxRate || 0), roofr_report_id: selectedRoofrReportId || null }
+      template_data: { template: division === "TRD" ? "residential_standard_v1" : "commercial_standard_v1", tax_rate_percent: Number(taxRate || 0), roofr_report_id: selectedRoofrReportId || null, roofr_measurements: selectedRoofrReport?.metadata?.extracted_measurements || [], roofr_predominant_pitch: selectedRoofrReport?.metadata?.predominant_pitch || null, roofr_pitch_distribution: selectedRoofrReport?.metadata?.pitch_distribution || [], adjusted_roof_squares: adjustedRoofSquares, waste_factor_percent: Number(wasteFactorPercent), waste_factor_label: wasteFactorPercent === "20" ? "20%+" : wasteFactorPercent + "%", complexity_factor: complexityFactor, pitch_factor: pitchFactor }
     });
     if (error) setMessage(error.message);
     else {
       setMessage("Proposal draft saved to this customer and property.");
       setShowForm(false); setTitle(""); setScope(""); setConditions(""); setExclusions(""); setLumpSum(""); setSelectedRoofrReportId("");
-      setLineItems([{ description: "", quantity: "1", unit: "EA", unit_price: "" }]); setTaxRate("0"); setValidUntil("");
+      setLineItems([{ description: "", quantity: "1", unit: "EA", unit_price: "" }]); setTaxRate("0"); setValidUntil(""); setWasteFactorPercent("10"); setComplexityFactor("standard"); setPitchFactor("standard");
       await load();
     }
     setBusy(false);
@@ -142,9 +150,12 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
   return <div className="content-stack"><section className="panel">
     <div className="panel-heading"><div><p className="eyebrow">{division} PROPOSALS</p><h2>{division === "TRD" ? "Residential proposals" : "Commercial proposals"}</h2><p className="muted">Create and retain editable proposal drafts by customer and property. PDF delivery is available through the customer email action when the mail service is configured.</p></div>{canWrite && <button type="button" className="primary-button compact" onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "+ New proposal"}</button>}</div>
     {showForm && <form className="inline-form" onSubmit={saveProposal}><div className="form-grid">
-      <label className="wide">Customer<select required value={customerId} onChange={e => { setCustomerId(e.target.value); setPropertyId(""); setSelectedRoofrReportId(""); }}><option value="">Select customer</option>{customers.map(c => <option key={c.id} value={c.id}>{c.display_name}</option>)}</select></label>
-      <label className="wide">Property<select required value={propertyId} onChange={e => { setPropertyId(e.target.value); setSelectedRoofrReportId(""); }}><option value="">Select property</option>{customerProperties.map(p => <option key={p.id} value={p.id}>{p.address_line1}, {p.city}, {p.state}</option>)}</select></label>
-      {propertyId && <div className="wide"><h3>Roofr measurement import</h3>{roofrReports.length ? roofrReports.map(report => <div className="button-row" key={report.id}><span>{report.original_filename} · {new Date(report.created_at).toLocaleDateString()}</span><button type="button" className="secondary-button" onClick={() => importRoofrMeasurements(report)}>{selectedRoofrReportId === report.id ? "Selected for estimate" : "Add report and measurements to estimate"}</button></div>) : <p className="muted">No reviewed Roofr measurements are saved for this property yet. Upload and review a report in the customer record first.</p>}</div>}
+      <label className="wide">Customer<select required value={customerId} onChange={e => { setCustomerId(e.target.value); setPropertyId(""); setSelectedRoofrReportId(""); setRoofrReports([]); setLineItems(current => current.filter(item => !item.description.toLowerCase().endsWith(" from roofr"))); }}><option value="">Select customer</option>{customers.map(c => <option key={c.id} value={c.id}>{c.display_name}</option>)}</select></label>
+      <label className="wide">Property<select required value={propertyId} onChange={e => { setPropertyId(e.target.value); setSelectedRoofrReportId(""); setRoofrReports([]); setLineItems(current => current.filter(item => !item.description.toLowerCase().endsWith(" from roofr"))); }}><option value="">Select property</option>{customerProperties.map(p => <option key={p.id} value={p.id}>{p.address_line1}, {p.city}, {p.state}</option>)}</select></label>
+      {propertyId && <div className="wide"><h3>Roofr measurement import</h3>{roofrReports.length ? roofrReports.map(report => <div className="button-row" key={report.id}><span>{report.original_filename} · {new Date(report.created_at).toLocaleDateString()}</span><button type="button" className="secondary-button" onClick={() => importRoofrMeasurements(report)}>{selectedRoofrReportId === report.id ? "Selected for estimate" : "Select report and import measurements"}</button></div>) : <p className="muted">No reviewed Roofr measurements are saved for this property yet. Upload and review a report in the customer record first.</p>}</div>}
+      {propertyId && !roofrReports.length && <div className="wide"><p className="inline-message">No reviewed Roofr measurements are available for this property. You can still save a proposal draft and add measurements or pricing later.</p></div>}
+      {propertyId && <div className="wide"><h3>Waste, complexity and pitch factors</h3><p className="muted">These selections are saved with the proposal. Roofr source quantities remain unchanged; adjusted quantities are planning references only.</p><div className="button-row" role="group" aria-label="Waste factor">{[10,12,15,20].map(value => <button key={value} type="button" className={wasteFactorPercent === String(value) ? "primary-button compact" : "secondary-button compact"} aria-pressed={wasteFactorPercent === String(value)} onClick={() => setWasteFactorPercent(String(value))}>{value === 20 ? "20%+" : value + "%"}</button>)}</div><div className="form-grid"><label>Complexity factor<select value={complexityFactor} onChange={e => setComplexityFactor(e.target.value)}><option value="standard">Standard</option><option value="moderate">Moderate</option><option value="complex">Complex</option><option value="very_complex">Very complex</option></select></label><label>Pitch factor<select value={pitchFactor} onChange={e => setPitchFactor(e.target.value)}><option value="standard">Standard pitch</option><option value="low_slope">Low slope / flat</option><option value="steep">Steep pitch</option><option value="very_steep">Very steep pitch</option></select></label></div></div>}
+      {selectedRoofrReport && <div className="wide"><h3>Imported Roofr source values</h3><p className="muted">Original extracted measurements are retained with this proposal. Source quantities are shown before waste allowance.</p><div className="form-grid">{(selectedRoofrReport.metadata?.extracted_measurements || []).map((item,index) => <div key={item.label + index}><strong>{item.label}</strong><p>{item.value} {item.unit}</p></div>)}</div>{selectedRoofrReport.metadata?.predominant_pitch && <p><strong>Predominant pitch:</strong> {selectedRoofrReport.metadata.predominant_pitch}</p>}{(selectedRoofrReport.metadata?.pitch_distribution || []).length > 0 && <div className="table-wrap"><table><thead><tr><th>Pitch</th><th>Area (sq ft)</th><th>Squares</th></tr></thead><tbody>{selectedRoofrReport.metadata?.pitch_distribution?.map(item => <tr key={item.pitch}><td>{item.pitch}</td><td>{item.area_sqft.toLocaleString()}</td><td>{item.squares.toFixed(1)}</td></tr>)}</tbody></table></div>}{adjustedRoofSquares !== null && <p><strong>Planning quantity including {wasteFactorPercent === "20" ? "20%+" : wasteFactorPercent + "%"} waste:</strong> {adjustedRoofSquares.toFixed(1)} squares</p>}</div>}
       <label className="wide">Proposal title<input required value={title} onChange={e => setTitle(e.target.value)} placeholder={division === "TRD" ? "Residential roof replacement proposal" : "Commercial roof restoration proposal"} /></label>
       <label className="wide">Pricing format<select value={pricingMode} onChange={e => setPricingMode(e.target.value)}><option value="both">Show itemized and lump sum options</option><option value="itemized">Itemized only</option><option value="lump_sum">Lump sum only</option></select></label>
       {pricingMode !== "lump_sum" && <div className="wide"><h3>Itemized pricing</h3><div className="form-grid"><label>Catalog category<select value={catalogCategory} onChange={e => { setCatalogCategory(e.target.value); setCatalogSelection(""); }}>{estimateCatalogCategories.map(category => <option key={category} value={category}>{category}</option>)}</select></label><label>Search catalog<input value={catalogSearch} onChange={e => { setCatalogSearch(e.target.value); setCatalogSelection(""); }} placeholder="Search roof, tarp, magnet, hand load..." /></label><label className="wide">Catalog item<select value={catalogSelection} onChange={e => setCatalogSelection(e.target.value)}><option value="">Choose a standard estimate item</option>{catalogMatches.map(item => <option key={item.description} value={item.description}>{item.description} ({item.unit})</option>)}</select></label><button type="button" className="secondary-button" disabled={!catalogSelection} onClick={addCatalogItem}>+ Add catalog item</button></div><p className="muted">Starter reference catalog only. Descriptions and units are editable. Enter pricing from your current estimate or authorized price list. No Xactimate codes or prices are represented as official.</p>{lineItems.map((item,index) => <div className="form-grid" key={index}><label className="wide">Description<input required value={item.description} onChange={e => updateLine(index,{description:e.target.value})} placeholder="Labor, materials, tear off, decking..." /></label><label>Quantity<input type="number" min="0" step="0.01" value={item.quantity} onChange={e => updateLine(index,{quantity:e.target.value})} /></label><label>Unit<select value={item.unit} onChange={e => updateLine(index,{unit:e.target.value})}><option>EA</option><option>SF</option><option>LF</option><option>SQ</option><option>HR</option><option>DAY</option><option>WK</option><option>MO</option><option>LS</option></select></label><label>Unit price ($)<input type="number" min="0" step="0.01" value={item.unit_price} onChange={e => updateLine(index,{unit_price:e.target.value})} /></label><p className="muted">Line total: {(Number(item.quantity || 0)*Number(item.unit_price || 0)).toLocaleString("en-US",{style:"currency",currency:"USD"})}</p></div>)}<button type="button" className="secondary-button" onClick={() => setLineItems(current => [...current,{description:"",quantity:"1",unit:"EA",unit_price:""}])}>+ Add line item</button></div>}
