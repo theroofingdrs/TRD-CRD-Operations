@@ -174,7 +174,7 @@ SET search_path TO ''
 AS $function$
 DECLARE
   needs_override boolean := false;
-  override_requested boolean := NEW.workflow_stage_override AND NOT OLD.workflow_stage_override;
+  override_requested boolean := NEW.workflow_stage_override AND (NOT OLD.workflow_stage_override OR NEW.workflow_stage_note IS DISTINCT FROM OLD.workflow_stage_note);
 BEGIN
   IF NEW.pipeline_type IS DISTINCT FROM OLD.pipeline_type THEN
     IF NEW.pipeline_type NOT IN ('retail','insurance') OR NEW.workflow_stage IS DISTINCT FROM 'new_lead' THEN
