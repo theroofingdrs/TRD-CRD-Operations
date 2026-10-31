@@ -7,17 +7,17 @@ type Property = { id: string; customer_id: string; address_line1: string; city: 
 type CheckItem = { category: string; location: string; issue: boolean; observation: string; severity: string; recommendation: string };
 type PhotoDraft = { file: File; label: string; caption: string; roofSection: string };
 type RoofrMeasurement = { label: string; value: number; unit: string; source_label?: string };
-type RoofrReport = { id: string; original_filename: string; created_at: string; metadata: { document_type?: string; extraction_status?: string; extracted_measurements?: RoofrMeasurement[] } | null };
+type RoofrReport = { id: string; original_filename: string; created_at: string; metadata: { document_type?: string; extraction_status?: string; extracted_measurements?: RoofrMeasurement[]; predominant_pitch?: string | null; pitch_distribution?: { pitch: string; area_sqft: number; squares: number }[] } | null };
 const residential = ["Shingles or roofing material","Hail or wind damage","Granule loss or surface wear","Ridge cap and hip","Flashing and valleys","Pipe boots and penetrations","Ventilation","Decking condition","Gutters and drainage","Interior water intrusion"];
 const commercial = ["Roof membrane or surface","Seams and welds","Punctures, tears or surface damage","Ponding water","Perimeter flashing and coping","Penetrations and equipment curbs","Drains and scuppers","Insulation or deck concerns","HVAC and rooftop equipment","Previous repairs or coatings"];
 const freshItems = (division: DivisionId): CheckItem[] => (division === "TRD" ? residential : commercial).map(category => ({ category, location: "", issue: false, observation: "", severity: "none", recommendation: "" }));
 
-export default function Inspections({ division, userId, canWrite }: { division: DivisionId; userId: string; canWrite: boolean }) {
+export default function Inspections({ division, userId, canWrite, initialCustomerId = "", initialPropertyId = "", onLaunchConsumed }: { division: DivisionId; userId: string; canWrite: boolean; initialCustomerId?: string; initialPropertyId?: string; onLaunchConsumed?: () => void }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
   const [inspections, setInspections] = useState<any[]>([]);
-  const [customerId, setCustomerId] = useState("");
-  const [propertyId, setPropertyId] = useState("");
+  const [customerId, setCustomerId] = useState(initialCustomerId);
+  const [propertyId, setPropertyId] = useState(initialPropertyId);
   const [items, setItems] = useState<CheckItem[]>(() => freshItems(division));
   const [summary, setSummary] = useState("");
   const [recommendations, setRecommendations] = useState("");
@@ -58,7 +58,7 @@ export default function Inspections({ division, userId, canWrite }: { division: 
     setInspections(inspectionResult.data ?? []);
   }, [division]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { setItems(freshItems(division)); setCustomerId(""); setPropertyId(""); setRoofrReportId(""); setRoofrReports([]); }, [division]);
+  useEffect(() => { setItems(freshItems(division)); setCustomerId(initialCustomerId); setPropertyId(initialPropertyId); setRoofrReportId(""); setRoofrReports([]); if (initialCustomerId && initialPropertyId) onLaunchConsumed?.(); }, [division]);
   useEffect(() => {
     let active = true;
     async function loadRoofrReports() {
@@ -69,7 +69,18 @@ export default function Inspections({ division, userId, canWrite }: { division: 
         .order("created_at", { ascending: false });
       if (!active) return;
       if (error) { setMessage("Roofr reports could not be loaded: " + error.message); setRoofrReports([]); return; }
-      setRoofrReports(((data || []) as RoofrReport[]).filter(row => row.metadata?.document_type === "roofr_measurement_report" && row.metadata?.extraction_status === "reviewed"));
+      const reviewedReports = ((data || []) as RoofrReport[]).filter(row => row.metadata?.document_type === "roofr_measurement_report" && row.metadata?.extraction_status === "reviewed");
+      setRoofrReports(reviewedReports);
+      if (reviewedReports.length === 1) {
+        const report = reviewedReports[0];
+        const values = report.metadata?.extracted_measurements || [];
+        setRoofrReportId(report.id);
+        const area = values.find(item => item.label.toLowerCase().includes("roof area"));
+        const squaresValue = values.find(item => item.label.toLowerCase().includes("roof squares"));
+        if (area) setRoofArea(String(area.value));
+        if (squaresValue) setSquares(String(squaresValue.value));
+        if (report.metadata?.predominant_pitch) setPitch(report.metadata.predominant_pitch);
+      }
     }
     void loadRoofrReports();
     return () => { active = false; };
@@ -83,6 +94,7 @@ export default function Inspections({ division, userId, canWrite }: { division: 
     const squaresValue = values.find(item => item.label.toLowerCase().includes("squares"));
     if (area) setRoofArea(String(area.value));
     if (squaresValue) setSquares(String(squaresValue.value));
+    if (report.metadata?.predominant_pitch) setPitch(report.metadata.predominant_pitch);
     setMessage("Reviewed Roofr measurements applied to this inspection. Verify the values before saving.");
   }
   const customerProperties = properties.filter(p => p.customer_id === customerId);
@@ -145,7 +157,9 @@ export default function Inspections({ division, userId, canWrite }: { division: 
         roof_area_sq_ft: roofArea ? Number(roofArea) : null, roof_squares: squares ? Number(squares) : null, pitch: pitch || null,
         roofr_report_id: roofrReportId || null,
         roofr_report_name: roofrReports.find(report => report.id === roofrReportId)?.original_filename || null,
-        roofr_measurements: roofrReports.find(report => report.id === roofrReportId)?.metadata?.extracted_measurements || []
+        roofr_measurements: roofrReports.find(report => report.id === roofrReportId)?.metadata?.extracted_measurements || [],
+        roofr_predominant_pitch: roofrReports.find(report => report.id === roofrReportId)?.metadata?.predominant_pitch || pitch || null,
+        roofr_pitch_distribution: roofrReports.find(report => report.id === roofrReportId)?.metadata?.pitch_distribution || []
       },
       roof_sections: sectionList.map(name => ({ name }))
     }).select("id").single();
