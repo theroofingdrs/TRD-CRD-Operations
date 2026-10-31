@@ -8,7 +8,7 @@ type Project = {
   workflow_stage: string | null; status: string; property_id: string; customer_id: string;
   contract_amount: number | null; original_estimate_amount: number | null; initial_approved_amount: number | null;
   supplements_approved_amount: number; invoiced_amount: number; collected_amount: number;
-  next_action: string | null; next_action_due_at: string | null; updated_at: string; commission_method: string | null; commission_rate: number | null; commission_fixed_amount: number | null; commission_earned_amount: number; commission_paid_amount: number; commission_salesperson_name: string | null; overhead_method: string | null; overhead_rate: number | null; overhead_fixed_amount: number | null; overhead_allocated_amount: number; created_at: string;
+  next_action: string | null; next_action_due_at: string | null; updated_at: string; commission_method: string | null; commission_rate: number | null; commission_fixed_amount: number | null; commission_earned_amount: number; commission_paid_amount: number; commission_paid_at: string | null; commission_salesperson_name: string | null; overhead_method: string | null; overhead_rate: number | null; overhead_fixed_amount: number | null; overhead_allocated_amount: number; created_at: string;
 };
 type Expense = { id: string; category: string; amount: number; paid_amount: number; payment_status: string; expense_date: string; vendor_payee: string | null; description: string | null; receipt_file_id: string | null };
 type AuditEvent = { id: string; kind: string; changed_at: string; before_values: Record<string, unknown>; after_values: Record<string, unknown> };
@@ -102,6 +102,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [commissionFixed, setCommissionFixed] = useState("");
   const [commissionEarned, setCommissionEarned] = useState("");
   const [commissionPaid, setCommissionPaid] = useState("");
+  const [commissionPaidAt, setCommissionPaidAt] = useState("");
   const [commissionSalesperson, setCommissionSalesperson] = useState("");
   const [overheadMethod, setOverheadMethod] = useState("manual");
   const [overheadRate, setOverheadRate] = useState("");
@@ -131,7 +132,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     if (!supabase) return;
     setError(""); setBusy(true);
     const [projectResult, linkResult, expenseResult, settingsResult, transactionResult, memberResult, workflowSettingsResult, budgetResult] = await Promise.all([
-      supabase.from("crm_projects").select("id,division_id,project_manager_id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").in("division_id", visibleDivisions).order("created_at", { ascending: false }),
+      supabase.from("crm_projects").select("id,division_id,project_manager_id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_paid_at,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").in("division_id", visibleDivisions).order("created_at", { ascending: false }),
       supabase.from("crm_customer_divisions").select("customer_id").in("division_id", visibleDivisions),
       supabase.from("crm_project_expenses").select("project_id,amount,category,paid_amount,payment_status").in("division_id", visibleDivisions),
       supabase.from("crm_division_financial_settings").select("stale_stage_days,default_commission_method,default_commission_rate,default_commission_fixed_amount,default_overhead_method,default_overhead_rate,default_overhead_fixed_amount").eq("division_id", division).maybeSingle(),
@@ -227,6 +228,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     setCommissionFixed(String(project.commission_fixed_amount ?? defaultCommissionFixed));
     setCommissionEarned(String(project.commission_earned_amount ?? ""));
     setCommissionPaid(String(project.commission_paid_amount ?? ""));
+    setCommissionPaidAt(project.commission_paid_at || "");
     setCommissionSalesperson(project.commission_salesperson_name || "");
     setOverheadMethod(project.overhead_method || defaultOverheadMethod);
     setOverheadRate(String(project.overhead_rate ?? defaultOverheadRate));
@@ -523,6 +525,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       p_commission_salesperson_name: commissionSalesperson.trim() || null,
       p_commission_earned_amount: Math.round(earned * 100) / 100,
       p_commission_paid_amount: cents(commissionPaid),
+      p_commission_paid_at: commissionPaidAt || null,
       p_overhead_method: overheadMethod,
       p_overhead_rate: overheadRateValue || null,
       p_overhead_fixed_amount: overheadFixedValue || null,
@@ -699,7 +702,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         <div><span>Collected</span><strong>{money(selected.collected_amount)}</strong></div>
         <div><span>Recorded expenses</span><strong>{money(totalExpenses)}</strong></div>
         <div><span>Direct costs</span><strong>{money(directExpenses)}</strong></div>
-        <div><span>Gross profit</span><strong>{money(gross)}</strong></div><div><span>Commission earned</span><strong>{money(selected.commission_earned_amount)}</strong></div><div><span>Overhead allocated</span><strong>{money(selected.overhead_allocated_amount)}</strong></div><div><span>Net project profit</span><strong>{money(netProfit)}</strong></div>
+        <div><span>Gross profit</span><strong>{money(gross)}</strong></div><div><span>Commission earned</span><strong>{money(selected.commission_earned_amount)}</strong></div><div><span>Commission remaining</span><strong>{money(Number(selected.commission_earned_amount||0)-Number(selected.commission_paid_amount||0))}</strong></div><div><span>Overhead allocated</span><strong>{money(selected.overhead_allocated_amount)}</strong></div><div><span>Net project profit</span><strong>{money(netProfit)}</strong></div>
       </div>
       {canWriteFinancials && <form className="inline-form" onSubmit={saveFinancials}>
         <div className="panel-heading subheading"><div><h3>Contract and profitability</h3><p className="muted">Set contract and approval values, then manage invoices and payments in the transaction ledger.</p></div></div>
@@ -710,6 +713,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
           <label>Commission rate (%)<input type="number" min="0" step="0.01" value={commissionRate} onChange={e=>setCommissionRate(e.target.value)} /></label>
           <label>Commission fixed / manual earned ($)<input type="number" min="0" step="0.01" value={commissionMethod==="manual"?commissionEarned:commissionFixed} onChange={e=>commissionMethod==="manual"?setCommissionEarned(e.target.value):setCommissionFixed(e.target.value)} /></label>
           <label>Commission paid ($)<input type="number" min="0" step="0.01" value={commissionPaid} onChange={e=>setCommissionPaid(e.target.value)} /></label>
+          <label>Commission payment date<input type="date" value={commissionPaidAt} onChange={e=>setCommissionPaidAt(e.target.value)} /></label>
           <label>Salesperson<input value={commissionSalesperson} onChange={e=>setCommissionSalesperson(e.target.value)} /></label>
           <label>Overhead method<select value={overheadMethod} onChange={e=>setOverheadMethod(e.target.value)}><option value="flat">Flat amount</option><option value="contract_percent">Percent of contract</option><option value="direct_cost_percent">Percent of direct costs</option><option value="manual">Manual</option></select></label>
           <label>Overhead rate (%)<input type="number" min="0" step="0.01" value={overheadRate} onChange={e=>setOverheadRate(e.target.value)} /></label>
