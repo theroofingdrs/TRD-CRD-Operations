@@ -5,6 +5,7 @@ import Proposals from "./Proposals";
 import Inspections from "./Inspections";
 import Warranties from "./Warranties";
 import DocumentDeliveries from "./DocumentDeliveries";
+import RoofrMeasurements from "./RoofrMeasurements";
 
 type DivisionId = "TRD" | "CRD";
 type Role = "owner" | "division_admin" | "office_manager" | "sales_rep" | "project_manager" | "field_inspector" | "production_manager" | "accounting" | "read_only";
@@ -296,6 +297,7 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
   const [type, setType] = useState("individual");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [primaryContactName, setPrimaryContactName] = useState("");
   const [billingAddress, setBillingAddress] = useState("");
   const [billingCity, setBillingCity] = useState("");
   const [billingState, setBillingState] = useState("TX");
@@ -449,6 +451,8 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
     setType(selected.customer_type);
     setEmail(selected.email || "");
     setPhone(selected.phone || "");
+    const primaryContact = contacts.find((contact) => contact.is_primary === true || contact.is_primary === "true");
+    setPrimaryContactName(primaryContact ? String(primaryContact.full_name || "") : "");
     setBillingAddress(selected.billing_address_line1 || "");
     setBillingCity(selected.billing_city || "");
     setBillingState(selected.billing_state || "TX");
@@ -511,6 +515,11 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
       if (error) setMessage(error.message);
       else {
         const id = editingId;
+        if (primaryContactName.trim()) {
+          const { data: existingPrimary } = await supabase.from("crm_contacts").select("id").eq("customer_id", id).eq("is_primary", true).limit(1).maybeSingle();
+          if (existingPrimary?.id) await supabase.from("crm_contacts").update({ full_name: primaryContactName.trim() }).eq("id", existingPrimary.id);
+          else await supabase.from("crm_contacts").insert({ customer_id: id, full_name: primaryContactName.trim(), is_primary: true });
+        }
         setEditingId(""); setShowForm(false); setMessage("Customer record updated.");
         await load();
         await loadCustomerDetails(id);
@@ -519,6 +528,10 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
       const { data, error } = await supabase.from("crm_customers").insert({ ...customerValues, created_by: userId }).select("id").single();
       if (error) setMessage(error.message);
       else {
+        if (primaryContactName.trim()) {
+          const { error: contactError } = await supabase.from("crm_contacts").insert({ customer_id: data.id, full_name: primaryContactName.trim(), is_primary: true });
+          if (contactError) setMessage("Customer created, but primary contact could not be saved: " + contactError.message);
+        }
         const divisionLinks = shareWithBoth ? [{ customer_id: data.id, division_id: "TRD" }, { customer_id: data.id, division_id: "CRD" }] : [{ customer_id: data.id, division_id: division }];
         const { error: linkError } = await supabase.from("crm_customer_divisions").insert(divisionLinks);
         if (linkError) setMessage("Customer was created, but division linking failed: " + linkError.message);
@@ -529,7 +542,7 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
             const { error: propertyError } = await supabase.from("crm_properties").insert(propertyValues);
             if (propertyError) propertyErrorMessage = propertyError.message;
           }
-          setName(""); setEmail(""); setPhone(""); setBillingAddress(""); setBillingCity(""); setBillingPostal("");
+          setName(""); setEmail(""); setPhone(""); setPrimaryContactName(""); setBillingAddress(""); setBillingCity(""); setBillingPostal("");
           setNewProperties([emptyProperty()]); setShareWithBoth(false); setShowForm(false);
           setMessage(propertyErrorMessage ? "Customer created, but property saving failed: " + propertyErrorMessage : "Customer and property records created.");
         }
@@ -554,6 +567,7 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
         <label>Customer type<select value={type} onChange={(event) => setType(event.target.value)}><option value="individual">Homeowner / Individual</option><option value="business">Business</option><option value="property_manager">Property manager</option><option value="organization">Organization</option></select></label>
         <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
         <label>Phone<input value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
+        <label>Primary contact name<input value={primaryContactName} onChange={(event) => setPrimaryContactName(event.target.value)} placeholder="Pastor, facilities manager, property manager..." /></label>
         <label className="wide">Billing or mailing street address<input value={billingAddress} onChange={(event) => setBillingAddress(event.target.value)} /></label>
         <label>City<input value={billingCity} onChange={(event) => setBillingCity(event.target.value)} /></label>
         <label>State<input value={billingState} onChange={(event) => setBillingState(event.target.value)} maxLength={2} /></label>
@@ -605,6 +619,7 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
             <label className="wide">Property notes<textarea rows={2} value={propertyDraft.property_notes} onChange={e=>setPropertyDraft(current=>({...current,property_notes:e.target.value}))} /></label>
           </div><button className="primary-button" disabled={saving}>{saving ? "Saving..." : "Save property"}</button></form>}
           {properties.length ? <div className="table-wrap"><table><thead><tr><th>Property</th><th>Type</th><th>County</th><th>Parcel / building</th></tr></thead><tbody>{properties.map((p) => <tr key={String(p.id)}><td><strong>{[p.address_line1,p.city,p.state,p.postal_code].filter(Boolean).join(", ")}</strong></td><td>{String(p.property_type || "—")}</td><td>{String(p.county || "—")}</td><td>{[p.parcel_number,p.building_name].filter(Boolean).join(" · ") || "—"}</td></tr>)}</tbody></table></div> : <p className="muted">No properties linked yet.</p>}</div>
+        <RoofrMeasurements division={division} userId={userId} canWrite={canWrite} properties={properties.map(p => ({ id: String(p.id), address_line1: String(p.address_line1 || ""), city: String(p.city || ""), state: String(p.state || "") }))} />
         <div><h3>Roof systems</h3>{roofs.length ? <div className="table-wrap"><table><thead><tr><th>Property</th><th>Roof section</th><th>System / material</th><th>Installed</th><th>Condition</th></tr></thead><tbody>{roofs.map((roof) => <tr key={String(roof.id)}><td>{propertyAddress(roof.property_id)}</td><td>{String(roof.roof_section || "—")}</td><td>{[roof.roof_type,roof.covering_material].filter(Boolean).join(" · ") || "—"}</td><td>{String(roof.installation_year || "—")}</td><td>{String(roof.condition_summary || "—")}</td></tr>)}</tbody></table></div> : <p className="muted">No roof systems linked yet.</p>}</div>
         <div>
           <div className="panel-heading"><div><h3>Maintenance and service history</h3><p className="muted">Permanent service visits linked to this customer, property, roof, and project.</p></div>{canWriteMaintenance && properties.length > 0 && <button className="secondary-button compact" onClick={() => setShowMaintenanceForm(!showMaintenanceForm)}>{showMaintenanceForm ? "Close form" : "+ Add service record"}</button>}</div>
