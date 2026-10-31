@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import type { FormEvent } from "react";
 import { supabase } from "./lib/supabase";
 
 type PropertyOption = { id: string; address_line1: string; city: string; state: string };
@@ -71,7 +72,7 @@ export default function RoofrMeasurements({ division, userId, properties, canWri
 
   useEffect(() => { void load(); }, [load]);
 
-  async function upload(event: React.FormEvent) {
+  async function upload(event: FormEvent) {
     event.preventDefault();
     if (!supabase || !file || !propertyId) return;
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
