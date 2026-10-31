@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "./lib/supabase";
 
 type PlaceSelection = { address: string; city: string; state: string; postalCode: string; latitude: number; longitude: number };
-type AddressAutocompleteProps = { value: string; onChange: (value: string) => void; onPlaceSelected: (place: PlaceSelection) => void; required?: boolean; placeholder?: string };
+type AddressAutocompleteProps = { value: string; onChange: (value: string) => void; onPlaceSelected: (place: PlaceSelection) => void; required?: boolean; placeholder?: string; disabled?: boolean };
 
 declare global { interface Window { google?: any; __roofDoctorsMapsPromise?: Promise<any> } }
 
@@ -36,7 +36,7 @@ function component(components: any[], type: string, useShort = false): string {
   return found ? (useShort ? found.short_name : found.long_name) : "";
 }
 
-export function AddressAutocomplete({ value, onChange, onPlaceSelected, required, placeholder }: AddressAutocompleteProps) {
+export function AddressAutocomplete({ value, onChange, onPlaceSelected, required, placeholder, disabled }: AddressAutocompleteProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const callbackRef = useRef(onPlaceSelected);
   const [mapsError, setMapsError] = useState("");
@@ -72,7 +72,7 @@ export function AddressAutocomplete({ value, onChange, onPlaceSelected, required
     return () => { active = false; if (listener) listener.remove(); };
   }, []);
   return <div className="address-autocomplete-wrap">
-    <input ref={inputRef} required={required} value={value} placeholder={placeholder || "Start typing a street address"} onChange={event => onChange(event.target.value)} autoComplete="off" />
+    <input ref={inputRef} required={required} disabled={disabled} value={value} placeholder={placeholder || "Start typing a street address"} onChange={event => onChange(event.target.value)} autoComplete="off" />
     {mapsError && <small className="address-map-hint">{mapsError}</small>}
   </div>;
 }
