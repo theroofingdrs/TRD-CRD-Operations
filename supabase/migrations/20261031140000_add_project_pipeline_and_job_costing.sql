@@ -632,13 +632,13 @@ CREATE POLICY crm_project_cost_estimates_insert ON public.crm_project_cost_estim
   FOR INSERT TO authenticated WITH CHECK (
     app_private.has_division_financial_access(division_id, true)
     AND (updated_by IS NULL OR updated_by = (SELECT auth.uid()))
-    AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = project_id AND p.division_id = division_id)
+    AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = crm_project_cost_estimates.project_id AND p.division_id = crm_project_cost_estimates.division_id)
   );
 CREATE POLICY crm_project_cost_estimates_update ON public.crm_project_cost_estimates
   FOR UPDATE TO authenticated USING (app_private.has_division_financial_access(division_id, true))
   WITH CHECK (
     app_private.has_division_financial_access(division_id, true)
-    AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = project_id AND p.division_id = division_id)
+    AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = crm_project_cost_estimates.project_id AND p.division_id = crm_project_cost_estimates.division_id)
   );
 GRANT SELECT, INSERT, UPDATE ON public.crm_project_cost_estimates TO authenticated;
 
