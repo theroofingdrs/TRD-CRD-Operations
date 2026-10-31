@@ -31,7 +31,7 @@ const stageLabel = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g
 const money = (value: number | null | undefined) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
 const cents = (value: string) => Math.round((Number(value) || 0) * 100) / 100;
 
-export default function ProjectPipeline({ division, userId, canWrite, canWriteFinancials, availableDivisions }: { division: Division; userId: string; canWrite: boolean; canWriteFinancials: boolean; availableDivisions: Division[] }) {
+export default function ProjectPipeline({ division, userId, canWrite, canWriteFinancials, availableDivisions, canManageSettings }: { division: Division; userId: string; canWrite: boolean; canWriteFinancials: boolean; availableDivisions: Division[]; canManageSettings: boolean }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
   const [customerNames, setCustomerNames] = useState<Record<string, string>>({});
@@ -538,8 +538,8 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         <div><span>Recorded expenses</span><strong>{money(divisionExpenseTotal)}</strong></div>
         <div><span>Needs attention</span><strong>{attention.length}</strong></div>
       </div>
-      <div className="panel-heading subheading"><div><h3>Needs attention</h3><p className="muted">Overdue next actions and projects unchanged for {staleDays} days or more.</p></div>{scope !== "combined" && <button className="secondary-button compact" onClick={()=>setSettingsOpen(v=>!v)}>Pipeline settings</button>}</div>
-      {scope !== "combined" && settingsOpen && <form className="inline-form" onSubmit={saveSettings}><div className="form-grid"><label>Stale stage threshold (days)<input type="number" min="1" max="365" value={staleDays} onChange={e=>setStaleDays(Math.max(1,Math.min(365,Number(e.target.value)||1)))} /></label>
+      <div className="panel-heading subheading"><div><h3>Needs attention</h3><p className="muted">Overdue next actions and projects unchanged for {staleDays} days or more.</p></div>{scope !== "combined" && canManageSettings && <button className="secondary-button compact" onClick={()=>setSettingsOpen(v=>!v)}>Pipeline settings</button>}</div>
+      {scope !== "combined" && canManageSettings && settingsOpen && <form className="inline-form" onSubmit={saveSettings}><div className="form-grid"><label>Stale stage threshold (days)<input type="number" min="1" max="365" value={staleDays} onChange={e=>setStaleDays(Math.max(1,Math.min(365,Number(e.target.value)||1)))} /></label>
         <label>Default commission method<select value={defaultCommissionMethod} onChange={e=>setDefaultCommissionMethod(e.target.value)}><option value="fixed">Fixed amount</option><option value="contract_percent">Percent of contract</option><option value="collected_percent">Percent of collected revenue</option><option value="gross_profit_percent">Percent of gross profit</option><option value="manual">Manual</option></select></label>
         <label>Default commission rate (%)<input type="number" min="0" step="0.01" value={defaultCommissionRate} onChange={e=>setDefaultCommissionRate(e.target.value)} /></label>
         <label>Default fixed commission ($)<input type="number" min="0" step="0.01" value={defaultCommissionFixed} onChange={e=>setDefaultCommissionFixed(e.target.value)} /></label>
