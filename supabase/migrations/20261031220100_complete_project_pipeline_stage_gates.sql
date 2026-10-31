@@ -262,6 +262,11 @@ CREATE TRIGGER crm_projects_enforce_stage_gate
   FOR EACH ROW EXECUTE FUNCTION app_private.enforce_project_stage_gate();
 
 
+-- One insurance claim can belong to only one project.
+CREATE UNIQUE INDEX IF NOT EXISTS crm_projects_claim_unique_idx
+  ON public.crm_projects (claim_id)
+  WHERE claim_id IS NOT NULL;
+
 -- Keep a project's lead and insurance claim attached to the same customer, property and division.
 -- Audit history rows may only be inserted by a nested system trigger.
 CREATE OR REPLACE FUNCTION app_private.require_audit_trigger_context()
