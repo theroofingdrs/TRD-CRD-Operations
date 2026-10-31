@@ -163,3 +163,99 @@ END;
 $function$;
 REVOKE ALL ON FUNCTION public.crm_move_project_stage(uuid,text,text,text,date,boolean) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.crm_move_project_stage(uuid,text,text,text,date,boolean) TO authenticated;
+
+
+-- Enforce the same stage gates for direct table updates, not only the UI RPC.
+CREATE OR REPLACE FUNCTION app_private.enforce_project_stage_gate()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path TO ''
+AS $function$
+DECLARE
+  needs_override boolean := false;
+  override_requested boolean := NEW.workflow_stage_override AND NOT OLD.workflow_stage_override;
+BEGIN
+  IF NEW.pipeline_type IS DISTINCT FROM OLD.pipeline_type THEN
+    IF NEW.pipeline_type NOT IN ('retail','insurance') OR NEW.workflow_stage IS DISTINCT FROM 'new_lead' THEN
+      RAISE EXCEPTION 'Assign or switch a project workflow by resetting its stage to New Lead';
+    END IF;
+    IF NEW.workflow_stage_override THEN
+      RAISE EXCEPTION 'Workflow assignment cannot use a stage-gate override';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.workflow_stage IS NOT DISTINCT FROM OLD.workflow_stage THEN
+    IF NEW.workflow_stage_override IS DISTINCT FROM OLD.workflow_stage_override AND NEW.workflow_stage_override THEN
+      RAISE EXCEPTION 'An override can only be recorded with a stage transition';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.pipeline_type NOT IN ('retail','insurance') OR NEW.workflow_stage IS NULL OR NEW.workflow_stage NOT IN (
+    'new_lead','contacted','appointment_set','inspection_scheduled','inspection_completed',
+    'estimate_prepared','bid_issued','awaiting_customer','scope_prepared','claim_filed',
+    'adjuster_meeting_scheduled','adjuster_met_awaiting_approval','supplement_prepared',
+    'supplement_submitted','supplement_under_review','supplement_approved',
+    'supplement_partially_approved','supplement_denied','contract_signed','deposit_pending',
+    'deposit_received','materials_ordered','materials_received','scheduled','in_progress',
+    'work_completed','final_inspection','final_invoice_payment_pending','closed',
+    'adjuster_meeting','awaiting_carrier','supplement_review','invoiced'
+  ) THEN
+    RAISE EXCEPTION 'Unknown project workflow stage or unassigned workflow';
+  END IF;
+
+  IF NEW.pipeline_type = 'retail' AND NEW.workflow_stage IN (
+    'scope_prepared','claim_filed','adjuster_meeting_scheduled','adjuster_met_awaiting_approval',
+    'supplement_prepared','supplement_submitted','supplement_under_review','supplement_approved',
+    'supplement_partially_approved','supplement_denied','adjuster_meeting','awaiting_carrier','supplement_review'
+  ) THEN
+    RAISE EXCEPTION 'Insurance stages cannot be used on a Retail project';
+  END IF;
+  IF NEW.pipeline_type = 'insurance' AND NEW.workflow_stage IN (
+    'estimate_prepared','bid_issued','awaiting_customer','deposit_pending','deposit_received'
+  ) THEN
+    RAISE EXCEPTION 'Retail stages cannot be used on an Insurance project';
+  END IF;
+
+  IF NEW.workflow_stage = 'materials_ordered' THEN
+    IF NULLIF(trim(COALESCE(NEW.materials_order_reference,'')), '') IS NULL THEN
+      needs_override := true;
+    ELSE
+      NEW.materials_ordered_at := COALESCE(NEW.materials_ordered_at, CURRENT_DATE);
+    END IF;
+  END IF;
+  IF NEW.workflow_stage = 'work_completed' AND NEW.work_completed_at IS NULL THEN
+    needs_override := true;
+  END IF;
+  IF NEW.workflow_stage IN ('supplement_approved','supplement_partially_approved')
+     AND COALESCE(NEW.supplements_approved_amount,0) <= 0 THEN
+    needs_override := true;
+  END IF;
+  IF NEW.workflow_stage = 'closed'
+     AND GREATEST(0,COALESCE(NEW.invoiced_amount,0)-COALESCE(NEW.collected_amount,0)) > 0 THEN
+    needs_override := true;
+  END IF;
+
+  IF needs_override THEN
+    IF NOT override_requested OR NOT app_private.has_division_admin_access(NEW.division_id) THEN
+      RAISE EXCEPTION 'This stage requires an authorized administrator override and a recorded reason';
+    END IF;
+    IF NEW.workflow_stage_note IS NULL OR NEW.workflow_stage_note NOT LIKE 'AUTHORIZED OVERRIDE | %' THEN
+      RAISE EXCEPTION 'An authorized stage override requires a reason';
+    END IF;
+  ELSIF override_requested THEN
+    RAISE EXCEPTION 'An override may only be used when a required stage gate is not satisfied';
+  ELSE
+    NEW.workflow_stage_override := false;
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+REVOKE ALL ON FUNCTION app_private.enforce_project_stage_gate() FROM PUBLIC, anon, authenticated;
+DROP TRIGGER IF EXISTS crm_projects_enforce_stage_gate ON public.crm_projects;
+CREATE TRIGGER crm_projects_enforce_stage_gate
+  BEFORE UPDATE OF workflow_stage, pipeline_type, workflow_stage_override ON public.crm_projects
+  FOR EACH ROW EXECUTE FUNCTION app_private.enforce_project_stage_gate();
