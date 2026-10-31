@@ -174,7 +174,8 @@ export default function ImportCenter({ division, userId, canShareBoth }: { divis
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
-  const [loaded, setLoaded] = useState(false);\n  const [historyRows, setHistoryRows] = useState<Record<string, unknown>[]>([]);\n  const [historyCustomers, setHistoryCustomers] = useState<Record<string, string>>({});
+  const [loaded, setLoaded] = useState(false);
+  const [historyRows, setHistoryRows] = useState<Record<string, unknown>[]>([]);\n  const [historyCustomers, setHistoryCustomers] = useState<Record<string, string>>({});
 
   const preview = useMemo(() => clients.map((client) => {
     const match = existing.find((row) =>
