@@ -100,7 +100,7 @@ BEGIN
 END;
 $function$;
 
-CREATE TRIGGER crm_projects_log_stage_insert
+REVOKE ALL ON FUNCTION app_private.log_project_stage_change() FROM PUBLIC, anon, authenticated;\nCREATE TRIGGER crm_projects_log_stage_insert
   AFTER INSERT ON public.crm_projects
   FOR EACH ROW EXECUTE FUNCTION app_private.log_project_stage_change();
 CREATE TRIGGER crm_projects_log_stage_update
@@ -167,7 +167,7 @@ AS $function$
       )
   );
 $function$;
-GRANT EXECUTE ON FUNCTION app_private.has_division_financial_access(text, boolean) TO authenticated;
+REVOKE ALL ON FUNCTION app_private.has_division_financial_access(text, boolean) FROM PUBLIC, anon;\nGRANT EXECUTE ON FUNCTION app_private.has_division_financial_access(text, boolean) TO authenticated;
 
 CREATE TABLE public.crm_project_expenses (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
