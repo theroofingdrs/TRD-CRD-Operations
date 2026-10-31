@@ -29,6 +29,10 @@ export default function Inspections({ division, userId, canWrite }: { division: 
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [sendingId, setSendingId] = useState("");
+  const [viewingInspection, setViewingInspection] = useState<any | null>(null);
+  const [viewingItems, setViewingItems] = useState<any[]>([]);
+  const [viewingPhotos, setViewingPhotos] = useState<any[]>([]);
+  const [loadingReport, setLoadingReport] = useState(false);
   const load = useCallback(async () => {
     if (!supabase) return;
     const [customerResult, inspectionResult] = await Promise.all([
@@ -54,6 +58,34 @@ export default function Inspections({ division, userId, canWrite }: { division: 
     const next = Array.from(files).filter(file => ["image/jpeg", "image/png"].includes(file.type) && file.size <= 15 * 1024 * 1024).map(file => ({ file, label: "Inspection photo", caption: "", roofSection: "" }));
     if (next.length !== files.length) setMessage("Only JPG or PNG photos up to 15 MB each can be attached to the inspection PDF.");
     setPhotos(current => [...current, ...next]);
+  }
+  async function viewReport(id: string) {
+    if (!supabase) return;
+    setLoadingReport(true); setMessage("");
+    const { data, error } = await supabase.from("crm_inspections")
+      .select("id,division_id,inspection_type,status,inspected_at,weather_conditions,overall_condition,summary,recommendations,measurements,roof_sections,crm_customers(display_name),crm_properties(address_line1,city,state,postal_code)")
+      .eq("id", id).single();
+    if (error || !data) {
+      setMessage(error?.message || "Inspection report could not be loaded.");
+      setLoadingReport(false);
+      return;
+    }
+    const [itemResult, photoResult] = await Promise.all([
+      supabase.from("crm_inspection_items").select("id,category,location,observation,severity,recommendation").eq("inspection_id", id).order("created_at"),
+      supabase.from("crm_inspection_photos").select("photo_label,caption,roof_section,crm_files(bucket_id,object_path,content_type,original_filename)").eq("inspection_id", id).order("created_at")
+    ]);
+    const photoRows = await Promise.all((photoResult.data || []).map(async (photo: any) => {
+      const file = photo.crm_files;
+      if (!file?.bucket_id || !file?.object_path) return { ...photo, signedUrl: "" };
+      const { data: signed } = await supabase.storage.from(file.bucket_id).createSignedUrl(file.object_path, 3600);
+      return { ...photo, signedUrl: signed?.signedUrl || "" };
+    }));
+    setViewingInspection(data);
+    setViewingItems(itemResult.data || []);
+    setViewingPhotos(photoRows);
+    if (itemResult.error) setMessage(itemResult.error.message);
+    if (photoResult.error) setMessage(photoResult.error.message);
+    setLoadingReport(false);
   }
   async function sendPdf(id: string) {
     if (!supabase) return;
@@ -126,5 +158,27 @@ export default function Inspections({ division, userId, canWrite }: { division: 
     {photos.map((photo,index) => <div className="checklist-row" key={photo.file.name + index}><strong>{photo.file.name}</strong><div className="form-grid"><label>Photo label<input value={photo.label} onChange={e => setPhotos(current => current.map((p,i) => i===index ? {...p,label:e.target.value} : p))} /></label><label>Roof section or checklist item<input value={photo.roofSection} onChange={e => setPhotos(current => current.map((p,i) => i===index ? {...p,roofSection:e.target.value} : p))} placeholder="Enter matching checklist name" /></label><label className="wide">Caption<input value={photo.caption} onChange={e => setPhotos(current => current.map((p,i) => i===index ? {...p,caption:e.target.value} : p))} placeholder="What this photo documents" /></label></div></div>)}
     <button className="primary-button" disabled={busy || !customers.length || !customerProperties.length}>{busy ? "Saving inspection..." : "Save inspection and photos"}</button></form>}
     {message && <p className="inline-message">{message}</p>}
-  </section><section className="panel"><h2>Recent inspections</h2>{inspections.length ? <div className="table-wrap"><table><thead><tr><th>Customer</th><th>Property</th><th>Type</th><th>Status</th><th>Date</th><th>Action</th></tr></thead><tbody>{inspections.map(row => <tr key={row.id}><td>{row.crm_customers?.display_name || "Customer"}</td><td>{row.crm_properties?.address_line1 || "Property"}, {row.crm_properties?.city || ""}</td><td>{row.inspection_type || "general"}</td><td>{row.status}</td><td>{row.inspected_at ? new Date(row.inspected_at).toLocaleDateString() : "Not scheduled"}</td><td><button type="button" className="secondary-button" disabled={sendingId===row.id} onClick={()=>sendPdf(row.id)}>{sendingId===row.id?"Sending...":"Send PDF by email"}</button></td></tr>)}</tbody></table></div> : <div className="empty-state">No inspections recorded yet.</div>}</section></div>;
+  </section>
+  {viewingInspection && <section className="panel">
+    <div className="panel-heading"><div><p className="eyebrow">{division} INSPECTION REPORT</p><h2>{viewingInspection.crm_customers?.display_name || "Customer"} | {viewingInspection.crm_properties?.address_line1 || "Property"}</h2><p className="muted">{[viewingInspection.crm_properties?.city, viewingInspection.crm_properties?.state, viewingInspection.crm_properties?.postal_code].filter(Boolean).join(", ")}</p></div><button type="button" className="secondary-button" onClick={() => { setViewingInspection(null); setViewingItems([]); setViewingPhotos([]); }}>Close report</button></div>
+    <div className="form-grid">
+      <div><strong>Inspection date</strong><p>{viewingInspection.inspected_at ? new Date(viewingInspection.inspected_at).toLocaleString() : "Not recorded"}</p></div>
+      <div><strong>Report status</strong><p>{viewingInspection.status}</p></div>
+      <div><strong>Inspection type</strong><p>{viewingInspection.inspection_type}</p></div>
+      <div><strong>Overall condition</strong><p>{viewingInspection.overall_condition || "Not recorded"}</p></div>
+      <div><strong>Weather</strong><p>{viewingInspection.weather_conditions || "Not recorded"}</p></div>
+      <div><strong>Roof area</strong><p>{viewingInspection.measurements?.roof_area_sq_ft ?? "Not recorded"} sq ft</p></div>
+      <div><strong>Roof squares</strong><p>{viewingInspection.measurements?.roof_squares ?? "Not recorded"}</p></div>
+      <div><strong>Pitch / slope</strong><p>{viewingInspection.measurements?.pitch || "Not recorded"}</p></div>
+    </div>
+    {viewingInspection.roof_sections?.length > 0 && <><h3>Roof sections</h3><ul>{viewingInspection.roof_sections.map((section: any, index: number) => <li key={index}>{section.name || "Section"}</li>)}</ul></>}
+    {viewingInspection.summary && <><h3>Inspection summary</h3><p>{viewingInspection.summary}</p></>}
+    <h3>Inspection findings</h3>
+    {viewingItems.length ? viewingItems.map((item: any) => <div className="checklist-row" key={item.id}><strong>{item.category}</strong><p className="muted">{item.location || "Location not specified"}{item.severity && item.severity !== "none" ? " | " + item.severity.toUpperCase() : ""}</p><p>{item.observation}</p>{item.recommendation && <p><strong>Recommendation:</strong> {item.recommendation}</p>}</div>) : <p className="muted">No checklist findings recorded.</p>}
+    {viewingInspection.recommendations && <><h3>Overall recommendations</h3><p>{viewingInspection.recommendations}</p></>}
+    <h3>Photo documentation</h3>
+    {viewingPhotos.length ? <div className="form-grid">{viewingPhotos.map((photo: any, index: number) => <div className="checklist-row" key={index}>{photo.signedUrl && <img src={photo.signedUrl} alt={photo.photo_label || "Inspection photo"} style={{ width: "100%", maxHeight: "260px", objectFit: "contain" }} />}<strong>{photo.photo_label || "Inspection photo"}</strong><p className="muted">{photo.roof_section || "Location not specified"}</p><p>{photo.caption || "No caption"}</p></div>)}</div> : <p className="muted">No photos attached.</p>}
+    <button type="button" className="primary-button" disabled={sendingId===viewingInspection.id} onClick={() => sendPdf(viewingInspection.id)}>{sendingId===viewingInspection.id ? "Sending..." : "Email this inspection report"}</button>
+  </section>}
+  <section className="panel"><h2>Recent inspections</h2>{inspections.length ? <div className="table-wrap"><table><thead><tr><th>Customer</th><th>Property</th><th>Type</th><th>Status</th><th>Date</th><th>Action</th></tr></thead><tbody>{inspections.map(row => <tr key={row.id}><td>{row.crm_customers?.display_name || "Customer"}</td><td>{row.crm_properties?.address_line1 || "Property"}, {row.crm_properties?.city || ""}</td><td>{row.inspection_type || "general"}</td><td>{row.status}</td><td>{row.inspected_at ? new Date(row.inspected_at).toLocaleDateString() : "Not scheduled"}</td><td><button type="button" className="secondary-button" disabled={loadingReport} onClick={()=>viewReport(row.id)}>{loadingReport?"Loading...":"View report"}</button> <button type="button" className="secondary-button" disabled={sendingId===row.id} onClick={()=>sendPdf(row.id)}>{sendingId===row.id?"Sending...":"Email PDF"}</button></td></tr>)}</tbody></table></div> : <div className="empty-state">No inspections recorded yet.</div>}</section></div>;
 }
