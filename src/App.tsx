@@ -5,7 +5,7 @@ import { supabase } from "./lib/supabase";
 type DivisionId = "TRD" | "CRD";
 type Role = "owner" | "division_admin" | "office_manager" | "sales_rep" | "project_manager" | "field_inspector" | "production_manager" | "accounting" | "read_only";
 type Membership = { division_id: DivisionId; role: Role };
-type View = "overview" | "leads" | "customers" | "contacts" | "properties" | "roofs" | "appointments" | "inspections" | "projects" | "tasks" | "team";
+type View = "overview" | "leads" | "customers" | "contacts" | "properties" | "roofs" | "documents" | "appointments" | "inspections" | "projects" | "tasks" | "team";
 type Lead = { id: string; service_interest: string | null; status: string; priority: string; source: string | null; description: string | null; created_at: string };
 type Customer = { id: string; display_name: string; customer_type: string; email: string | null; phone: string | null; created_at: string };
 type GenericRow = Record<string, string | number | null>;
@@ -17,6 +17,7 @@ const navigation: { id: View; label: string; icon: string }[] = [
   { id: "contacts", label: "Contacts", icon: "♧" },
   { id: "properties", label: "Properties", icon: "⌂" },
   { id: "roofs", label: "Roof systems", icon: "⌃" },
+  { id: "documents", label: "Files and photos", icon: "▧" },
   { id: "appointments", label: "Schedule", icon: "▣" },
   { id: "inspections", label: "Inspections", icon: "⌕" },
   { id: "projects", label: "Projects", icon: "▤" },
@@ -94,6 +95,7 @@ function App() {
   const canWriteCustomers = currentMembership ? ["owner","division_admin","office_manager","sales_rep","project_manager"].includes(currentMembership.role) : false;
   const canWriteContacts = canWriteCustomers;
   const canWriteRoofs = currentMembership ? ["owner","division_admin","office_manager","project_manager","production_manager"].includes(currentMembership.role) : false;
+  const canWriteFiles = currentMembership ? ["owner","division_admin","office_manager","sales_rep","project_manager","field_inspector","production_manager"].includes(currentMembership.role) : false;
   const canWriteAppointments = currentMembership ? ["owner","division_admin","office_manager","sales_rep","project_manager","field_inspector"].includes(currentMembership.role) : false;
   const canWriteInspections = currentMembership ? ["owner","division_admin","office_manager","project_manager","field_inspector","production_manager"].includes(currentMembership.role) : false;
   const canWriteProjects = currentMembership ? ["owner","division_admin","office_manager","project_manager"].includes(currentMembership.role) : false;
@@ -146,6 +148,7 @@ function App() {
       {view === "contacts" && <Contacts division={division} canWrite={canWriteContacts} />}
       {view === "properties" && <Properties division={division} canWrite={canWriteCustomers} />}
       {view === "roofs" && <Roofs division={division} canWrite={canWriteRoofs} />}
+      {view === "documents" && <Documents division={division} userId={session.user.id} canWrite={canWriteFiles} />}
       {view === "appointments" && <DataList division={division} view="appointments" userId={session.user.id} canWrite={canWriteAppointments} />}
       {view === "inspections" && <DataList division={division} view="inspections" userId={session.user.id} canWrite={canWriteInspections} />}
       {view === "projects" && <DataList division={division} view="projects" userId={session.user.id} canWrite={canWriteProjects} />}
@@ -281,6 +284,68 @@ function Customers({ division, userId, canWrite }: { division: DivisionId; userI
     {showForm && <form className="inline-form" onSubmit={createCustomer}><div className="form-grid"><label>Customer or account name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Name or business" /></label><label>Customer type<select value={type} onChange={(event) => setType(event.target.value)}><option value="individual">Homeowner / Individual</option><option value="business">Business</option><option value="property_manager">Property manager</option><option value="organization">Organization</option></select></label><label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label><label>Phone<input value={phone} onChange={(event) => setPhone(event.target.value)} /></label></div><button className="primary-button" disabled={saving}>{saving ? "Saving..." : "Save customer"}</button></form>}
     {message && <p className="inline-message">{message}</p>}
     {loading ? <div className="empty-state">Loading customers...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Email</th><th>Phone</th><th>Added</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><strong>{row.display_name}</strong></td><td>{row.customer_type.replaceAll("_"," ")}</td><td>{row.email || "—"}</td><td>{row.phone || "—"}</td><td>{new Date(row.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No customer records yet</strong><span>Add a customer to start building the shared customer and property history.</span>{canWrite && <button className="secondary-button" onClick={() => setShowForm(true)}>Add first customer</button>}</div>}
+  </section></div>;
+}
+
+function Documents({ division, userId, canWrite }: { division: DivisionId; userId: string; canWrite: boolean }) {
+  const [rows,setRows]=useState<{id:string;related_id:string;object_path:string;original_filename:string;content_type:string|null;file_size_bytes:number|null;created_at:string;bucket_id:string}[]>([]);
+  const [properties,setProperties]=useState<{id:string;address_line1:string;city:string;state:string}[]>([]);
+  const [propertyId,setPropertyId]=useState("");
+  const [file,setFile]=useState<File|null>(null);
+  const [message,setMessage]=useState("");
+  const [loading,setLoading]=useState(true);
+  const [saving,setSaving]=useState(false);
+  const load=useCallback(async()=>{
+    if(!supabase)return;setLoading(true);
+    const [linksResult,filesResult]=await Promise.all([
+      supabase.from("crm_customer_divisions").select("customer_id").eq("division_id",division),
+      supabase.from("crm_files").select("id,related_id,object_path,original_filename,content_type,file_size_bytes,created_at,bucket_id").eq("division_id",division).order("created_at",{ascending:false}).limit(100)
+    ]);
+    if(linksResult.error)setMessage(linksResult.error.message);
+    if(filesResult.error)setMessage(filesResult.error.message);
+    const customerIds=(linksResult.data??[]).map(x=>x.customer_id);
+    if(customerIds.length){
+      const {data:propertyRows,error}=await supabase.from("crm_properties").select("id,address_line1,city,state").in("customer_id",customerIds).order("address_line1");
+      if(error)setMessage(error.message);
+      const options=propertyRows??[];setProperties(options);
+      setPropertyId(current=>options.some(p=>p.id===current)?current:(options[0]?.id??""));
+    }else{setProperties([]);setPropertyId("");}
+    setRows((filesResult.data??[]) as typeof rows);
+    setLoading(false);
+  },[division]);
+  useEffect(()=>{void load();},[load]);
+  async function uploadFile(event:FormEvent){
+    event.preventDefault();if(!supabase||!file)return;
+    setMessage("");
+    if(!propertyId){setMessage("Add a customer and property before uploading files.");return;}
+    const allowed=["image/jpeg","image/png","image/webp","application/pdf"];
+    if(!allowed.includes(file.type)){setMessage("Only JPG, PNG, WebP, and PDF files are accepted.");return;}
+    if(file.size>15*1024*1024){setMessage("File exceeds the 15 MB limit.");return;}
+    setSaving(true);
+    const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"_").slice(-120)||"file";
+    const path=division+"/"+crypto.randomUUID()+"-"+safeName;
+    const {error:uploadError}=await supabase.storage.from("roof-doctors-private").upload(path,file,{contentType:file.type,upsert:false});
+    if(uploadError){setMessage(uploadError.message);setSaving(false);return;}
+    const {error:metadataError}=await supabase.from("crm_files").insert({
+      division_id:division,related_type:"property",related_id:propertyId,bucket_id:"roof-doctors-private",
+      object_path:path,original_filename:file.name,content_type:file.type,file_size_bytes:file.size,uploaded_by:userId
+    });
+    if(metadataError){
+      await supabase.storage.from("roof-doctors-private").remove([path]);
+      setMessage("File upload could not be registered. The uploaded object was rolled back. "+metadataError.message);
+    }else{setMessage("File uploaded.");setFile(null);const picker=document.getElementById("crm-file-picker") as HTMLInputElement|null;if(picker)picker.value="";await load();}
+    setSaving(false);
+  }
+  async function openFile(row:typeof rows[number]){
+    if(!supabase)return;
+    const {data,error}=await supabase.storage.from(row.bucket_id).createSignedUrl(row.object_path,60);
+    if(error){setMessage(error.message);return;}
+    if(data?.signedUrl)window.open(data.signedUrl,"_blank","noopener,noreferrer");
+  }
+  return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">PRIVATE DOCUMENT STORAGE</p><h2>Files and property photos</h2><p className="muted">Private files are attached to a property and remain scoped to this division.</p></div></div>
+    {canWrite&&<form className="inline-form" onSubmit={uploadFile}><div className="form-grid"><label className="wide">Property<select required value={propertyId} onChange={e=>setPropertyId(e.target.value)}><option value="">Select a property</option>{properties.map(p=><option key={p.id} value={p.id}>{p.address_line1}, {p.city}, {p.state}</option>)}</select></label><label className="wide">Choose file<input id="crm-file-picker" type="file" accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf" onChange={e=>setFile(e.target.files?.[0]??null)}/></label></div><button className="primary-button" disabled={saving||!file||!propertyId}>{saving?"Uploading...":"Upload file"}</button><p className="fine-print">JPG, PNG, WebP, or PDF. Maximum 15 MB per file.</p></form>}
+    {message&&<p className="inline-message">{message}</p>}
+    {loading?<div className="empty-state">Loading files...</div>:rows.length?<div className="table-wrap"><table><thead><tr><th>File</th><th>Type</th><th>Size</th><th>Uploaded</th><th>Action</th></tr></thead><tbody>{rows.map(row=><tr key={row.id}><td><strong>{row.original_filename}</strong></td><td>{row.content_type||"—"}</td><td>{row.file_size_bytes?Math.max(1,Math.round(row.file_size_bytes/1024))+" KB":"—"}</td><td>{new Date(row.created_at).toLocaleString()}</td><td><button className="text-button" onClick={()=>void openFile(row)}>Open securely ↗</button></td></tr>)}</tbody></table></div>:<div className="empty-state"><strong>No files uploaded</strong><span>Property photos, inspection images, proposals, and supporting documents will appear here.</span></div>}
   </section></div>;
 }
 
