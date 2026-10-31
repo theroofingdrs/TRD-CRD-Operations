@@ -221,6 +221,19 @@ Deno.serve(async (req: Request) => {
       }
     }
     sections.push({ heading: "Measurements", body: measurementLines });
+    const inspectionRoofrReportId = clean(measurements.roofr_report_id);
+    if (inspectionRoofrReportId) {
+      const { data: roofrFile } = await client.from("crm_files")
+        .select("original_filename,bucket_id,object_path,metadata")
+        .eq("id", inspectionRoofrReportId).eq("division_id", division).eq("related_type", "property").eq("related_id", propertyId).maybeSingle();
+      if (roofrFile?.metadata?.document_type === "roofr_measurement_report") {
+        const { data: roofrPdf } = await client.storage.from(roofrFile.bucket_id).download(roofrFile.object_path);
+        if (roofrPdf) extraAttachments.push({
+          filename: "Roofr-" + clean(roofrFile.original_filename).replace(/[^a-zA-Z0-9._-]/g, "_"),
+          content: toBase64(new Uint8Array(await roofrPdf.arrayBuffer()))
+        });
+      }
+    }
     const claim = data.claim_information || {};
     const claimLines = [
       ["Insurance carrier", claim.carrier], ["Policy number", claim.policy_number],
