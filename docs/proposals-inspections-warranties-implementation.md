@@ -5,6 +5,11 @@
 - Proposal pricing supports itemized line items and a lump sum.
 - Begin with professional standard TRD and CRD templates that remain editable.
 
+## Current branch status
+- Proposal draft workspace, inspection checklist and photo metadata workflow, and warranty record workspace are implemented on the feature branch.
+- Automated verification is being rerun after incremental corrections.
+- No migration has been applied to production and no Cloud Run deployment has been made.
+
 ## Delivery sequence
 1. Data foundation: additive proposal and warranty records, inspection measurements and template metadata, division scoped RLS, and no changes to existing customer or project records.
 2. Proposal workspace: separate residential and commercial forms, editable sections, pricing modes, saved drafts, and proposal history per customer and property.
