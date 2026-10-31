@@ -28,9 +28,9 @@ CREATE POLICY crm_document_deliveries_insert ON public.crm_document_deliveries
       CASE document_type WHEN 'proposal' THEN 'leads' WHEN 'inspection' THEN 'inspections' ELSE 'projects' END, true)
     AND (created_by IS NULL OR created_by = (SELECT auth.uid()))
     AND (
-      (document_type = 'proposal' AND EXISTS (SELECT 1 FROM public.crm_proposals p WHERE p.id = document_id AND p.division_id = division_id AND p.customer_id = customer_id AND p.property_id = property_id))
-      OR (document_type = 'inspection' AND EXISTS (SELECT 1 FROM public.crm_inspections i WHERE i.id = document_id AND i.division_id = division_id AND i.customer_id = customer_id AND i.property_id = property_id))
-      OR (document_type = 'warranty' AND EXISTS (SELECT 1 FROM public.crm_warranties w WHERE w.id = document_id AND w.division_id = division_id AND w.customer_id = customer_id AND w.property_id = property_id))
+      (document_type = 'proposal' AND EXISTS (SELECT 1 FROM public.crm_proposals p WHERE p.id = crm_document_deliveries.document_id AND p.division_id = crm_document_deliveries.division_id AND p.customer_id = crm_document_deliveries.customer_id AND p.property_id = crm_document_deliveries.property_id))
+      OR (document_type = 'inspection' AND EXISTS (SELECT 1 FROM public.crm_inspections i WHERE i.id = crm_document_deliveries.document_id AND i.division_id = crm_document_deliveries.division_id AND i.customer_id = crm_document_deliveries.customer_id AND i.property_id = crm_document_deliveries.property_id))
+      OR (document_type = 'warranty' AND EXISTS (SELECT 1 FROM public.crm_warranties w WHERE w.id = crm_document_deliveries.document_id AND w.division_id = crm_document_deliveries.division_id AND w.customer_id = crm_document_deliveries.customer_id AND w.property_id = crm_document_deliveries.property_id))
     )
   );
 CREATE POLICY crm_document_deliveries_update ON public.crm_document_deliveries
