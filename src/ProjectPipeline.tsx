@@ -58,11 +58,9 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [showCreate, setShowCreate] = useState(false);
   const [showExpense, setShowExpense] = useState(false);
   const [showSupplement, setShowSupplement] = useState(false);
-  const [divisionExpenseTotal, setDivisionExpenseTotal] = useState(0);
-  const [unpaidVendorBills, setUnpaidVendorBills] = useState(0);
-  const [projectExpenseSummary, setProjectExpenseSummary] = useState<Record<string,{direct:number;materials:number;labor:number}>>({});
+  const [projectExpenseSummary, setProjectExpenseSummary] = useState<Record<string,{direct:number;recorded:number;materials:number;labor:number;unpaid:number}>>({});
   const [projectBudgetSummary, setProjectBudgetSummary] = useState<Record<string,number>>({});
-  const [monthlyCollected, setMonthlyCollected] = useState(0);
+  const [projectMonthlyCollected, setProjectMonthlyCollected] = useState<Record<string,number>>({});
   const [staleDays, setStaleDays] = useState(7);
   const [defaultCommissionMethod, setDefaultCommissionMethod] = useState("manual");
   const [defaultCommissionRate, setDefaultCommissionRate] = useState("");
@@ -142,7 +140,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       supabase.from("crm_customer_divisions").select("customer_id").in("division_id", visibleDivisions),
       supabase.from("crm_project_expenses").select("project_id,amount,category,paid_amount,payment_status").in("division_id", visibleDivisions),
       supabase.from("crm_division_financial_settings").select("stale_stage_days,default_commission_method,default_commission_rate,default_commission_fixed_amount,default_overhead_method,default_overhead_rate,default_overhead_fixed_amount").eq("division_id", division).maybeSingle(),
-      supabase.from("crm_project_transactions").select("amount,transaction_date").in("division_id", visibleDivisions).eq("transaction_type", "payment").eq("status", "recorded").gte("transaction_date", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0,10)),
+      supabase.from("crm_project_transactions").select("project_id,amount,transaction_date").in("division_id", visibleDivisions).eq("transaction_type", "payment").eq("status", "recorded").gte("transaction_date", (() => { const now = new Date(); return [now.getFullYear(),String(now.getMonth()+1).padStart(2,"0"),"01"].join("-"); })()),
       supabase.from("crm_memberships").select("user_id,role").in("division_id", visibleDivisions).eq("active", true),
       supabase.from("crm_workflow_stage_settings").select("pipeline_type,stage_key,display_label,sort_order").eq("division_id", division),
       supabase.from("crm_project_cost_estimates").select("project_id,estimated_amount").in("division_id", visibleDivisions)
@@ -150,24 +148,24 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     if (projectResult.error) setError(projectResult.error.message);
     setProjects((projectResult.data ?? []) as Project[]);
     if (expenseResult.error) setError(expenseResult.error.message);
-    setDivisionExpenseTotal((expenseResult.data ?? []).reduce((sum: number, item: { amount: number }) => sum + Math.round(Number(item.amount || 0) * 100), 0) / 100);
-    const expenseByProject: Record<string,{direct:number;materials:number;labor:number}> = {};
-    let unpaidTotal = 0;
+    const expenseByProject: Record<string,{direct:number;recorded:number;materials:number;labor:number;unpaid:number}> = {};
     (expenseResult.data ?? []).forEach((item: {project_id:string;amount:number;category:string;paid_amount:number;payment_status:string}) => {
       const amount = Number(item.amount || 0);
-      const row = expenseByProject[item.project_id] || (expenseByProject[item.project_id] = {direct:0,materials:0,labor:0});
+      const row = expenseByProject[item.project_id] || (expenseByProject[item.project_id] = {direct:0,recorded:0,materials:0,labor:0,unpaid:0});
+      row.recorded += amount;
       if (item.category !== "overhead" && item.category !== "sales_commission") row.direct += amount;
       if (item.category === "materials") row.materials += amount;
       if (item.category === "labor") row.labor += amount;
-      if (item.payment_status !== "paid" && item.payment_status !== "void") unpaidTotal += Math.max(0,amount-Number(item.paid_amount||0));
+      if (item.payment_status !== "paid" && item.payment_status !== "void") row.unpaid += Math.max(0,amount-Number(item.paid_amount||0));
     });
     setProjectExpenseSummary(expenseByProject);
-    setUnpaidVendorBills(unpaidTotal);
     if (budgetResult.error) setError(budgetResult.error.message);
     const budgetByProject: Record<string,number> = {};
     (budgetResult.data ?? []).forEach((item: {project_id:string;estimated_amount:number}) => { budgetByProject[item.project_id] = (budgetByProject[item.project_id] || 0) + Number(item.estimated_amount||0); });
     setProjectBudgetSummary(budgetByProject);
-    setMonthlyCollected((transactionResult.data ?? []).reduce((sum: number, item: { amount: number }) => sum + Math.round(Number(item.amount || 0) * 100), 0) / 100);
+    const monthlyByProject: Record<string,number> = {};
+    (transactionResult.data ?? []).forEach((item: {project_id:string;amount:number}) => { monthlyByProject[item.project_id] = (monthlyByProject[item.project_id] || 0) + Math.round(Number(item.amount || 0) * 100) / 100; });
+    setProjectMonthlyCollected(monthlyByProject);
     if (settingsResult.data?.stale_stage_days) setStaleDays(settingsResult.data.stale_stage_days); else setStaleDays(7);
     const memberIds = [...new Set((memberResult.data ?? []).map((item: {user_id:string}) => item.user_id))];
     if (memberIds.length) {
@@ -737,7 +735,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     const blob = new Blob([csv],{type:"text/csv;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.href = url; link.download = "project-pipeline-" + division.toLowerCase() + ".csv";
+    link.href = url; link.download = "project-pipeline-" + (scope === "combined" ? "combined" : division.toLowerCase()) + ".csv";
     document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
   }
 
@@ -770,8 +768,13 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const recordedNetProfit = filtered.filter(p=>Number(p.contract_amount||p.initial_approved_amount||0)>0).reduce((sum,p)=>sum+(Number(p.contract_amount||p.initial_approved_amount||0)+Number(p.supplements_approved_amount||0))-(projectExpenseSummary[p.id]?.direct||0)-Number(p.commission_earned_amount||0)-Number(p.overhead_allocated_amount||0),0);
   const projectsWithBudgets = filtered.filter(p=>projectBudgetSummary[p.id]!==undefined);
   const projectedProfit = projectsWithBudgets.reduce((sum,p)=>sum+(Number(p.contract_amount||p.initial_approved_amount||p.original_estimate_amount||0)+Number(p.supplements_approved_amount||0))-projectBudgetSummary[p.id],0);
-  const materialsTotal = Object.values(projectExpenseSummary).reduce((sum,item)=>sum+item.materials,0);
-  const laborTotal = Object.values(projectExpenseSummary).reduce((sum,item)=>sum+item.labor,0);
+  const recordedExpenses = filtered.reduce((sum,p)=>sum+(projectExpenseSummary[p.id]?.recorded||0),0);
+  const unpaidVendorBills = filtered.reduce((sum,p)=>sum+(projectExpenseSummary[p.id]?.unpaid||0),0);
+  const materialsTotal = filtered.reduce((sum,p)=>sum+(projectExpenseSummary[p.id]?.materials||0),0);
+  const laborTotal = filtered.reduce((sum,p)=>sum+(projectExpenseSummary[p.id]?.labor||0),0);
+  const monthlyCollected = filtered.reduce((sum,p)=>sum+(projectMonthlyCollected[p.id]||0),0);
+  const commissionTotal = filtered.reduce((sum,p)=>sum+Number(p.commission_earned_amount||0),0);
+  const overheadAllocatedTotal = filtered.reduce((sum,p)=>sum+Number(p.overhead_allocated_amount||0),0);
   const netMargin = contractValue > 0 ? netProfit / contractValue * 100 : 0;
 
 
@@ -782,9 +785,9 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         <div><span>Active contract value</span><strong>{money(activeContractValue)}</strong></div>
         <div><span>Collected revenue</span><strong>{money(collectedTotal)}</strong></div>
         <div><span>Collected this month</span><strong>{money(monthlyCollected)}</strong></div>
-        <div><span>Recorded expenses</span><strong>{money(divisionExpenseTotal)}</strong></div><div><span>Materials</span><strong>{money(materialsTotal)}</strong></div><div><span>Labor</span><strong>{money(laborTotal)}</strong></div>
+        <div><span>Recorded expenses</span><strong>{money(recordedExpenses)}</strong></div><div><span>Materials</span><strong>{money(materialsTotal)}</strong></div><div><span>Labor</span><strong>{money(laborTotal)}</strong></div>
         <div><span>Receivables</span><strong>{money(receivableTotal)}</strong></div>
-        <div><span>Unpaid vendor bills</span><strong>{money(unpaidVendorBills)}</strong></div>
+        <div><span>Unpaid vendor bills</span><strong>{money(unpaidVendorBills)}</strong></div><div><span>Commission earned</span><strong>{money(commissionTotal)}</strong></div><div><span>Overhead allocated</span><strong>{money(overheadAllocatedTotal)}</strong></div>
         <div><span>Recorded net profit</span><strong>{money(recordedNetProfit)}</strong></div>
         <div><span>Projected profit from budgets</span><strong>{money(projectedProfit)}</strong></div>
         <div><span>Needs attention</span><strong>{attention.length}</strong></div>
