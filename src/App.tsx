@@ -38,6 +38,8 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [workspaceError, setWorkspaceError] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginMode, setLoginMode] = useState<"link" | "password">("link");
   const [authMessage, setAuthMessage] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [profileName, setProfileName] = useState("");
@@ -117,6 +119,19 @@ function App() {
     setAuthBusy(false);
   }
 
+  async function signInWithPassword(event: FormEvent) {
+    event.preventDefault();
+    if (!supabase) return;
+    setAuthBusy(true);
+    setAuthMessage("");
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password
+    });
+    setAuthMessage(error ? error.message : "Signing you in...");
+    setAuthBusy(false);
+  }
+
   async function signOut() {
     if (supabase) await supabase.auth.signOut();
   }
@@ -126,7 +141,7 @@ function App() {
   }
 
   if (!session) {
-    return <div className="login-screen"><div className="login-card"><div className="brand-mark">RD</div><p className="eyebrow">PRIVATE EMPLOYEE PORTAL</p><h1>Roof Doctors Operations</h1><p className="muted">One secure workspace for residential and commercial roofing operations.</p><form onSubmit={sendSignInLink}><label htmlFor="email">Work email</label><input id="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@company.com" /><button className="primary-button" disabled={authBusy}>{authBusy ? "Sending link..." : "Email me a sign in link"}</button></form>{authMessage && <p className="auth-message">{authMessage}</p>}<p className="fine-print">Access is invitation only. New accounts cannot self register.</p></div></div>;
+    return <div className="login-screen"><div className="login-card"><div className="brand-mark">RD</div><p className="eyebrow">PRIVATE EMPLOYEE PORTAL</p><h1>Roof Doctors Operations</h1><p className="muted">One secure workspace for residential and commercial roofing operations.</p><form onSubmit={loginMode === "link" ? sendSignInLink : signInWithPassword}><label htmlFor="email">Work email</label><input id="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@company.com" />{loginMode === "password" && <><label htmlFor="password">Password</label><input id="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" /></>}<button className="primary-button" disabled={authBusy}>{authBusy ? "Signing in..." : loginMode === "link" ? "Email me a sign in link" : "Sign in"}</button></form>{authMessage && <p className="auth-message">{authMessage}</p>}<button type="button" className="text-button" onClick={() => { setLoginMode(loginMode === "link" ? "password" : "link"); setAuthMessage(""); }}>{loginMode === "link" ? "Already registered? Sign in with password" : "Use email sign in link instead"}</button><p className="fine-print">Access is invitation only. New accounts cannot self register.</p></div></div>;
   }
 
   if (loading) return <div className="center-state">Loading your workspace...</div>;
