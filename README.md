@@ -34,7 +34,10 @@ Supabase project: `gubvelngdohrfvqeeabu` in the TRDCRD organization.
 - Shared customer and contact foundation
 - Property and roof records
 - Leads, appointments, inspections, inspection observations, projects, tasks, activity history, and file metadata
-- Initial dashboard, lead pipeline with status updates, customer directory, property creation, and appointment, inspection, project, and task entry workflows
+- Dashboard, lead pipeline with status updates, customer directory, contact management, property creation, roof system records, appointment, inspection, project, and task workflows
+- Private property file and photo upload with signed file access
+- Owner only employee invitations and division role assignment through a JWT protected Supabase Edge Function
+- Automated GitHub Actions type check and production build
 - AI generated inspection observations are explicitly marked unverified until a human verifies them
 
 ## Employee roles
@@ -47,7 +50,7 @@ Permissions are enforced in Postgres Row Level Security, not just hidden in the 
 
 1. Copy `.env.example` to `.env.local`.
 2. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`.
-3. Install dependencies with `npm install`.
+3. Install the committed dependencies with `npm ci`.
 4. Run `npm run dev`.
 5. Run `npm run build` before deployment.
 
@@ -61,7 +64,7 @@ Never put a Supabase secret or service role key in a Vite environment variable. 
 - No production deployment has occurred.
 - Stripe is deliberately on hold. No payment processing is configured or enabled.
 - Private Storage policies are enabled for the existing private bucket. Object paths must begin with TRD or CRD, and access is division scoped.
-- Supabase leaked password protection still needs to be enabled in the Auth dashboard.
+- Supabase leaked password protection is a Pro plan feature and is not enabled on the current project plan.
 - The new database foundation was applied additively to the existing project. A checked in migration baseline still needs to be generated and reconciled before future schema changes.
 
 ## Reference application
