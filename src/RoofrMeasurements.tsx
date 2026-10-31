@@ -56,7 +56,7 @@ async function extractPdfMeasurements(file: File): Promise<{ text: string; measu
       const feetOrValue = Number(match[1].replace(/,/g, ""));
       const inches = item.unit === "LF" ? Number(match[2] || 0) : 0;
       const value = item.unit === "LF" ? feetOrValue + inches / 12 : feetOrValue;
-      if (Number.isFinite(value) && value > 0) measurements.push({ label: item.label, value: Math.round(value * 100) / 100, unit: item.unit, source_label: match[0] });
+      if (Number.isFinite(value) && value >= 0) measurements.push({ label: item.label, value: Math.round(value * 100) / 100, unit: item.unit, source_label: match[0] });
     }
   }
   const predominantPitch = text.match(/predominant\s+pitch\s*[:\-]?\s*(\d+\s*\/\s*\d+)/i)?.[1]?.replace(/\s/g, "") || null;
