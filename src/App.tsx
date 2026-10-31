@@ -171,7 +171,7 @@ function App() {
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="sidebar-brand"><div className="brand-mark small">RD</div><div><strong>ROOF DOCTORS</strong><span>OPERATIONS</span></div></div>
-      <div className="division-picker"><label htmlFor="division">WORKSPACE</label><select id="division" value={division} onChange={(event) => { setDivision(event.target.value as DivisionId); setView("overview"); }}><option value="TRD" disabled={!memberships.some((item) => item.division_id === "TRD")}>Residential · TRD</option><option value="CRD" disabled={!memberships.some((item) => item.division_id === "CRD")}>Commercial · CRD</option></select></div>
+      <div className="division-picker"><label>WORKSPACE</label><div className="division-toggle" role="group" aria-label="Select workspace"><button type="button" className={division === "TRD" ? "division-option active" : "division-option"} aria-pressed={division === "TRD"} disabled={!memberships.some((item) => item.division_id === "TRD")} onClick={() => { setDivision("TRD"); setView("overview"); }}>Residential <span>TRD</span></button><button type="button" className={division === "CRD" ? "division-option active" : "division-option"} aria-pressed={division === "CRD"} disabled={!memberships.some((item) => item.division_id === "CRD")} onClick={() => { setDivision("CRD"); setView("overview"); }}>Commercial <span>CRD</span></button></div></div>
       <nav className="main-nav">{navigation.filter((item) => (item.id !== "team" && item.id !== "proposal_templates" && item.id !== "completed_map") || isOwner).map((item) => <button key={item.id} className={view === item.id ? "nav-item active" : "nav-item"} onClick={() => setView(item.id)}><span className="nav-icon">{item.icon}</span>{item.label}</button>)}</nav>
       <div className="sidebar-bottom"><div className="secure-note"><span className="status-dot"></span> Secure employee access</div><button className="signout-button" onClick={signOut}>Sign out</button></div>
     </aside>
@@ -558,10 +558,19 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
       const { data, error } = await supabase.from("crm_customers").insert({ ...customerValues, created_by: userId }).select("id").single();
       if (error) setMessage(error.message);
       else {
-        const divisionLinks = shareWithBoth ? [{ customer_id: data.id, division_id: "TRD" }, { customer_id: data.id, division_id: "CRD" }] : [{ customer_id: data.id, division_id: division }];
-        const { error: linkError } = await supabase.from("crm_customer_divisions").insert(divisionLinks);
+        const divisionLinks = shareWithBoth
+          ? [{ customer_id: data.id, division_id: "TRD" }, { customer_id: data.id, division_id: "CRD" }]
+          : [{ customer_id: data.id, division_id: division }];
+        const { error: linkError } = await supabase.from("crm_customer_divisions").upsert(divisionLinks, { onConflict: "customer_id,division_id", ignoreDuplicates: true });
         if (linkError) setMessage("Customer was created, but division linking failed: " + linkError.message);
         else {
+          const { data: savedLinks, error: verifyError } = await supabase.from("crm_customer_divisions").select("division_id").eq("customer_id", data.id);
+          const savedDivisions = new Set((savedLinks ?? []).map((item: { division_id: string }) => item.division_id));
+          const expectedDivisions = shareWithBoth ? ["TRD", "CRD"] : [division];
+          const missingDivisions = expectedDivisions.filter((item) => !savedDivisions.has(item));
+          if (verifyError || missingDivisions.length) {
+            setMessage("Customer was created, but sharing could not be confirmed for " + (missingDivisions.join(" and ") || "the selected division") + ". " + (verifyError?.message || "Please retry or contact the CRM owner."));
+          } else {
           if (primaryContactName.trim()) {
             const { error: contactError } = await supabase.from("crm_contacts").insert({ customer_id: data.id, full_name: primaryContactName.trim(), is_primary: true });
             if (contactError) setMessage("Customer created, but primary contact could not be saved: " + contactError.message);
@@ -574,7 +583,8 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
           }
           setName(""); setEmail(""); setPhone(""); setPrimaryContactName(""); setBillingAddress(""); setBillingCity(""); setBillingPostal("");
           setNewProperties([emptyProperty()]); setShareWithBoth(false); setShowForm(false);
-          setMessage(propertyErrorMessage ? "Customer created, but property saving failed: " + propertyErrorMessage : "Customer and property records created.");
+          setMessage(propertyErrorMessage ? "Customer created, but property saving failed: " + propertyErrorMessage : shareWithBoth ? "Customer and property records saved to both TRD and CRD." : "Customer and property records created.");
+          }
         }
         await load();
         if (!linkError) await loadCustomerDetails(data.id);
