@@ -12,7 +12,7 @@ type Project = {
   next_action: string | null; next_action_due_at: string | null; updated_at: string; commission_method: string | null; commission_rate: number | null; commission_fixed_amount: number | null; commission_earned_amount: number; commission_paid_amount: number; commission_paid_at: string | null; commission_salesperson_name: string | null; overhead_method: string | null; overhead_rate: number | null; overhead_fixed_amount: number | null; overhead_allocated_amount: number; created_at: string;
 };
 type Expense = { id: string; category: string; amount: number; paid_amount: number; payment_status: string; expense_date: string; vendor_payee: string | null; description: string | null; notes: string | null; receipt_file_id: string | null };
-type AuditEvent = { id: string; kind: string; changed_at: string; before_values: Record<string, unknown>; after_values: Record<string, unknown> };
+type AuditEvent = { id: string; kind: string; changed_at: string; changed_by: string | null; changed_by_name?: string; before_values: Record<string, unknown>; after_values: Record<string, unknown> };
 type TeamMember = { user_id: string; display_name: string; role: string };
 type Attachment = { id: string; related_id: string; bucket_id: string; object_path: string; original_filename: string };
 type Transaction = { id: string; transaction_type: "invoice" | "payment"; amount: number; transaction_date: string; reference_number: string | null; payment_method: string | null; notes: string | null; status: string; void_reason: string | null; attachment_file_id: string | null };
@@ -242,23 +242,32 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     const [e, s, h, t, fh, eh, sh, th] = await Promise.all([
       supabase.from("crm_project_expenses").select("id,category,amount,paid_amount,payment_status,expense_date,vendor_payee,description,notes,receipt_file_id").eq("project_id", project.id).order("expense_date", { ascending: false }),
       supabase.from("crm_project_supplements").select("id,supplement_number,status,requested_amount,approved_amount,submitted_at,response_at,carrier_response,notes").eq("project_id", project.id).order("supplement_number"),
-      supabase.from("crm_project_stage_history").select("id,from_stage,to_stage,from_pipeline_type,to_pipeline_type,override_used,changed_at,note").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(30),
+      supabase.from("crm_project_stage_history").select("id,from_stage,to_stage,from_pipeline_type,to_pipeline_type,override_used,changed_at,note,changed_by").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(30),
       supabase.from("crm_project_transactions").select("id,transaction_type,amount,transaction_date,reference_number,payment_method,notes,status,void_reason,attachment_file_id").eq("project_id", project.id).order("transaction_date", { ascending: false }),
-      supabase.from("crm_project_financial_history").select("id,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20),
+      supabase.from("crm_project_financial_history").select("id,changed_by,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20),
       supabase.from("crm_project_expense_history").select("id,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20),
       supabase.from("crm_project_supplement_history").select("id,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20),
       supabase.from("crm_project_transaction_history").select("id,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20)
     ]);
     for (const result of [e,s,h,t,fh,eh,sh,th]) if (result.error) setError(result.error.message);
+    const auditUserIds = [...new Set([
+      ...(h.data ?? []), ...(fh.data ?? []), ...(eh.data ?? []), ...(sh.data ?? []), ...(th.data ?? [])
+    ].map((item: any) => item.changed_by).filter(Boolean))] as string[];
+    const auditUserNames: Record<string,string> = {};
+    if (auditUserIds.length) {
+      const { data: auditProfiles } = await supabase.from("crm_profiles").select("user_id,display_name").in("user_id", auditUserIds);
+      (auditProfiles ?? []).forEach((profile: {user_id:string;display_name:string}) => { auditUserNames[profile.user_id] = profile.display_name; });
+    }
+    const withChangedBy = (item: any) => ({ ...item, changed_by_name: item.changed_by ? auditUserNames[item.changed_by] || "Team member" : "System" });
     setExpenses((e.data ?? []) as Expense[]);
     setSupplements((s.data ?? []) as Supplement[]);
     setTransactions((t.data ?? []) as Transaction[]);
-    setHistory(h.data ?? []);
+    setHistory((h.data ?? []).map(withChangedBy));
     const audit: AuditEvent[] = [
-      ...(fh.data ?? []).map((x: any) => ({ ...x, kind: "Financial change" })),
-      ...(eh.data ?? []).map((x: any) => ({ ...x, kind: "Expense change" })),
-      ...(sh.data ?? []).map((x: any) => ({ ...x, kind: "Supplement change" })),
-      ...(th.data ?? []).map((x: any) => ({ ...x, kind: "Invoice or payment change" }))
+      ...(fh.data ?? []).map((x: any) => ({ ...withChangedBy(x), kind: "Financial change" })),
+      ...(eh.data ?? []).map((x: any) => ({ ...withChangedBy(x), kind: "Expense change" })),
+      ...(sh.data ?? []).map((x: any) => ({ ...withChangedBy(x), kind: "Supplement change" })),
+      ...(th.data ?? []).map((x: any) => ({ ...withChangedBy(x), kind: "Invoice or payment change" }))
     ].sort((a,b)=>new Date(b.changed_at).getTime()-new Date(a.changed_at).getTime());
     setAuditEvents(audit);
     const supplementIds = (s.data ?? []).map((item: Supplement) => item.id);
@@ -913,9 +922,9 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         {scope !== "combined" && supplementEditing && <form className="inline-form" onSubmit={e=>{e.preventDefault();const s=supplements.find(x=>x.id===supplementEditing);if(s)void updateSupplement(s,{approved_amount:cents(supplementApproved),status:supplementStatusEdit,carrier_response:supplementResponse,response_at:supplementResponseDate?new Date(supplementResponseDate + "T12:00:00").toISOString():null});}}><div className="form-grid"><label>Status<select value={supplementStatusEdit} onChange={e=>setSupplementStatusEdit(e.target.value)}><option value="draft">Draft</option><option value="submitted">Submitted</option><option value="under_review">Under review</option><option value="approved">Approved</option><option value="partially_approved">Partially approved</option><option value="denied">Denied</option><option value="resubmitted">Resubmitted</option></select></label><label>Approved amount ($)<input type="number" min="0" step="0.01" value={supplementApproved} onChange={e=>setSupplementApproved(e.target.value)} /></label><label>Response date<input type="date" value={supplementResponseDate} onChange={e=>setSupplementResponseDate(e.target.value)} /></label><label className="wide">Carrier response / notes<input value={supplementResponse} onChange={e=>setSupplementResponse(e.target.value)} /></label><label className="wide">Additional supporting document<input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf" onChange={e=>setSupplementFile(e.target.files?.[0] || null)} /></label></div><button className="primary-button" disabled={busy}>Save carrier response</button><button type="button" className="secondary-button compact" onClick={()=>setSupplementEditing(null)}>Cancel</button></form>}
         {supplements.length?<div className="table-wrap"><table><thead><tr><th>#</th><th>Status</th><th>Requested</th><th>Approved</th><th>Submitted</th><th>Carrier response</th><th>Attachments</th><th>Update</th></tr></thead><tbody>{supplements.map(s=><tr key={s.id}><td>{s.supplement_number}</td><td>{stageLabel(s.status)}</td><td>{money(s.requested_amount)}</td><td>{money(s.approved_amount)}</td><td>{s.submitted_at?new Date(s.submitted_at).toLocaleDateString():"—"}</td><td>{s.carrier_response || "—"}</td><td>{(supplementAttachments[s.id] || []).map(file=><button key={file.id} className="secondary-button compact" onClick={()=>void openSupplementAttachment(file)}>View {file.original_filename}</button>)}</td><td>{scope !== "combined" && canWrite && <button className="secondary-button compact" onClick={()=>{setSupplementEditing(s.id);setSupplementApproved(String(s.approved_amount||0));setSupplementResponse(s.carrier_response||"");setSupplementResponseDate(s.response_at?s.response_at.slice(0,10):localDateString());setSupplementStatusEdit(s.status);}}>Update</button>}</td></tr>)}</tbody></table></div>:<div className="empty-state">No supplements recorded.</div>}</>}
       <div className="panel-heading subheading"><div><h3>Stage history</h3></div></div>
-      {history.length?<div className="history-list">{history.map(item=><div key={item.id}><strong>{item.from_pipeline_type && item.from_pipeline_type !== item.to_pipeline_type ? stageLabel(item.from_pipeline_type)+" workflow → "+stageLabel(item.to_pipeline_type)+" workflow · " : ""}{item.from_stage ? workflowLabel(item.from_stage, item.from_pipeline_type || selected.pipeline_type) : "Project created"} → {workflowLabel(item.to_stage, item.to_pipeline_type || selected.pipeline_type)}</strong><span>{new Date(item.changed_at).toLocaleString()}{item.override_used?" · Authorized override":""}</span>{item.note&&<p>{item.note}</p>}</div>)}</div>:<div className="empty-state">No stage changes recorded yet.</div>}
+      {history.length?<div className="history-list">{history.map(item=><div key={item.id}><strong>{item.from_pipeline_type && item.from_pipeline_type !== item.to_pipeline_type ? stageLabel(item.from_pipeline_type)+" workflow → "+stageLabel(item.to_pipeline_type)+" workflow · " : ""}{item.from_stage ? workflowLabel(item.from_stage, item.from_pipeline_type || selected.pipeline_type) : "Project created"} → {workflowLabel(item.to_stage, item.to_pipeline_type || selected.pipeline_type)}</strong><span>{new Date(item.changed_at).toLocaleString()} · By {item.changed_by_name || "System"}{item.override_used?" · Authorized override":""}</span>{item.note&&<p>{item.note}</p>}</div>)}</div>:<div className="empty-state">No stage changes recorded yet.</div>}
       <div className="panel-heading subheading"><div><h3>Financial and record edit history</h3><p className="muted">Changes to financial values, expenses, supplements, invoices, and payments are retained.</p></div></div>
-      {auditEvents.length ? <div className="history-list">{auditEvents.map(item=><details key={item.id}><summary><strong>{item.kind}</strong><span>{new Date(item.changed_at).toLocaleString()}</span></summary><pre>{JSON.stringify({before:item.before_values,after:item.after_values},null,2)}</pre></details>)}</div> : <div className="empty-state">No financial edits recorded yet.</div>}
+      {auditEvents.length ? <div className="history-list">{auditEvents.map(item=><details key={item.id}><summary><strong>{item.kind}</strong><span>{new Date(item.changed_at).toLocaleString()} · By {item.changed_by_name || "System"}</span></summary><pre>{JSON.stringify({before:item.before_values,after:item.after_values},null,2)}</pre></details>)}</div> : <div className="empty-state">No financial edits recorded yet.</div>}
     </section>}
   </div>;
 }
