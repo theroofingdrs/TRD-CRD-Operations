@@ -126,7 +126,7 @@ BEGIN
     WHERE m.user_id = (SELECT auth.uid())
       AND m.division_id = project_row.division_id
       AND m.active = true
-      AND m.role IN ('owner','division_admin','office_manager','accounting')
+      AND m.role IN ('owner','division_admin','office_manager')
   ) INTO override_allowed;
 
   IF needs_override AND (NOT p_authorized_override OR NOT override_allowed) THEN
