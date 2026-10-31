@@ -415,5 +415,9 @@ export default function ImportCenter({ division, userId, canShareBoth }: { divis
       <div className="panel-actions"><button className="primary-button" disabled={busy || !clients.length} onClick={() => void commitImport()}>{busy ? "Importing..." : "Confirm and import records"}</button></div>
       <p className="fine-print">Historical estimates and invoices remain archived records. They will not become active proposals, invoices, revenue, or current pipeline items.</p>
     </section>}
+    <section className="panel">
+      <div className="panel-heading"><div><p className="eyebrow">IMPORTED CUSTOMER HISTORY</p><h2>Historical estimates and invoices</h2><p className="muted">Archived records stay separate from active proposals, billing, and revenue reports.</p></div></div>
+      {historyRows.length ? <div className="table-wrap"><table><thead><tr><th>Customer</th><th>Type</th><th>Document #</th><th>Date</th><th>Status</th><th>Total</th><th>Original file</th></tr></thead><tbody>{historyRows.map((row) => <tr key={String(row.id)}><td><strong>{historyCustomers[String(row.customer_id)] || "Customer"}</strong></td><td>{String(row.document_type || "").replaceAll("_", " ")}</td><td>{String(row.document_number || "—")}</td><td>{row.document_date ? new Date(String(row.document_date)).toLocaleDateString() : "—"}</td><td>{String(row.status || "Archived")}</td><td>{row.total_amount == null ? "—" : "$" + Number(row.total_amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td><td>{row.storage_file_id ? <button className="text-button" onClick={() => void openHistoricalFile(String(row.storage_file_id))}>Open securely ↗</button> : String(row.original_filename || "CSV history")}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No historical documents imported yet</strong><span>Imported estimates, invoices, credit memos, and attachments will appear here.</span></div>}
+    </section>
   </div>;
 }
