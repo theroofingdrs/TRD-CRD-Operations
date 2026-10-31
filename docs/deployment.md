@@ -2,7 +2,7 @@
 
 ## Current state
 
-The React application source and Supabase database foundation are committed. GitHub Actions validates the React production build, Supabase Edge Function types, and the Cloud Run Docker image. The application is not deployed and no Cloud Run service has been created or changed.
+The React application source and Supabase database foundation are committed. GitHub Actions validates the React production build, Supabase Edge Function types, and the Cloud Run Docker image. A dedicated Cloud Run service named `trd-crd-operations` exists in `us-east1` and currently serves traffic at `https://trd-crd-operations-687495157172.us-east1.run.app`. The last verified active revision was `trd-crd-operations-00001-t5v` with 100% traffic and image digest `sha256:117e773864aa288b0e36a8add0e43eaa4a21e9fe97a086136a1eefa4538a9bf0`. This active image was observed to differ from the latest GitHub `main` frontend: source includes both Password Login and Email Sign In Link, while the live page was still showing email-link login only. Do not assume the active Cloud Run image matches GitHub `main`; rebuild, smoke test, and verify the exact revision before launch.
 
 An owner only `crm-invite-employee` Supabase Edge Function is deployed with JWT verification enabled. It checks active owner membership in the requested division, does not allow assigning owner access, and keeps privileged credentials server side. The function has not yet been exercised by sending a real employee invitation.
 
@@ -21,13 +21,15 @@ The publishable key is designed for browser use and is not a substitute for RLS.
 
 ## Authentication redirect configuration
 
-The application uses invitation only email magic links. Before the first hosted login test, add the exact local development and Cloud Run application URLs to Supabase Auth's allowed redirect URLs. Set the production Site URL to the final CRM URL after it has been approved.
+The application supports invitation only email magic links and password login. Before hosted login testing, add `https://trd-crd-operations-687495157172.us-east1.run.app/**` to Supabase Auth's allowed redirect URLs. After the custom domain is mapped, also add `https://operations.theroofingdrs.com/**` and set the Supabase production Site URL to `https://operations.theroofingdrs.com`. Keep `emailRedirectTo` origin based so links return to the host from which the employee signed in. Test both email-link and password login on the final domain.
 
 ## Hosting
 
-Use a dedicated Cloud Run service for this CRM. Do not deploy it to either public roofing website service and do not use the LaborXchanger service.
+Continue using the existing dedicated Cloud Run service `trd-crd-operations` in `us-east1`. Do not deploy this CRM to either public roofing website service and do not use the LaborXchanger service.
 
-Suggested service name: `trd-crd-operations`.
+Current service URL: `https://trd-crd-operations-687495157172.us-east1.run.app`.
+
+Recommended permanent URL: `https://operations.theroofingdrs.com`. Add this as a Cloud Run custom domain mapping first. Use the exact DNS records Google Cloud generates for that mapping; do not guess the GoDaddy record target.
 
 ## Pre deployment checks
 
