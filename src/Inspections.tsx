@@ -28,6 +28,7 @@ export default function Inspections({ division, userId, canWrite }: { division: 
   const [photos, setPhotos] = useState<PhotoDraft[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [sendingId, setSendingId] = useState("");
   const load = useCallback(async () => {
     if (!supabase) return;
     const [customerResult, inspectionResult] = await Promise.all([
@@ -52,6 +53,13 @@ export default function Inspections({ division, userId, canWrite }: { division: 
     if (!files) return;
     const next = Array.from(files).filter(file => file.type.startsWith("image/")).map(file => ({ file, label: "Inspection photo", caption: "", roofSection: "" }));
     setPhotos(current => [...current, ...next]);
+  }
+  async function sendPdf(id: string) {
+    if (!supabase) return;
+    setSendingId(id); setMessage("");
+    const { data, error } = await supabase.functions.invoke("crm-send-document", { body: { document_type: "inspection", document_id: id } });
+    setMessage(error?.message || data?.error || (data?.success ? "PDF emailed to " + data.recipient : "Document email could not be sent."));
+    setSendingId("");
   }
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -117,5 +125,5 @@ export default function Inspections({ division, userId, canWrite }: { division: 
     {photos.map((photo,index) => <div className="checklist-row" key={photo.file.name + index}><strong>{photo.file.name}</strong><div className="form-grid"><label>Photo label<input value={photo.label} onChange={e => setPhotos(current => current.map((p,i) => i===index ? {...p,label:e.target.value} : p))} /></label><label>Roof section or checklist item<input value={photo.roofSection} onChange={e => setPhotos(current => current.map((p,i) => i===index ? {...p,roofSection:e.target.value} : p))} placeholder="Enter matching checklist name" /></label><label className="wide">Caption<input value={photo.caption} onChange={e => setPhotos(current => current.map((p,i) => i===index ? {...p,caption:e.target.value} : p))} placeholder="What this photo documents" /></label></div></div>)}
     <button className="primary-button" disabled={busy || !customers.length || !customerProperties.length}>{busy ? "Saving inspection..." : "Save inspection and photos"}</button></form>}
     {message && <p className="inline-message">{message}</p>}
-  </section><section className="panel"><h2>Recent inspections</h2>{inspections.length ? <div className="table-wrap"><table><thead><tr><th>Customer</th><th>Property</th><th>Type</th><th>Status</th><th>Date</th></tr></thead><tbody>{inspections.map(row => <tr key={row.id}><td>{row.crm_customers?.display_name || "Customer"}</td><td>{row.crm_properties?.address_line1 || "Property"}, {row.crm_properties?.city || ""}</td><td>{row.inspection_type || "general"}</td><td>{row.status}</td><td>{row.inspected_at ? new Date(row.inspected_at).toLocaleDateString() : "Not scheduled"}</td></tr>)}</tbody></table></div> : <div className="empty-state">No inspections recorded yet.</div>}</section></div>;
+  </section><section className="panel"><h2>Recent inspections</h2>{inspections.length ? <div className="table-wrap"><table><thead><tr><th>Customer</th><th>Property</th><th>Type</th><th>Status</th><th>Date</th><th>Action</th></tr></thead><tbody>{inspections.map(row => <tr key={row.id}><td>{row.crm_customers?.display_name || "Customer"}</td><td>{row.crm_properties?.address_line1 || "Property"}, {row.crm_properties?.city || ""}</td><td>{row.inspection_type || "general"}</td><td>{row.status}</td><td>{row.inspected_at ? new Date(row.inspected_at).toLocaleDateString() : "Not scheduled"}</td><td><button type="button" className="secondary-button" disabled={sendingId===row.id} onClick={()=>sendPdf(row.id)}>{sendingId===row.id?"Sending...":"Send PDF by email"}</button></td></tr>)}</tbody></table></div> : <div className="empty-state">No inspections recorded yet.</div>}</section></div>;
 }
