@@ -285,6 +285,7 @@ function Customers({ division, userId, canWrite, canShareBoth }: { division: Div
   const [billingState, setBillingState] = useState("TX");
   const [billingPostal, setBillingPostal] = useState("");
   const [shareWithBoth, setShareWithBoth] = useState(false);
+  const [editingId, setEditingId] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [properties, setProperties] = useState<GenericRow[]>([]);
   const [contacts, setContacts] = useState<GenericRow[]>([]);
@@ -364,28 +365,54 @@ function Customers({ division, userId, canWrite, canShareBoth }: { division: Div
     setDetailLoading(false);
   }
 
+  function beginEditCustomer() {
+    if (!selected) return;
+    setEditingId(selected.id);
+    setName(selected.display_name);
+    setType(selected.customer_type);
+    setEmail(selected.email || "");
+    setPhone(selected.phone || "");
+    setBillingAddress(selected.billing_address_line1 || "");
+    setBillingCity(selected.billing_city || "");
+    setBillingState(selected.billing_state || "TX");
+    setBillingPostal(selected.billing_postal_code || "");
+    setShowForm(true);
+  }
+
   async function createCustomer(event: FormEvent) {
     event.preventDefault();
     if (!supabase) return;
     setSaving(true);
     setMessage("");
-    const { data, error } = await supabase.from("crm_customers").insert({
+    const customerValues = {
       display_name: name.trim(), customer_type: type, email: email.trim() || null,
       phone: phone.trim() || null, billing_address_line1: billingAddress.trim() || null,
       billing_city: billingCity.trim() || null, billing_state: billingState.trim().toUpperCase() || null,
-      billing_postal_code: billingPostal.trim() || null, created_by: userId
-    }).select("id").single();
-    if (error) setMessage(error.message);
-    else {
-      const divisionLinks = shareWithBoth ? [{ customer_id: data.id, division_id: "TRD" }, { customer_id: data.id, division_id: "CRD" }] : [{ customer_id: data.id, division_id: division }];
-      const { error: linkError } = await supabase.from("crm_customer_divisions").insert(divisionLinks);
-      if (linkError) setMessage("Customer was created, but division linking failed: " + linkError.message);
+      billing_postal_code: billingPostal.trim() || null
+    };
+    if (editingId) {
+      const { error } = await supabase.from("crm_customers").update(customerValues).eq("id", editingId);
+      if (error) setMessage(error.message);
       else {
-        setName(""); setEmail(""); setPhone(""); setBillingAddress(""); setBillingCity(""); setBillingPostal(""); setShareWithBoth(false);
-        setShowForm(false); setMessage("Customer created.");
+        const id = editingId;
+        setEditingId(""); setShowForm(false); setMessage("Customer record updated.");
+        await load();
+        await loadCustomerDetails(id);
       }
-      await load();
-      if (!linkError) await loadCustomerDetails(data.id);
+    } else {
+      const { data, error } = await supabase.from("crm_customers").insert({ ...customerValues, created_by: userId }).select("id").single();
+      if (error) setMessage(error.message);
+      else {
+        const divisionLinks = shareWithBoth ? [{ customer_id: data.id, division_id: "TRD" }, { customer_id: data.id, division_id: "CRD" }] : [{ customer_id: data.id, division_id: division }];
+        const { error: linkError } = await supabase.from("crm_customer_divisions").insert(divisionLinks);
+        if (linkError) setMessage("Customer was created, but division linking failed: " + linkError.message);
+        else {
+          setName(""); setEmail(""); setPhone(""); setBillingAddress(""); setBillingCity(""); setBillingPostal("");
+          setShareWithBoth(false); setShowForm(false); setMessage("Customer created.");
+        }
+        await load();
+        if (!linkError) await loadCustomerDetails(data.id);
+      }
     }
     setSaving(false);
   }
@@ -409,12 +436,12 @@ function Customers({ division, userId, canWrite, canShareBoth }: { division: Div
         <label>State<input value={billingState} onChange={(event) => setBillingState(event.target.value)} maxLength={2} /></label>
         <label>ZIP code<input value={billingPostal} onChange={(event) => setBillingPostal(event.target.value)} /></label>
         {canShareBoth && <label className="check-field"><span><input type="checkbox" checked={shareWithBoth} onChange={(event) => setShareWithBoth(event.target.checked)} /> Share this customer across both TRD and CRD</span></label>}
-      </div><button className="primary-button" disabled={saving}>{saving ? "Saving..." : "Save customer"}</button></form>}
+      </div><div className="button-row"><button className="primary-button" disabled={saving}>{saving ? "Saving..." : editingId ? "Save customer changes" : "Save customer"}</button>{editingId && <button type="button" className="secondary-button" onClick={() => { setEditingId(""); setShowForm(false); }}>Cancel</button>}</div></form>}
       {message && <p className="inline-message">{message}</p>}
       {loading ? <div className="empty-state">Loading customers...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Customer / organization</th><th>Type</th><th>Email</th><th>Phone</th><th>Billing address</th><th>Added</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><button className="text-button" onClick={() => void loadCustomerDetails(row.id)}><strong>{row.display_name}</strong></button></td><td>{row.customer_type.replaceAll("_"," ")}</td><td>{row.email || "—"}</td><td>{row.phone || "—"}</td><td>{[row.billing_address_line1,row.billing_city,row.billing_state,row.billing_postal_code].filter(Boolean).join(", ") || "—"}</td><td>{new Date(row.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No customer records yet</strong><span>Add a customer to start building the shared customer and property history.</span>{canWrite && <button className="secondary-button" onClick={() => setShowForm(true)}>Add first customer</button>}</div>}
     </section>
     {selected && <section className="panel">
-      <div className="panel-heading"><div><p className="eyebrow">CENTRAL CUSTOMER RECORD</p><h2>{selected.display_name}</h2><p className="muted">{selected.customer_type.replaceAll("_"," ")} · {selected.email || "No email"} · {selected.phone || "No phone"}</p></div><button className="secondary-button compact" onClick={() => setSelectedId("")}>Close details</button></div>
+      <div className="panel-heading"><div><p className="eyebrow">CENTRAL CUSTOMER RECORD</p><h2>{selected.display_name}</h2><p className="muted">{selected.customer_type.replaceAll("_"," ")} · {selected.email || "No email"} · {selected.phone || "No phone"}</p></div><div className="button-row">{canWrite && <button className="secondary-button compact" onClick={beginEditCustomer}>Edit customer</button>}<button className="secondary-button compact" onClick={() => setSelectedId("")}>Close details</button></div></div>
       {detailLoading ? <div className="empty-state">Loading linked customer history...</div> : <div className="content-stack">
         <div className="form-grid"><div><strong>Billing / mailing address</strong><p>{[selected.billing_address_line1,selected.billing_city,selected.billing_state,selected.billing_postal_code].filter(Boolean).join(", ") || "Not entered"}</p></div><div><strong>Linked records</strong><p>{properties.length} properties · {contacts.length} contacts · {leads.length} leads · {projects.length} projects · {claims.length} claims · {roofs.length} roof systems · {appointments.length} appointments · {inspections.length} inspections · {files.length} files</p></div></div>
         <div><h3>Properties</h3>{properties.length ? <div className="table-wrap"><table><thead><tr><th>Property</th><th>Type</th><th>County</th><th>Parcel / building</th></tr></thead><tbody>{properties.map((p) => <tr key={String(p.id)}><td><strong>{[p.address_line1,p.city,p.state,p.postal_code].filter(Boolean).join(", ")}</strong></td><td>{String(p.property_type || "—")}</td><td>{String(p.county || "—")}</td><td>{[p.parcel_number,p.building_name].filter(Boolean).join(" · ") || "—"}</td></tr>)}</tbody></table></div> : <p className="muted">No properties linked yet.</p>}</div>
