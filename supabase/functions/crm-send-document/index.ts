@@ -29,7 +29,7 @@ function wrap(value: string, max = 88): string[] {
   if (line) lines.push(line);
   return lines;
 }
-async function makePdf(brand: string, title: string, sections: { heading: string; body: string[] }[]) {
+async function makePdf(brand: string, title: string, sections: { heading: string; body: string[] }[], photos: { label: string; caption: string; section: string; bytes: Uint8Array; contentType: string }[] = []) {
   const pdf = await PDFDocument.create();
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -47,6 +47,18 @@ async function makePdf(brand: string, title: string, sections: { heading: string
     draw(section.heading, 12, true);
     for (const line of section.body) for (const wrapped of wrap(line)) draw(wrapped, 9);
     y -= 8;
+  }
+  for (const photo of photos) {
+    draw(photo.label || "Inspection photo", 10, true);
+    if (photo.section) draw("Roof section: " + photo.section, 8);
+    if (photo.caption) draw(photo.caption, 8);
+    try {
+      const image = photo.contentType === "image/jpeg" ? await pdf.embedJpg(photo.bytes) : await pdf.embedPng(photo.bytes);
+      const size = image.scaleToFit(516, 250);
+      if (y < size.height + 60) { page = pdf.addPage([612, 792]); y = 742; }
+      page.drawImage(image, { x: 48, y: y - size.height, width: size.width, height: size.height });
+      y -= size.height + 18;
+    } catch { draw("Image could not be embedded. View the original photo in the CRM.", 8); }
   }
   draw("Prepared from the Roof Doctors Operations CRM.", 8);
   return await pdf.save();
@@ -85,6 +97,7 @@ Deno.serve(async (req: Request) => {
   let title = "";
   let brand = "";
   const sections: { heading: string; body: string[] }[] = [];
+  const photoImages: { label: string; caption: string; section: string; bytes: Uint8Array; contentType: string }[] = [];
   if (type === "proposal") {
     const { data, error } = await client.from("crm_proposals").select("id,division_id,customer_id,property_id,title,proposal_number,pricing_mode,line_items,lump_sum_amount,subtotal,tax_amount,total_amount,scope_of_work,existing_conditions,exclusions,payment_terms,warranty_summary,valid_until,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
     if (error || !data) return json({ error: "Proposal not found or access denied." }, 404);
@@ -117,8 +130,19 @@ Deno.serve(async (req: Request) => {
     if (data.roof_sections?.length) sections.push({ heading: "Roof sections", body: data.roof_sections.map((s: any) => s.name || "Section") });
     if (data.summary) sections.push({ heading: "Summary", body: [data.summary] });
     if (data.recommendations) sections.push({ heading: "Recommendations", body: [data.recommendations] });
-    const { data: photos } = await client.from("crm_inspection_photos").select("photo_label,caption,roof_section").eq("inspection_id", id).order("created_at");
-    if (photos?.length) sections.push({ heading: "Attached inspection photos", body: photos.map((p: any) => [p.photo_label,p.roof_section,p.caption].filter(Boolean).join(" | ")) });
+    const { data: photos } = await client.from("crm_inspection_photos").select("photo_label,caption,roof_section,crm_files(bucket_id,object_path,content_type)").eq("inspection_id", id).order("created_at");
+    if (photos?.length) {
+      sections.push({ heading: "Attached inspection photos", body: photos.map((p: any) => [p.photo_label,p.roof_section,p.caption].filter(Boolean).join(" | ")) });
+      for (const photo of photos as any[]) {
+        const file = photo.crm_files;
+        if (!file || !["image/jpeg","image/png"].includes(file.content_type)) continue;
+        const { data: imageFile } = await client.storage.from(file.bucket_id).download(file.object_path);
+        if (imageFile) photoImages.push({
+          label: photo.photo_label || "Inspection photo", caption: photo.caption || "",
+          section: photo.roof_section || "", bytes: new Uint8Array(await imageFile.arrayBuffer()), contentType: file.content_type
+        });
+      }
+    }
   } else {
     const { data, error } = await client.from("crm_warranties").select("id,division_id,customer_id,property_id,title,warranty_type,provider_name,roof_system,coverage_summary,exclusions,maintenance_requirements,start_date,end_date,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
     if (error || !data) return json({ error: "Warranty not found or access denied." }, 404);
@@ -134,7 +158,7 @@ Deno.serve(async (req: Request) => {
   }
   if (!recipient || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(recipient)) return json({ error: "This customer does not have a valid email address on file." }, 400);
   const subject = brand + ": " + (type === "inspection" ? "Roof inspection report" : title);
-  const pdfBytes = await makePdf(brand, title, sections);
+  const pdfBytes = await makePdf(brand, title, sections, photoImages);
   const base64 = btoa(String.fromCharCode(...new Uint8Array(pdfBytes)));
   const fileName = type + "-" + id + ".pdf";
   const { data: delivery, error: deliveryError } = await client.from("crm_document_deliveries").insert({
