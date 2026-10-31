@@ -25,6 +25,11 @@
 - No service role key or email credential is placed in browser code.
 - No production schema change or deployment occurs from this feature branch without review and verification.
 
+## Email configuration required before customer delivery
+- The Edge Function expects Supabase secrets named `RESEND_API_KEY` and `RESEND_FROM_EMAIL`.
+- The sender address must be verified with Resend. The function uses the customer email saved on the CRM record and does not accept a browser supplied recipient.
+- The function is committed to this feature branch only and has not been deployed to Supabase.
+
 ## Open implementation checks
 - Confirm the existing email sender and server side delivery path before enabling customer email.
 - Confirm PDF generation and file retention behavior against the existing private file model.
