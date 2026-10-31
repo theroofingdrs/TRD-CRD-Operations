@@ -39,21 +39,28 @@ function component(components: any[], type: string, useShort = false): string {
 export function AddressAutocomplete({ value, onChange, onPlaceSelected, required, placeholder, disabled }: AddressAutocompleteProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const callbackRef = useRef(onPlaceSelected);
+  const initializedRef = useRef(false);
+  const listenerRef = useRef<any>(null);
   const [mapsError, setMapsError] = useState("");
   useEffect(() => { callbackRef.current = onPlaceSelected; }, [onPlaceSelected]);
-  useEffect(() => {
-    let active = true;
-    let autocomplete: any;
-    let listener: any;
+
+  // Load Places only when the user focuses the field. The address input remains
+  // a normal editable field even if Google is unavailable or its API is blocked.
+  const initializeAutocomplete = () => {
+    if (initializedRef.current || disabled) return;
+    initializedRef.current = true;
     loadGoogleMaps().then(google => {
-      if (!active || !inputRef.current) return;
-      autocomplete = new google.maps.places.Autocomplete(inputRef.current, {
+      if (!inputRef.current) return;
+      const autocomplete = new google.maps.places.Autocomplete(inputRef.current, {
         types: ["address"],
         fields: ["address_components", "formatted_address", "geometry"]
       });
-      listener = autocomplete.addListener("place_changed", () => {
+      listenerRef.current = autocomplete.addListener("place_changed", () => {
         const place = autocomplete.getPlace();
-        if (!place.geometry?.location) { setMapsError("Select a suggested address to save its map location."); return; }
+        if (!place.geometry?.location) {
+          setMapsError("Choose an address from the suggestions, or continue entering it manually.");
+          return;
+        }
         const parts = place.address_components || [];
         const streetNumber = component(parts, "street_number");
         const route = component(parts, "route");
@@ -68,11 +75,29 @@ export function AddressAutocomplete({ value, onChange, onPlaceSelected, required
         });
         setMapsError("");
       });
-    }).catch(error => { if (active) setMapsError(error.message); });
-    return () => { active = false; if (listener) listener.remove(); };
-  }, []);
+      setMapsError("");
+    }).catch(error => {
+      initializedRef.current = false;
+      setMapsError("Address suggestions are unavailable. You can still enter the address manually.");
+      console.error("Google Places autocomplete unavailable:", error);
+    });
+  };
+
+  useEffect(() => () => { if (listenerRef.current) listenerRef.current.remove(); }, []);
+
   return <div className="address-autocomplete-wrap">
-    <input ref={inputRef} required={required} disabled={disabled} value={value} placeholder={placeholder || "Start typing a street address"} onChange={event => onChange(event.target.value)} autoComplete="off" />
+    <input
+      ref={inputRef}
+      type="text"
+      inputMode="text"
+      required={required}
+      disabled={disabled}
+      value={value}
+      placeholder={placeholder || "Enter street address"}
+      onFocus={initializeAutocomplete}
+      onChange={event => onChange(event.target.value)}
+      autoComplete="street-address"
+    />
     {mapsError && <small className="address-map-hint">{mapsError}</small>}
   </div>;
 }
