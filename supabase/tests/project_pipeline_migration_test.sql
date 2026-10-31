@@ -94,6 +94,7 @@ VALUES ('00000000-0000-0000-0000-000000000001', 'TRD', 'owner');
 
 \ir ../migrations/20261031140000_add_project_pipeline_and_job_costing.sql
 \ir ../migrations/20261031193000_complete_project_pipeline_stage_gates.sql
+\ir ../migrations/20261031200000_add_project_transaction_attachments.sql
 
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
 SET ROLE authenticated;
@@ -116,6 +117,20 @@ INSERT INTO public.crm_project_transactions
 VALUES ('TRD', :'test_project_id', 'payment', 2500, CURRENT_DATE, 'PAY-TEST-1', auth.uid())
 RETURNING id AS test_transaction_id \gset
 UPDATE pg_temp.test_ids SET transaction_id = :'test_transaction_id';
+
+INSERT INTO storage.objects(bucket_id,name)
+VALUES ('roof-doctors-private','TRD/' || :'test_project_id' || '/payment-receipt-test.pdf');
+INSERT INTO public.crm_files
+  (division_id,related_type,related_id,bucket_id,object_path,original_filename,content_type,file_size_bytes,uploaded_by,metadata)
+VALUES
+  ('TRD','project',:'test_project_id','roof-doctors-private',
+   'TRD/' || :'test_project_id' || '/payment-receipt-test.pdf','payment-receipt-test.pdf',
+   'application/pdf',100,auth.uid(),
+   jsonb_build_object('document_category','payment_receipt','transaction_id',:'test_transaction_id'))
+RETURNING id AS test_transaction_file_id \gset;
+UPDATE public.crm_project_transactions
+SET attachment_file_id = :'test_transaction_file_id'
+WHERE id = :'test_transaction_id';
 
 DO $$
 BEGIN
@@ -203,6 +218,12 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.crm_project_transaction_history WHERE transaction_id = (SELECT transaction_id FROM pg_temp.test_ids)) THEN
     RAISE EXCEPTION 'Transaction history was not recorded';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.crm_project_transactions WHERE id = (SELECT transaction_id FROM pg_temp.test_ids) AND attachment_file_id IS NOT NULL) THEN
+    RAISE EXCEPTION 'Original payment receipt was not linked to the transaction';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.crm_files WHERE id = (SELECT attachment_file_id FROM public.crm_project_transactions WHERE id = (SELECT transaction_id FROM pg_temp.test_ids)) AND metadata->>'document_category' = 'payment_receipt') THEN
+    RAISE EXCEPTION 'Original payment receipt file record was not retained';
   END IF;
   IF (SELECT collected_amount FROM public.crm_projects WHERE id = (SELECT project_id FROM pg_temp.test_ids)) <> 0 THEN
     RAISE EXCEPTION 'Voided payment was not removed from collected total';
