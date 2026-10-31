@@ -174,9 +174,10 @@ Deno.serve(async (req: Request) => {
         .select("original_filename,bucket_id,object_path,metadata")
         .eq("id", roofrReportId).eq("division_id", division).eq("related_type", "property").eq("related_id", propertyId).maybeSingle();
       if (roofrFile?.metadata?.document_type === "roofr_measurement_report") {
+        const roofrValues = Array.isArray(roofrFile.metadata?.extracted_measurements) ? roofrFile.metadata.extracted_measurements : [];
         sections.push({ heading: "Roofr measurement report", body: [
           "Source report: " + clean(roofrFile.original_filename),
-          "Reviewed extracted measurements are included in the estimate line items where selected.",
+          ...roofrValues.map((item: any) => clean(item.label) + ": " + String(item.value) + " " + clean(item.unit)),
           "The original Roofr PDF is attached separately to this email."
         ] });
         const { data: roofrPdf } = await client.storage.from(roofrFile.bucket_id).download(roofrFile.object_path);
