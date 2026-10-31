@@ -419,7 +419,7 @@ $body$;
 INSERT INTO public.crm_company_expenses
   (division_id, expense_date, category, amount, paid_amount, payment_status, vendor_payee, description, entered_by)
 VALUES ('TRD', CURRENT_DATE, 'utilities', 1200, 0, 'unpaid', 'Test Utility Co', 'Monthly utility bill', auth.uid())
-RETURNING id AS test_company_expense_id \\gset;
+RETURNING id AS test_company_expense_id \gset
 
 INSERT INTO storage.objects(bucket_id,name)
 VALUES ('roof-doctors-private','TRD/company-expenses/company-expense-test.pdf');
@@ -430,7 +430,7 @@ VALUES
    'TRD/company-expenses/company-expense-test.pdf','company-expense-test.pdf',
    'application/pdf',100,auth.uid(),
    jsonb_build_object('document_category','company_expense_receipt'))
-RETURNING id AS test_company_receipt_id \\gset;
+RETURNING id AS test_company_receipt_id \gset
 CREATE TEMP TABLE company_expense_ids(expense_id uuid, receipt_file_id uuid);
 INSERT INTO pg_temp.company_expense_ids VALUES (:'test_company_expense_id', :'test_company_receipt_id');
 UPDATE public.crm_company_expenses
