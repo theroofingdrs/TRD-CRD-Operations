@@ -516,12 +516,10 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         <div><span>Gross profit</span><strong>{money(gross)}</strong></div><div><span>Commission earned</span><strong>{money(selected.commission_earned_amount)}</strong></div><div><span>Overhead allocated</span><strong>{money(selected.overhead_allocated_amount)}</strong></div><div><span>Net project profit</span><strong>{money(netProfit)}</strong></div>
       </div>
       {canWriteFinancials && <form className="inline-form" onSubmit={saveFinancials}>
-        <div className="panel-heading subheading"><div><h3>Contract and profitability</h3><p className="muted">Keep estimates, approved value, signed contract, invoicing, and cash collected separate.</p></div></div>
+        <div className="panel-heading subheading"><div><h3>Contract and profitability</h3><p className="muted">Set contract and approval values, then manage invoices and payments in the transaction ledger.</p></div></div>
         <div className="form-grid">
           <label>Signed contract amount ($)<input type="number" min="0" step="0.01" value={financeContract} onChange={e=>setFinanceContract(e.target.value)} /></label>
           <label>Initial approved amount ($)<input type="number" min="0" step="0.01" value={financeApproved} onChange={e=>setFinanceApproved(e.target.value)} /></label>
-          <label>Invoiced amount ($)<input type="number" min="0" step="0.01" value={financeInvoiced} onChange={e=>setFinanceInvoiced(e.target.value)} /></label>
-          <label>Collected amount ($)<input type="number" min="0" step="0.01" value={financeCollected} onChange={e=>setFinanceCollected(e.target.value)} /></label>
           <label>Commission method<select value={commissionMethod} onChange={e=>setCommissionMethod(e.target.value)}><option value="fixed">Fixed amount</option><option value="contract_percent">Percent of contract</option><option value="collected_percent">Percent of collected revenue</option><option value="gross_profit_percent">Percent of gross profit</option><option value="manual">Manual</option></select></label>
           <label>Commission rate (%)<input type="number" min="0" step="0.01" value={commissionRate} onChange={e=>setCommissionRate(e.target.value)} /></label>
           <label>Commission fixed / manual earned ($)<input type="number" min="0" step="0.01" value={commissionMethod==="manual"?commissionEarned:commissionFixed} onChange={e=>commissionMethod==="manual"?setCommissionEarned(e.target.value):setCommissionFixed(e.target.value)} /></label>
