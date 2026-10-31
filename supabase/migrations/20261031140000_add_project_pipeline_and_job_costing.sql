@@ -53,6 +53,40 @@ CREATE INDEX IF NOT EXISTS crm_projects_next_action_idx
   ON public.crm_projects (division_id, next_action_due_at)
   WHERE next_action_due_at IS NOT NULL;
 
+
+CREATE TABLE public.crm_workflow_stage_settings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  division_id text NOT NULL REFERENCES public.crm_divisions(id),
+  pipeline_type text NOT NULL CHECK (pipeline_type IN ('retail','insurance')),
+  stage_key text NOT NULL CHECK (stage_key IN (
+    'new_lead','contacted','inspection_scheduled','inspection_completed','estimate_prepared',
+    'bid_issued','awaiting_customer','scope_prepared','claim_filed','adjuster_meeting',
+    'awaiting_carrier','supplement_review','contract_signed','deposit_received',
+    'materials_ordered','materials_received','scheduled','in_progress','final_inspection',
+    'invoiced','closed'
+  )),
+  display_label text NOT NULL CHECK (length(trim(display_label)) BETWEEN 1 AND 80),
+  sort_order integer NOT NULL DEFAULT 0,
+  updated_by uuid REFERENCES auth.users(id),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (division_id, pipeline_type, stage_key)
+);
+ALTER TABLE public.crm_workflow_stage_settings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY crm_workflow_stage_settings_read ON public.crm_workflow_stage_settings
+  FOR SELECT TO authenticated
+  USING (app_private.has_division_resource_access(division_id, 'projects', false));
+CREATE POLICY crm_workflow_stage_settings_insert ON public.crm_workflow_stage_settings
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    app_private.has_division_admin_access(division_id)
+    AND (updated_by IS NULL OR updated_by = (SELECT auth.uid()))
+  );
+CREATE POLICY crm_workflow_stage_settings_update ON public.crm_workflow_stage_settings
+  FOR UPDATE TO authenticated
+  USING (app_private.has_division_admin_access(division_id))
+  WITH CHECK (app_private.has_division_admin_access(division_id));
+GRANT SELECT, INSERT, UPDATE ON public.crm_workflow_stage_settings TO authenticated;
+
 CREATE TABLE public.crm_project_stage_history (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   division_id text NOT NULL REFERENCES public.crm_divisions(id),
