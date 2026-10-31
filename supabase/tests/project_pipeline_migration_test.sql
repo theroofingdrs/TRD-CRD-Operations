@@ -113,7 +113,7 @@ VALUES ('TRD', :'test_project_id', 'invoice', 12000, CURRENT_DATE, 'INV-TEST-1',
 INSERT INTO public.crm_project_transactions
   (division_id, project_id, transaction_type, amount, transaction_date, reference_number, entered_by)
 VALUES ('TRD', :'test_project_id', 'payment', 2500, CURRENT_DATE, 'PAY-TEST-1', auth.uid())
-RETURNING id AS test_transaction_id \\gset
+RETURNING id AS test_transaction_id \gset
 INSERT INTO pg_temp.test_ids(transaction_id) VALUES (:'test_transaction_id');
 
 DO $$
