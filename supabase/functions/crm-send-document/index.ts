@@ -213,7 +213,7 @@ async function makeProposalPdf(
   page.drawText("PREPARED " + new Date().toLocaleDateString("en-US"), { x: 350, y: metaY + 3, size: 7.5, font: bold, color: navy });
   y = metaY - 19;
 
-  const filtered = sections.filter(section => !["Customer and property"].includes(section.heading));
+  const filtered = sections.filter(section => !["Customer and property", "Itemized total"].includes(section.heading));
   let forcedCommercialBreak = false;
   for (const section of filtered) {
     if (!isResidential && !forcedCommercialBreak && /^(Scope of work|Itemized pricing|Itemized total)$/i.test(section.heading)) {
@@ -281,6 +281,7 @@ Deno.serve(async (req: Request) => {
   let title = "";
   let brand = "";
   let proposalNumber = "";
+  let proposalTotal = 0;
   const sections: { heading: string; body: string[] }[] = [];
   const photoImages: { label: string; caption: string; section: string; bytes: Uint8Array; contentType: string }[] = [];
   const extraAttachments: { filename: string; content: string }[] = [];
@@ -292,6 +293,7 @@ Deno.serve(async (req: Request) => {
     address = [data.crm_properties?.address_line1,data.crm_properties?.city,data.crm_properties?.state,data.crm_properties?.postal_code].filter(Boolean).join(", ");
     title = data.title;
     proposalNumber = clean(data.proposal_number);
+    proposalTotal = Number(data.total_amount || 0);
     const { data: savedTemplate } = await client.from("crm_proposal_templates")
       .select("company_name,introduction,default_scope,default_exclusions,payment_terms,warranty_summary,footer_text")
       .eq("division_id", division).maybeSingle();
@@ -406,7 +408,7 @@ Deno.serve(async (req: Request) => {
   if (!recipient || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) return json({ error: "This customer does not have a valid email address on file." }, 400);
   const subject = brand + ": " + (type === "inspection" ? "Roof inspection report" : title);
   const pdfBytes = type === "proposal"
-    ? await makeProposalPdf(division, brand, title, customerName, address, proposalNumber, sections, sections.find(section => section.heading === "Itemized total")?.body.find(line => line.startsWith("Total "))?.replace("Total ", "") || sections.find(section => section.heading === "Lump sum option")?.body[0] || "0")
+    ? await makeProposalPdf(division, brand, title, customerName, address, proposalNumber, sections, proposalTotal)
     : await makePdf(brand, title, sections, photoImages);
   const base64 = toBase64(new Uint8Array(pdfBytes));
   const fileName = type + "-" + id + ".pdf";
