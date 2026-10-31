@@ -11,7 +11,7 @@ type Project = {
   next_action: string | null; next_action_due_at: string | null; updated_at: string; commission_method: string | null; commission_rate: number | null; commission_fixed_amount: number | null; commission_earned_amount: number; commission_paid_amount: number; commission_salesperson_name: string | null; overhead_method: string | null; overhead_rate: number | null; overhead_fixed_amount: number | null; overhead_allocated_amount: number; created_at: string;
 };
 type Expense = { id: string; category: string; amount: number; paid_amount: number; payment_status: string; expense_date: string; vendor_payee: string | null; description: string | null; receipt_file_id: string | null };
-type Supplement = { id: string; supplement_number: number; status: string; requested_amount: number; approved_amount: number; submitted_at: string | null; response_at: string | null; carrier_response: string | null; notes: string | null };
+type Transaction = { id: string; transaction_type: "invoice" | "payment"; amount: number; transaction_date: string; reference_number: string | null; payment_method: string | null; notes: string | null; status: string };\ntype Supplement = { id: string; supplement_number: number; status: string; requested_amount: number; approved_amount: number; submitted_at: string | null; response_at: string | null; carrier_response: string | null; notes: string | null };
 
 const retailStages = [
   "new_lead", "contacted", "inspection_scheduled", "inspection_completed", "estimate_prepared",
@@ -34,12 +34,12 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [customerNames, setCustomerNames] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Project | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [supplements, setSupplements] = useState<Supplement[]>([]);
+  const [supplements, setSupplements] = useState<Supplement[]>([]);\n  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [showExpense, setShowExpense] = useState(false);
   const [showSupplement, setShowSupplement] = useState(false);
-  const [divisionExpenseTotal, setDivisionExpenseTotal] = useState(0);
+  const [divisionExpenseTotal, setDivisionExpenseTotal] = useState(0);\n  const [monthlyCollected, setMonthlyCollected] = useState(0);
   const [staleDays, setStaleDays] = useState(7);
   const [stageLastChanged, setStageLastChanged] = useState<Record<string, string>>({});
   const [projectName, setProjectName] = useState("");
@@ -86,7 +86,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const load = useCallback(async () => {
     if (!supabase) return;
     setError(""); setBusy(true);
-    const [projectResult, linkResult, expenseResult, settingsResult] = await Promise.all([
+    const [projectResult, linkResult, expenseResult, settingsResult, transactionResult] = await Promise.all([
       supabase.from("crm_projects").select("id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").eq("division_id", division).order("created_at", { ascending: false }),
       supabase.from("crm_customer_divisions").select("customer_id").eq("division_id", division),
       supabase.from("crm_project_expenses").select("amount,category").eq("division_id", division),
@@ -95,7 +95,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     if (projectResult.error) setError(projectResult.error.message);
     setProjects((projectResult.data ?? []) as Project[]);
     if (expenseResult.error) setError(expenseResult.error.message);
-    setDivisionExpenseTotal((expenseResult.data ?? []).reduce((sum: number, item: { amount: number }) => sum + Math.round(Number(item.amount || 0) * 100), 0) / 100);
+    setDivisionExpenseTotal((expenseResult.data ?? []).reduce((sum: number, item: { amount: number }) => sum + Math.round(Number(item.amount || 0) * 100), 0) / 100);\n    setMonthlyCollected((transactionResult.data ?? []).reduce((sum: number, item: { amount: number }) => sum + Math.round(Number(item.amount || 0) * 100), 0) / 100);
     if (settingsResult.data?.stale_stage_days) setStaleDays(settingsResult.data.stale_stage_days);
     const projectIds = (projectResult.data ?? []).map((p: any) => p.id);
     if (projectIds.length) {
@@ -138,7 +138,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     setOverheadRate(String(project.overhead_rate ?? ""));
     setOverheadFixed(String(project.overhead_fixed_amount ?? ""));
     if (!supabase) return;
-    const [e, s, h] = await Promise.all([
+    const [e, s, h, t] = await Promise.all([
       supabase.from("crm_project_expenses").select("id,category,amount,paid_amount,payment_status,expense_date,vendor_payee,description,receipt_file_id").eq("project_id", project.id).order("expense_date", { ascending: false }),
       supabase.from("crm_project_supplements").select("id,supplement_number,status,requested_amount,approved_amount,submitted_at,response_at,carrier_response,notes").eq("project_id", project.id).order("supplement_number"),
       supabase.from("crm_project_stage_history").select("id,from_stage,to_stage,changed_at,note").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(30)
@@ -294,13 +294,39 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     setBusy(false);
   }
 
+  async function addTransaction(event: FormEvent) {
+    event.preventDefault();
+    if (!supabase || !selected || !canWriteFinancials) return;
+    const amount = cents(transactionAmount);
+    if (amount <= 0) { setError("Enter an amount greater than zero."); return; }
+    if (transactionType === "payment" && amount + Number(selected.collected_amount || 0) > Number(selected.invoiced_amount || 0)) {
+      setError("Recorded payments cannot exceed the invoiced balance."); return;
+    }
+    setBusy(true); setError("");
+    const { error: insertError } = await supabase.from("crm_project_transactions").insert({
+      division_id: division, project_id: selected.id, transaction_type: transactionType,
+      amount, transaction_date: transactionDate, reference_number: transactionReference.trim() || null,
+      payment_method: transactionType === "payment" ? transactionMethod || null : null,
+      notes: transactionNotes.trim() || null, entered_by: userId
+    });
+    if (insertError) setError(insertError.message);
+    else {
+      setTransactionAmount(""); setTransactionReference(""); setTransactionMethod(""); setTransactionNotes("");
+      await load();
+      const { data: fresh } = await supabase.from("crm_projects").select("*").eq("id", selected.id).single();
+      await openProject((fresh || selected) as Project);
+      setMessage(transactionType === "invoice" ? "Invoice recorded." : "Payment recorded.");
+    }
+    setBusy(false);
+  }
+
   async function saveFinancials(event: FormEvent) {
     event.preventDefault();
     if (!supabase || !selected || !canWriteFinancials) return;
     const direct = expenses.filter(x => x.category !== "overhead" && x.category !== "sales_commission").reduce((sum, x) => sum + Math.round(Number(x.amount) * 100), 0) / 100;
     const approved = cents(financeApproved);
     const contractAmount = cents(financeContract);
-    const collected = cents(financeCollected);
+    const collected = Number(selected.collected_amount || 0);
     const contractValueNow = (contractAmount || approved) + Number(selected.supplements_approved_amount || 0);
     const grossNow = contractValueNow - direct;
     const rate = cents(commissionRate);
@@ -317,30 +343,29 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       : overheadMethod === "direct_cost_percent" ? direct * overheadRateValue / 100
       : overheadFixedValue;
     if (cents(commissionPaid) > earned) { setError("Commission paid cannot exceed commission earned."); return; }
-    if (collected > cents(financeInvoiced)) { setError("Collected revenue cannot exceed invoiced revenue."); return; }
+    
     setBusy(true); setError("");
-    const { error: updateError } = await supabase.from("crm_projects").update({
-      contract_amount: contractAmount || null,
-      initial_approved_amount: approved || null,
-      invoiced_amount: cents(financeInvoiced),
-      collected_amount: collected,
-      commission_method: commissionMethod,
-      commission_rate: rate || null,
-      commission_fixed_amount: fixed || null,
-      commission_earned_amount: Math.round(earned * 100) / 100,
-      commission_paid_amount: cents(commissionPaid),
-      commission_salesperson_name: commissionSalesperson.trim() || null,
-      overhead_method: overheadMethod,
-      overhead_rate: overheadRateValue || null,
-      overhead_fixed_amount: overheadFixedValue || null,
-      overhead_allocated_amount: Math.round(overheadAllocated * 100) / 100,
-      updated_at: new Date().toISOString()
-    }).eq("id", selected.id).eq("division_id", division);
+    const { error: updateError } = await supabase.rpc("crm_update_project_financials", {
+      p_project_id: selected.id,
+      p_contract_amount: contractAmount || null,
+      p_initial_approved_amount: approved || null,
+      p_commission_method: commissionMethod,
+      p_commission_rate: rate || null,
+      p_commission_fixed_amount: fixed || null,
+      p_commission_salesperson_name: commissionSalesperson.trim() || null,
+      p_commission_earned_amount: Math.round(earned * 100) / 100,
+      p_commission_paid_amount: cents(commissionPaid),
+      p_overhead_method: overheadMethod,
+      p_overhead_rate: overheadRateValue || null,
+      p_overhead_fixed_amount: overheadFixedValue || null,
+      p_overhead_allocated_amount: Math.round(overheadAllocated * 100) / 100
+    });
     if (updateError) setError(updateError.message);
     else {
       setMessage("Project financials saved.");
       await load();
-      await openProject({ ...selected, contract_amount: contractAmount || null, initial_approved_amount: approved || null, invoiced_amount: cents(financeInvoiced), collected_amount: collected, commission_method: commissionMethod, commission_rate: rate, commission_fixed_amount: fixed, commission_earned_amount: earned, commission_paid_amount: cents(commissionPaid), commission_salesperson_name: commissionSalesperson, overhead_method: overheadMethod, overhead_rate: overheadRateValue, overhead_fixed_amount: overheadFixedValue, overhead_allocated_amount: overheadAllocated });
+      const { data: fresh } = await supabase.from("crm_projects").select("*").eq("id", selected.id).single();
+      await openProject((fresh || { ...selected, contract_amount: contractAmount || null, initial_approved_amount: approved || null, commission_method: commissionMethod, commission_rate: rate, commission_fixed_amount: fixed, commission_earned_amount: earned, commission_paid_amount: cents(commissionPaid), commission_salesperson_name: commissionSalesperson, overhead_method: overheadMethod, overhead_rate: overheadRateValue, overhead_fixed_amount: overheadFixedValue, overhead_allocated_amount: overheadAllocated }) as Project);
     }
     setBusy(false);
   }
@@ -373,7 +398,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       <div className="panel-heading"><div><p className="eyebrow">{division} PROJECT OPERATIONS</p><h2>Project pipeline</h2><p className="muted">Track each job from lead through completion. Customers and properties remain in the existing CRM records.</p></div><div className="panel-actions"><span className="record-count">{filtered.length} projects</span>{canWrite && <button className="primary-button compact" onClick={() => setShowCreate(v => !v)}>+ New project</button>}</div></div>
       <div className="financial-summary pipeline-overview">
         <div><span>Active contract value</span><strong>{money(activeContractValue)}</strong></div>
-        <div><span>Collected revenue</span><strong>{money(collectedTotal)}</strong></div>
+        <div><span>Collected revenue</span><strong>{money(collectedTotal)}</strong></div>\n        <div><span>Collected this month</span><strong>{money(monthlyCollected)}</strong></div>
         <div><span>Recorded expenses</span><strong>{money(divisionExpenseTotal)}</strong></div>
         <div><span>Needs attention</span><strong>{attention.length}</strong></div>
       </div>
@@ -414,7 +439,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       <div className="panel-heading"><div><p className="eyebrow">PROJECT DETAIL</p><h2>{selected.project_name}</h2><p className="muted">{addressFor(selected.property_id)} · {customerNames[selected.customer_id] || "Customer"}</p></div><button className="secondary-button compact" onClick={()=>setSelected(null)}>Close</button></div>
       <div className="financial-summary">
         <div><span>Contract / approved value</span><strong>{money(contractValue)}</strong></div>
-        <div><span>Invoiced</span><strong>{money(selected.invoiced_amount)}</strong></div>
+        <div><span>Invoiced</span><strong>{money(selected.invoiced_amount)}</strong></div>\n        <div><span>Receivable</span><strong>{money(Number(selected.invoiced_amount||0)-Number(selected.collected_amount||0))}</strong></div>
         <div><span>Collected</span><strong>{money(selected.collected_amount)}</strong></div>
         <div><span>Recorded expenses</span><strong>{money(totalExpenses)}</strong></div>
         <div><span>Direct costs</span><strong>{money(directExpenses)}</strong></div>
@@ -438,6 +463,16 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         </div>
         <button className="primary-button" disabled={busy}>Save financials</button>
       </form>}
+      <div className="panel-heading subheading"><div><h3>Invoices and payments</h3><p className="muted">Record each invoice and customer payment. Project totals update automatically and remain separate from approved contract value.</p></div></div>
+      {canWriteFinancials && <form className="inline-form" onSubmit={addTransaction}><div className="form-grid">
+        <label>Transaction<select value={transactionType} onChange={e=>setTransactionType(e.target.value as "invoice"|"payment")}><option value="invoice">Invoice issued</option><option value="payment">Payment received</option></select></label>
+        <label>Amount ($)<input required type="number" min="0.01" step="0.01" value={transactionAmount} onChange={e=>setTransactionAmount(e.target.value)} /></label>
+        <label>Date<input required type="date" value={transactionDate} onChange={e=>setTransactionDate(e.target.value)} /></label>
+        <label>Reference / invoice number<input value={transactionReference} onChange={e=>setTransactionReference(e.target.value)} /></label>
+        {transactionType==="payment" && <label>Payment method<select value={transactionMethod} onChange={e=>setTransactionMethod(e.target.value)}><option value="">Select method</option><option value="check">Check</option><option value="ach">ACH / bank transfer</option><option value="card">Card</option><option value="cash">Cash</option><option value="other">Other</option></select></label>}
+        <label className="wide">Notes<input value={transactionNotes} onChange={e=>setTransactionNotes(e.target.value)} /></label>
+      </div><button className="primary-button" disabled={busy}>Record {transactionType}</button></form>}
+      {transactions.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Method</th><th>Amount</th><th>Status</th></tr></thead><tbody>{transactions.map(t=><tr key={t.id}><td>{new Date(t.transaction_date+"T12:00:00").toLocaleDateString()}</td><td>{stageLabel(t.transaction_type)}</td><td>{t.reference_number||"—"}</td><td>{t.payment_method||"—"}</td><td>{money(t.amount)}</td><td>{stageLabel(t.status)}</td></tr>)}</tbody></table></div> : <div className="empty-state">No invoices or payments recorded yet.</div>}
       <div className="panel-heading subheading"><div><h3>Job costs</h3><p className="muted">Record actual expenses. Ordered materials are not counted until an expense is entered.</p></div>{canWriteFinancials&&<button className="primary-button compact" onClick={()=>setShowExpense(v=>!v)}>+ Add expense</button>}</div>
       {showExpense&&<form className="inline-form" onSubmit={addExpense}><div className="form-grid"><label>Category<select value={expenseCategory} onChange={e=>setExpenseCategory(e.target.value)}><option value="materials">Materials</option><option value="labor">Labor</option><option value="equipment">Equipment</option><option value="permits">Permits</option><option value="sales_commission">Sales commission</option><option value="overhead">Overhead allocation</option><option value="other">Other</option></select></label><label>Amount ($)<input type="number" min="0.01" step="0.01" required value={expenseAmount} onChange={e=>setExpenseAmount(e.target.value)} /></label><label>Date<input type="date" required value={expenseDate} onChange={e=>setExpenseDate(e.target.value)} /></label><label>Vendor / payee<input value={vendor} onChange={e=>setVendor(e.target.value)} /></label><label className="wide">Description<input value={expenseDescription} onChange={e=>setExpenseDescription(e.target.value)} /></label><label className="wide">Receipt attachment<input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf" onChange={e=>setReceiptFile(e.target.files?.[0] || null)} /></label></div><button className="primary-button" disabled={busy}>Save expense</button></form>}
       {expenses.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Category</th><th>Vendor</th><th>Description</th><th>Amount</th><th>Payment</th><th>Paid</th><th>Receipt</th></tr></thead><tbody>{expenses.map(x=><tr key={x.id}><td>{new Date(x.expense_date+"T12:00:00").toLocaleDateString()}</td><td>{stageLabel(x.category)}</td><td>{x.vendor_payee||"—"}</td><td>{x.description||"—"}</td><td>{money(x.amount)}</td><td>{canWriteFinancials ? <select value={x.payment_status} disabled={busy} onChange={e=>void updateExpense(x,{payment_status:e.target.value})}><option value="unpaid">Unpaid</option><option value="partially_paid">Partially paid</option><option value="paid">Paid</option></select> : stageLabel(x.payment_status)}</td><td>{canWriteFinancials ? <input aria-label="Paid amount" type="number" min="0" max={x.amount} step="0.01" defaultValue={x.paid_amount} onBlur={e=>{const v=cents(e.target.value);if(v!==x.paid_amount)void updateExpense(x,{paid_amount:v,payment_status:v===0?"unpaid":v>=x.amount?"paid":"partially_paid"});}} /> : money(x.paid_amount)}</td><td>{x.receipt_file_id ? <button className="secondary-button compact" onClick={()=>void openReceipt(x)}>View</button> : "—"}</td></tr>)}</tbody></table></div>:<div className="empty-state">No expenses recorded for this project.</div>}
