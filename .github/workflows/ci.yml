@@ -26,3 +26,9 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Type check and production build
         run: npm run build
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+      - name: Type check Supabase Edge Functions
+        run: |
+          deno check supabase/functions/crm-invite-employee/index.ts
+          deno check supabase/functions/crm-import-website-intake/index.ts
