@@ -608,7 +608,7 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
         <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
         <label>Phone<input value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
         <label>Primary contact name<input value={primaryContactName} onChange={(event) => setPrimaryContactName(event.target.value)} placeholder="Pastor, facilities manager, property manager..." /></label>
-        <label className="wide">Billing or mailing street address<AddressAutocomplete value={billingAddress} onChange={setBillingAddress} onPlaceSelected={place=>{setBillingAddress(place.address);setBillingCity(place.city);setBillingState(place.state||"TX");setBillingPostal(place.postalCode);}} /></label>
+        <label className="wide">Billing or mailing street address<AddressAutocomplete value={billingAddress} onChange={setBillingAddress} onPlaceSelected={place=>{setBillingAddress(place.address);setBillingCity(place.city);setBillingState(place.state||"TX");setBillingPostal(place.postalCode);}} disabled={billingSameAsProperty} /></label>
         <label>City<input value={billingCity} onChange={(event) => setBillingCity(event.target.value)} disabled={billingSameAsProperty} /></label>
         <label>State<input value={billingState} onChange={(event) => setBillingState(event.target.value)} maxLength={2} disabled={billingSameAsProperty} /></label>
         <label>ZIP code<input value={billingPostal} onChange={(event) => setBillingPostal(event.target.value)} disabled={billingSameAsProperty} /></label>
