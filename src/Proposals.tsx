@@ -26,6 +26,7 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [sendingId, setSendingId] = useState("");
   const load = useCallback(async () => {
     if (!supabase) return;
     const [proposalResult, customerResult] = await Promise.all([
@@ -50,6 +51,13 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
   const total = subtotal + taxAmount;
   function updateLine(index: number, patch: Partial<LineItem>) {
     setLineItems(current => current.map((item, i) => i === index ? { ...item, ...patch } : item));
+  }
+  async function sendPdf(id: string) {
+    if (!supabase) return;
+    setSendingId(id); setMessage("");
+    const { data, error } = await supabase.functions.invoke("crm-send-document", { body: { document_type: "proposal", document_id: id } });
+    setMessage(error?.message || data?.error || (data?.success ? "PDF emailed to " + data.recipient : "Document email could not be sent."));
+    setSendingId("");
   }
   async function saveProposal(event: FormEvent) {
     event.preventDefault();
@@ -100,6 +108,6 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
       <div className="wide"><strong>Current estimate total: {total.toLocaleString("en-US",{style:"currency",currency:"USD"})}</strong>{pricingMode === "both" && <p className="muted">The lump sum is stored as an alternate price. The itemized total is used as the proposal's recorded total until the customer selects an option.</p>}</div>
     </div><button className="primary-button" disabled={busy || !customers.length || !customerProperties.length}>{busy ? "Saving..." : "Save proposal draft"}</button></form>}
     {message && <p className="inline-message">{message}</p>}
-    {rows.length ? <div className="table-wrap"><table><thead><tr><th>Proposal</th><th>Customer</th><th>Pricing</th><th>Recorded total</th><th>Lump sum alternative</th><th>Status</th><th>Created</th></tr></thead><tbody>{rows.map(r => <tr key={r.id}><td><strong>{r.title}</strong></td><td>{customers.find(c => c.id === r.customer_id)?.display_name || "Customer"}</td><td>{r.pricing_mode.replaceAll("_"," ")}</td><td>{Number(r.total_amount || 0).toLocaleString("en-US",{style:"currency",currency:"USD"})}</td><td>{r.lump_sum_amount == null ? "—" : Number(r.lump_sum_amount).toLocaleString("en-US",{style:"currency",currency:"USD"})}</td><td><span className={"pill " + r.status}>{r.status.replaceAll("_"," ")}</span></td><td>{new Date(r.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No proposal drafts yet</strong><span>Saved proposals will appear here and remain associated with their customer and property.</span></div>}
+    {rows.length ? <div className="table-wrap"><table><thead><tr><th>Proposal</th><th>Customer</th><th>Pricing</th><th>Recorded total</th><th>Lump sum alternative</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{rows.map(r => <tr key={r.id}><td><strong>{r.title}</strong></td><td>{customers.find(c => c.id === r.customer_id)?.display_name || "Customer"}</td><td>{r.pricing_mode.replaceAll("_"," ")}</td><td>{Number(r.total_amount || 0).toLocaleString("en-US",{style:"currency",currency:"USD"})}</td><td>{r.lump_sum_amount == null ? "—" : Number(r.lump_sum_amount).toLocaleString("en-US",{style:"currency",currency:"USD"})}</td><td><span className={"pill " + r.status}>{r.status.replaceAll("_"," ")}</span></td><td>{new Date(r.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No proposal drafts yet</strong><span>Saved proposals will appear here and remain associated with their customer and property.</span></div>}
   </section></div>;
 }
