@@ -226,7 +226,7 @@ function App() {
       {view === "proposal_templates" && isOwner && <ProposalTemplates division={division} userId={session.user.id} />}
       {view === "warranties" && <Warranties division={division} userId={session.user.id} canWrite={canWriteProjects} />}
       {view === "deliveries" && <DocumentDeliveries division={division} />}
-      {view === "project_pipeline" && <ProjectPipeline division={division} userId={session.user.id} canWrite={canWriteProjects} canWriteFinancials={canWriteFinancials} />}
+      {view === "project_pipeline" && <ProjectPipeline division={division} userId={session.user.id} canWrite={canWriteProjects} canWriteFinancials={canWriteFinancials} availableDivisions={memberships.map(item => item.division_id)} />}
       {view === "completed_map" && isOwner && <CompletedProjectsMap />}
       {view === "tasks" && <DataList division={division} view="tasks" userId={session.user.id} canWrite={canWriteTasks} />}
       {view === "team" && isOwner && <Team division={division} />}
