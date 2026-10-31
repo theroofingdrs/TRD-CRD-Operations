@@ -225,10 +225,56 @@ Deno.serve(async (req: Request) => {
         }
       }
 
+      let estimateDetails: Record<string, unknown> = {};
+      if (payload.estimateDetails && typeof payload.estimateDetails === "object") {
+        estimateDetails = payload.estimateDetails as Record<string, unknown>;
+      } else if (typeof payload.estimateDetails === "string" && payload.estimateDetails.trim()) {
+        try { estimateDetails = JSON.parse(payload.estimateDetails) as Record<string, unknown>; } catch { /* preserve original text below */ }
+      }
+
+      const roofSystem = clean(propertyRecord.roofSystem) || clean(payload.roofSystem) || clean(estimateDetails.requestedMaterial);
+      const rawArea = clean(propertyRecord.approximateRoofArea) || clean(estimateDetails.approximateRoofSize);
+      const parsedArea = rawArea ? Number(rawArea.replace(/,/g, "")) : NaN;
+      if (propertyId && roofSystem && roofSystem.toLowerCase() !== "unknown") {
+        const { data: existingRoof } = await admin.from("crm_roofs").select("id")
+          .eq("property_id", propertyId).ilike("covering_material", roofSystem).limit(1).maybeSingle();
+        if (!existingRoof) {
+          const { error: roofError } = await admin.from("crm_roofs").insert({
+            property_id: propertyId,
+            covering_material: roofSystem,
+            pitch: clean(propertyRecord.pitch) || clean(estimateDetails.pitch) || null,
+            approximate_area_sqft: Number.isFinite(parsedArea) && parsedArea > 0 ? parsedArea : null,
+          });
+          if (roofError) throw new Error("Roof system details could not be imported.");
+        }
+      }
+
       const service = clean(payload.serviceRequested) || clean(payload.service_interest) ||
         (clean(payload.leadType) ? clean(payload.leadType) + " request" : "Roofing inquiry");
       const descriptionParts = [clean(payload.message), clean(payload.notes), clean(organizationRecord.notes)].filter(Boolean);
-      const description = [...new Set(descriptionParts)].join("\n\n") || null;
+      const detailLines: string[] = [];
+      const estimateSummary = Object.entries(estimateDetails)
+        .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== "")
+        .map(([key, value]) => key.replace(/([A-Z])/g, " $1") + ": " + String(value));
+      if (estimateSummary.length) detailLines.push("Estimate details: " + estimateSummary.join("; "));
+      for (const [label, key] of [["Storm details", "stormMetadata"], ["Emergency details", "emergencyMetadata"]] as const) {
+        const value = payload[key];
+        if (value && typeof value === "object") {
+          const summary = Object.entries(value as Record<string, unknown>)
+            .filter(([, entry]) => entry !== null && entry !== undefined && String(entry).trim() !== "")
+            .map(([field, entry]) => field.replace(/([A-Z])/g, " $1") + ": " + String(entry));
+          if (summary.length) detailLines.push(label + ": " + summary.join("; "));
+        }
+      }
+      const flags = [
+        payload.stormRelatedFlag ? "Storm related" : "",
+        payload.insuranceRelatedFlag ? "Insurance related" : "",
+        payload.emergencyFlag ? "Emergency request" : "",
+      ].filter(Boolean);
+      if (flags.length) detailLines.push("Lead flags: " + flags.join(", "));
+      if (payload.score !== undefined && payload.score !== null) detailLines.push("Website lead score: " + String(payload.score));
+      if (Array.isArray(payload.scoreReasons) && payload.scoreReasons.length) detailLines.push("Website score reasons: " + payload.scoreReasons.map(String).join("; "));
+      const description = [...new Set([...descriptionParts, ...detailLines])].join("\n\n") || null;
       const createdAt = record.created_at ? new Date(record.created_at).toISOString() : new Date().toISOString();
 
       const { error: leadError } = await admin.from("crm_leads").insert({
