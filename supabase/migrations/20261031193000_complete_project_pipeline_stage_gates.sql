@@ -22,7 +22,8 @@ ALTER TABLE public.crm_workflow_stage_settings
     'supplement_submitted','supplement_under_review','supplement_approved',
     'supplement_partially_approved','supplement_denied','contract_signed','deposit_pending',
     'deposit_received','materials_ordered','materials_received','scheduled','in_progress',
-    'work_completed','final_inspection','final_invoice_payment_pending','closed'
+    'work_completed','final_inspection','final_invoice_payment_pending','closed',
+    'adjuster_meeting','awaiting_carrier','supplement_review','invoiced'
   ));
 
 CREATE OR REPLACE FUNCTION app_private.log_project_stage_change()
