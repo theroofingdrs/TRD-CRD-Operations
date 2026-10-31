@@ -37,36 +37,72 @@ function component(components: any[], type: string, useShort = false): string {
 }
 
 export function AddressAutocomplete({ value, onChange, onPlaceSelected, required, placeholder, disabled }: AddressAutocompleteProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
   const callbackRef = useRef(onPlaceSelected);
-  const initializedRef = useRef(false);
-  const listenerRef = useRef<any>(null);
+  const serviceRef = useRef<any>(null);
+  const detailsRef = useRef<any>(null);
+  const requestRef = useRef(0);
+  const [predictions, setPredictions] = useState<any[]>([]);
   const [mapsError, setMapsError] = useState("");
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   useEffect(() => { callbackRef.current = onPlaceSelected; }, [onPlaceSelected]);
 
-  // Load Places only when the user focuses the field. The address input remains
-  // a normal editable field even if Google is unavailable or its API is blocked.
-  const initializeAutocomplete = () => {
-    if (initializedRef.current || disabled) return;
-    initializedRef.current = true;
+  // Use Google's prediction service with our own dropdown. Do not attach the
+  // legacy Autocomplete widget to the input because it intercepts keystrokes
+  // and mutates the input outside React's control.
+  const handleChange = (nextValue: string) => {
+    onChange(nextValue);
+    setPredictions([]);
+    setMapsError("");
+    const requestId = ++requestRef.current;
+    if (nextValue.trim().length < 4 || disabled) {
+      setLoadingSuggestions(false);
+      return;
+    }
+    setLoadingSuggestions(true);
     loadGoogleMaps().then(google => {
-      if (!inputRef.current) return;
-      const autocomplete = new google.maps.places.Autocomplete(inputRef.current, {
-        types: ["address"],
-        fields: ["address_components", "formatted_address", "geometry"]
-      });
-      listenerRef.current = autocomplete.addListener("place_changed", () => {
-        const place = autocomplete.getPlace();
-        if (!place.geometry?.location) {
-          setMapsError("Choose an address from the suggestions, or continue entering it manually.");
+      if (requestId !== requestRef.current) return;
+      if (!serviceRef.current) {
+        serviceRef.current = new google.maps.places.AutocompleteService();
+        detailsRef.current = new google.maps.places.PlacesService(document.createElement("div"));
+      }
+      serviceRef.current.getPlacePredictions(
+        { input: nextValue, types: ["address"], componentRestrictions: { country: "us" } },
+        (items: any[], status: string) => {
+          if (requestId !== requestRef.current) return;
+          setLoadingSuggestions(false);
+          if (status === google.maps.places.PlacesServiceStatus.OK && items?.length) setPredictions(items.slice(0, 5));
+          else setPredictions([]);
+        }
+      );
+    }).catch(error => {
+      if (requestId !== requestRef.current) return;
+      setLoadingSuggestions(false);
+      setMapsError("Address suggestions are unavailable. You can still enter the address manually.");
+      console.error("Google Places suggestions unavailable:", error);
+    });
+  };
+
+  const choosePrediction = (prediction: any) => {
+    setPredictions([]);
+    setLoadingSuggestions(true);
+    const google = window.google;
+    if (!google || !detailsRef.current) {
+      setLoadingSuggestions(false);
+      return;
+    }
+    detailsRef.current.getDetails(
+      { placeId: prediction.place_id, fields: ["address_components", "formatted_address", "geometry"] },
+      (place: any, status: string) => {
+        setLoadingSuggestions(false);
+        if (status !== google.maps.places.PlacesServiceStatus.OK || !place?.geometry?.location) {
+          setMapsError("That address could not be verified. You can still enter it manually.");
           return;
         }
         const parts = place.address_components || [];
         const streetNumber = component(parts, "street_number");
         const route = component(parts, "route");
-        const address = place.formatted_address || [streetNumber, route].filter(Boolean).join(" ");
         callbackRef.current({
-          address,
+          address: place.formatted_address || [streetNumber, route].filter(Boolean).join(" "),
           city: component(parts, "locality") || component(parts, "postal_town") || component(parts, "sublocality"),
           state: component(parts, "administrative_area_level_1", true),
           postalCode: component(parts, "postal_code"),
@@ -74,30 +110,27 @@ export function AddressAutocomplete({ value, onChange, onPlaceSelected, required
           longitude: place.geometry.location.lng()
         });
         setMapsError("");
-      });
-      setMapsError("");
-    }).catch(error => {
-      initializedRef.current = false;
-      setMapsError("Address suggestions are unavailable. You can still enter the address manually.");
-      console.error("Google Places autocomplete unavailable:", error);
-    });
+      }
+    );
   };
 
-  useEffect(() => () => { if (listenerRef.current) listenerRef.current.remove(); }, []);
-
-  return <div className="address-autocomplete-wrap">
+  return <div className="address-autocomplete-wrap" style={{ position: "relative" }}>
     <input
-      ref={inputRef}
       type="text"
       inputMode="text"
       required={required}
       disabled={disabled}
       value={value}
       placeholder={placeholder || "Enter street address"}
-      onFocus={initializeAutocomplete}
-      onChange={event => onChange(event.target.value)}
-      autoComplete="street-address"
+      onChange={event => handleChange(event.target.value)}
+      onBlur={() => window.setTimeout(() => setPredictions([]), 150)}
+      autoComplete="off"
+      aria-autocomplete="list"
     />
+    {predictions.length > 0 && <div role="listbox" className="address-suggestions" style={{ position: "absolute", zIndex: 1000, top: "100%", left: 0, right: 0, background: "white", border: "1px solid #cbd5e1", borderRadius: 6, boxShadow: "0 6px 18px rgba(0,0,0,.14)", maxHeight: 240, overflowY: "auto" }}>
+      {predictions.map(item => <button key={item.place_id} type="button" role="option" onMouseDown={event => event.preventDefault()} onClick={() => choosePrediction(item)} style={{ display: "block", width: "100%", padding: "10px 12px", textAlign: "left", border: 0, borderBottom: "1px solid #e2e8f0", background: "white", color: "#172033", cursor: "pointer" }}>{item.description}</button>)}
+    </div>}
+    {loadingSuggestions && <small className="address-map-hint">Searching addresses...</small>}
     {mapsError && <small className="address-map-hint">{mapsError}</small>}
   </div>;
 }
