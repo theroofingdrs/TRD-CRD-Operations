@@ -28,6 +28,29 @@ CREATE INDEX crm_company_expenses_division_date_idx
   ON public.crm_company_expenses (division_id, expense_date DESC);
 CREATE INDEX crm_company_expenses_payment_idx
   ON public.crm_company_expenses (division_id, payment_status, expense_date DESC);
+CREATE OR REPLACE FUNCTION app_private.is_company_expense_file(
+  p_file_id uuid,
+  p_division_id text,
+  p_expense_id uuid
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+  SELECT EXISTS (
+    SELECT 1 FROM public.crm_files f
+    WHERE f.id = p_file_id
+      AND f.division_id = p_division_id
+      AND f.related_type = 'company_expense'
+      AND f.related_id = p_expense_id
+      AND f.metadata->>'document_category' = 'company_expense_receipt'
+  );
+$function$;
+REVOKE ALL ON FUNCTION app_private.is_company_expense_file(uuid,text,uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION app_private.is_company_expense_file(uuid,text,uuid) TO authenticated;
+
 ALTER TABLE public.crm_company_expenses ENABLE ROW LEVEL SECURITY;
 CREATE POLICY crm_company_expenses_read ON public.crm_company_expenses
   FOR SELECT TO authenticated
@@ -37,11 +60,21 @@ CREATE POLICY crm_company_expenses_insert ON public.crm_company_expenses
   WITH CHECK (
     app_private.has_division_financial_access(division_id, true)
     AND (entered_by IS NULL OR entered_by = (SELECT auth.uid()))
+    AND (
+      receipt_file_id IS NULL
+      OR app_private.is_company_expense_file(receipt_file_id, division_id, id)
+    )
   );
 CREATE POLICY crm_company_expenses_update ON public.crm_company_expenses
   FOR UPDATE TO authenticated
   USING (app_private.has_division_financial_access(division_id, true))
-  WITH CHECK (app_private.has_division_financial_access(division_id, true));
+  WITH CHECK (
+    app_private.has_division_financial_access(division_id, true)
+    AND (
+      receipt_file_id IS NULL
+      OR app_private.is_company_expense_file(receipt_file_id, division_id, id)
+    )
+  );
 GRANT SELECT, INSERT, UPDATE ON public.crm_company_expenses TO authenticated;
 
 CREATE TABLE public.crm_company_expense_history (
