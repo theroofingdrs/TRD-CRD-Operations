@@ -123,6 +123,7 @@ export function CompletedProjectsMap() {
   useEffect(() => {
     if (!mapReady || !window.google || !supabase) return;
     let cancelled = false;
+    const client = supabase;
     const geocoder = new window.google.maps.Geocoder();
     const pending = projects.filter(project => project.property_id && project.latitude == null && project.longitude == null && project.address_line1);
     pending.forEach(project => {
@@ -132,7 +133,7 @@ export function CompletedProjectsMap() {
         const location = results[0].geometry.location;
         const latitude = location.lat();
         const longitude = location.lng();
-        await supabase.rpc("crm_owner_save_property_coordinates", { p_property_id: project.property_id, p_latitude: latitude, p_longitude: longitude });
+        await client.rpc("crm_owner_save_property_coordinates", { p_property_id: project.property_id, p_latitude: latitude, p_longitude: longitude });
         if (!cancelled) setProjects(current => current.map(item => item.property_id === project.property_id ? { ...item, latitude, longitude } : item));
       });
     });
