@@ -377,4 +377,221 @@ CREATE TRIGGER crm_projects_log_financial_change
   FOR EACH ROW EXECUTE FUNCTION app_private.log_project_financial_change();
 
 
+
+CREATE TABLE public.crm_project_transactions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  division_id text NOT NULL REFERENCES public.crm_divisions(id),
+  project_id uuid NOT NULL REFERENCES public.crm_projects(id),
+  transaction_type text NOT NULL CHECK (transaction_type IN ('invoice','payment')),
+  amount numeric(14,2) NOT NULL CHECK (amount > 0),
+  transaction_date date NOT NULL DEFAULT CURRENT_DATE,
+  reference_number text,
+  payment_method text,
+  notes text,
+  status text NOT NULL DEFAULT 'recorded' CHECK (status IN ('recorded','void')),
+  void_reason text,
+  entered_by uuid REFERENCES auth.users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (status <> 'void' OR (void_reason IS NOT NULL AND length(trim(void_reason)) > 0))
+);
+CREATE INDEX crm_project_transactions_project_date_idx
+  ON public.crm_project_transactions (project_id, transaction_date DESC);
+CREATE INDEX crm_project_transactions_division_date_idx
+  ON public.crm_project_transactions (division_id, transaction_type, transaction_date DESC)
+  WHERE status = 'recorded';
+ALTER TABLE public.crm_project_transactions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY crm_project_transactions_read ON public.crm_project_transactions
+  FOR SELECT TO authenticated
+  USING (app_private.has_division_financial_access(division_id, false));
+CREATE POLICY crm_project_transactions_insert ON public.crm_project_transactions
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    app_private.has_division_financial_access(division_id, true)
+    AND (entered_by IS NULL OR entered_by = (SELECT auth.uid()))
+    AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = project_id AND p.division_id = division_id)
+  );
+CREATE POLICY crm_project_transactions_update ON public.crm_project_transactions
+  FOR UPDATE TO authenticated
+  USING (app_private.has_division_financial_access(division_id, true))
+  WITH CHECK (app_private.has_division_financial_access(division_id, true));
+GRANT SELECT, INSERT, UPDATE ON public.crm_project_transactions TO authenticated;
+
+CREATE OR REPLACE FUNCTION app_private.sync_project_transaction_totals()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+DECLARE
+  target_project_id uuid;
+  target_division_id text;
+  invoice_total numeric(14,2);
+  payment_total numeric(14,2);
+BEGIN
+  target_project_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.project_id ELSE NEW.project_id END;
+  target_division_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.division_id ELSE NEW.division_id END;
+  IF NOT app_private.has_division_financial_access(target_division_id, true) THEN
+    RAISE EXCEPTION 'Not authorized to update project financial transactions';
+  END IF;
+  SELECT
+    COALESCE(sum(amount) FILTER (WHERE transaction_type = 'invoice'), 0),
+    COALESCE(sum(amount) FILTER (WHERE transaction_type = 'payment'), 0)
+  INTO invoice_total, payment_total
+  FROM public.crm_project_transactions
+  WHERE project_id = target_project_id AND status = 'recorded';
+  UPDATE public.crm_projects
+  SET invoiced_amount = invoice_total,
+      collected_amount = payment_total,
+      updated_at = now()
+  WHERE id = target_project_id AND division_id = target_division_id;
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$function$;
+CREATE TRIGGER crm_project_transactions_sync_totals
+  AFTER INSERT OR UPDATE ON public.crm_project_transactions
+  FOR EACH ROW EXECUTE FUNCTION app_private.sync_project_transaction_totals();
+
+-- Preserve any existing project invoice and collection balances as opening ledger entries.
+INSERT INTO public.crm_project_transactions
+  (division_id, project_id, transaction_type, amount, transaction_date, reference_number, notes, entered_by)
+SELECT division_id, id, 'invoice', invoiced_amount, created_at::date,
+       'Opening balance', 'Migrated from the existing project invoiced amount.', created_by
+FROM public.crm_projects
+WHERE invoiced_amount > 0;
+INSERT INTO public.crm_project_transactions
+  (division_id, project_id, transaction_type, amount, transaction_date, reference_number, notes, entered_by)
+SELECT division_id, id, 'payment', collected_amount, created_at::date,
+       'Opening balance', 'Migrated from the existing project collected amount.', created_by
+FROM public.crm_projects
+WHERE collected_amount > 0;
+
+-- Accounting can update only the financial fields through this narrowly scoped RPC.
+CREATE OR REPLACE FUNCTION public.crm_update_project_financials(
+  p_project_id uuid,
+  p_contract_amount numeric,
+  p_initial_approved_amount numeric,
+  p_commission_method text,
+  p_commission_rate numeric,
+  p_commission_fixed_amount numeric,
+  p_commission_salesperson_name text,
+  p_commission_earned_amount numeric,
+  p_commission_paid_amount numeric,
+  p_overhead_method text,
+  p_overhead_rate numeric,
+  p_overhead_fixed_amount numeric,
+  p_overhead_allocated_amount numeric
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+DECLARE
+  target_division_id text;
+BEGIN
+  SELECT division_id INTO target_division_id
+  FROM public.crm_projects WHERE id = p_project_id;
+  IF target_division_id IS NULL
+     OR NOT app_private.has_division_financial_access(target_division_id, true) THEN
+    RAISE EXCEPTION 'Not authorized to update project financials';
+  END IF;
+  IF COALESCE(p_contract_amount, 0) < 0
+     OR COALESCE(p_initial_approved_amount, 0) < 0
+     OR COALESCE(p_commission_earned_amount, 0) < 0
+     OR COALESCE(p_commission_paid_amount, 0) < 0
+     OR COALESCE(p_overhead_allocated_amount, 0) < 0
+     OR COALESCE(p_commission_paid_amount, 0) > COALESCE(p_commission_earned_amount, 0) THEN
+    RAISE EXCEPTION 'Invalid financial amounts';
+  END IF;
+  IF p_commission_method IS NOT NULL AND p_commission_method NOT IN ('fixed','contract_percent','collected_percent','gross_profit_percent','manual') THEN
+    RAISE EXCEPTION 'Invalid commission method';
+  END IF;
+  IF p_overhead_method IS NOT NULL AND p_overhead_method NOT IN ('flat','contract_percent','direct_cost_percent','manual') THEN
+    RAISE EXCEPTION 'Invalid overhead method';
+  END IF;
+  UPDATE public.crm_projects SET
+    contract_amount = p_contract_amount,
+    initial_approved_amount = p_initial_approved_amount,
+    commission_method = p_commission_method,
+    commission_rate = p_commission_rate,
+    commission_fixed_amount = p_commission_fixed_amount,
+    commission_salesperson_name = p_commission_salesperson_name,
+    commission_earned_amount = COALESCE(p_commission_earned_amount, 0),
+    commission_paid_amount = COALESCE(p_commission_paid_amount, 0),
+    overhead_method = p_overhead_method,
+    overhead_rate = p_overhead_rate,
+    overhead_fixed_amount = p_overhead_fixed_amount,
+    overhead_allocated_amount = COALESCE(p_overhead_allocated_amount, 0),
+    updated_at = now()
+  WHERE id = p_project_id AND division_id = target_division_id;
+END;
+$function$;
+REVOKE ALL ON FUNCTION public.crm_update_project_financials(uuid,numeric,numeric,text,numeric,numeric,text,numeric,numeric,text,numeric,numeric,numeric) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.crm_update_project_financials(uuid,numeric,numeric,text,numeric,numeric,text,numeric,numeric,text,numeric,numeric,numeric) TO authenticated;
+
+CREATE TABLE public.crm_project_expense_history (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  division_id text NOT NULL REFERENCES public.crm_divisions(id),
+  project_id uuid NOT NULL REFERENCES public.crm_projects(id),
+  expense_id uuid NOT NULL REFERENCES public.crm_project_expenses(id),
+  changed_by uuid REFERENCES auth.users(id),
+  before_values jsonb NOT NULL,
+  after_values jsonb NOT NULL,
+  changed_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.crm_project_expense_history ENABLE ROW LEVEL SECURITY;
+CREATE POLICY crm_project_expense_history_read ON public.crm_project_expense_history
+  FOR SELECT TO authenticated USING (app_private.has_division_financial_access(division_id, false));
+CREATE POLICY crm_project_expense_history_insert ON public.crm_project_expense_history
+  FOR INSERT TO authenticated WITH CHECK (app_private.has_division_financial_access(division_id, true));
+GRANT SELECT, INSERT ON public.crm_project_expense_history TO authenticated;
+
+CREATE OR REPLACE FUNCTION app_private.log_project_expense_change()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path TO ''
+AS $function$
+BEGIN
+  INSERT INTO public.crm_project_expense_history
+    (division_id, project_id, expense_id, changed_by, before_values, after_values)
+  VALUES
+    (NEW.division_id, NEW.project_id, NEW.id, (SELECT auth.uid()), to_jsonb(OLD), to_jsonb(NEW));
+  RETURN NEW;
+END;
+$function$;
+CREATE TRIGGER crm_project_expenses_log_update
+  AFTER UPDATE ON public.crm_project_expenses
+  FOR EACH ROW EXECUTE FUNCTION app_private.log_project_expense_change();
+
+CREATE TABLE public.crm_project_supplement_history (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  division_id text NOT NULL REFERENCES public.crm_divisions(id),
+  project_id uuid NOT NULL REFERENCES public.crm_projects(id),
+  supplement_id uuid NOT NULL REFERENCES public.crm_project_supplements(id),
+  changed_by uuid REFERENCES auth.users(id),
+  before_values jsonb NOT NULL,
+  after_values jsonb NOT NULL,
+  changed_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.crm_project_supplement_history ENABLE ROW LEVEL SECURITY;
+CREATE POLICY crm_project_supplement_history_read ON public.crm_project_supplement_history
+  FOR SELECT TO authenticated USING (app_private.has_division_resource_access(division_id, 'projects', false));
+CREATE POLICY crm_project_supplement_history_insert ON public.crm_project_supplement_history
+  FOR INSERT TO authenticated WITH CHECK (app_private.has_division_resource_access(division_id, 'projects', true));
+GRANT SELECT, INSERT ON public.crm_project_supplement_history TO authenticated;
+
+CREATE OR REPLACE FUNCTION app_private.log_project_supplement_change()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path TO ''
+AS $function$
+BEGIN
+  INSERT INTO public.crm_project_supplement_history
+    (division_id, project_id, supplement_id, changed_by, before_values, after_values)
+  VALUES
+    (NEW.division_id, NEW.project_id, NEW.id, (SELECT auth.uid()), to_jsonb(OLD), to_jsonb(NEW));
+  RETURN NEW;
+END;
+$function$;
+CREATE TRIGGER crm_project_supplements_log_update
+  AFTER UPDATE ON public.crm_project_supplements
+  FOR EACH ROW EXECUTE FUNCTION app_private.log_project_supplement_change();
+
 -- Receipt uploads reuse the existing private file bucket and metadata table.
