@@ -914,7 +914,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       item.expense_date,item.division_id,item.category,item.vendor_payee||"",item.description||"",item.notes||"",
       item.amount,item.paid_amount,Math.max(0,Number(item.amount)-Number(item.paid_amount)),item.payment_status,item.updated_at
     ].map(cell).join(","));
-    const csv = [headers.map(cell).join(","),...rows].join("\\r\\n");
+    const csv = [headers.map(cell).join(","),...rows].join("\r\n");
     const blob = new Blob([csv],{type:"text/csv;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
