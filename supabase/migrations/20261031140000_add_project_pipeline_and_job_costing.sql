@@ -55,6 +55,24 @@ CREATE INDEX IF NOT EXISTS crm_projects_next_action_idx
   WHERE next_action_due_at IS NOT NULL;
 
 
+CREATE OR REPLACE FUNCTION app_private.has_division_admin_access(p_division_id text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+  SELECT EXISTS (
+    SELECT 1 FROM public.crm_memberships m
+    WHERE m.user_id = (SELECT auth.uid())
+      AND m.division_id = p_division_id
+      AND m.active = true
+      AND m.role IN ('owner','division_admin','office_manager')
+  );
+$function$;
+REVOKE ALL ON FUNCTION app_private.has_division_admin_access(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION app_private.has_division_admin_access(text) TO authenticated;
+
 CREATE TABLE public.crm_workflow_stage_settings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   division_id text NOT NULL REFERENCES public.crm_divisions(id),
@@ -267,24 +285,6 @@ CREATE POLICY crm_project_expenses_update ON public.crm_project_expenses
     ))
   );
 GRANT SELECT, INSERT, UPDATE ON public.crm_project_expenses TO authenticated;
-
-CREATE OR REPLACE FUNCTION app_private.has_division_admin_access(p_division_id text)
-RETURNS boolean
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path TO ''
-AS $function$
-  SELECT EXISTS (
-    SELECT 1 FROM public.crm_memberships m
-    WHERE m.user_id = (SELECT auth.uid())
-      AND m.division_id = p_division_id
-      AND m.active = true
-      AND m.role IN ('owner','division_admin','office_manager')
-  );
-$function$;
-REVOKE ALL ON FUNCTION app_private.has_division_admin_access(text) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION app_private.has_division_admin_access(text) TO authenticated;
 
 CREATE TABLE public.crm_division_financial_settings (
   division_id text PRIMARY KEY REFERENCES public.crm_divisions(id),
