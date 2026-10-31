@@ -11,6 +11,7 @@ type Project = {
   next_action: string | null; next_action_due_at: string | null; updated_at: string; commission_method: string | null; commission_rate: number | null; commission_fixed_amount: number | null; commission_earned_amount: number; commission_paid_amount: number; commission_salesperson_name: string | null; overhead_method: string | null; overhead_rate: number | null; overhead_fixed_amount: number | null; overhead_allocated_amount: number; created_at: string;
 };
 type Expense = { id: string; category: string; amount: number; paid_amount: number; payment_status: string; expense_date: string; vendor_payee: string | null; description: string | null; receipt_file_id: string | null };
+type AuditEvent = { id: string; kind: string; changed_at: string; before_values: Record<string, unknown>; after_values: Record<string, unknown> };
 type Attachment = { id: string; related_id: string; bucket_id: string; object_path: string; original_filename: string };
 type Transaction = { id: string; transaction_type: "invoice" | "payment"; amount: number; transaction_date: string; reference_number: string | null; payment_method: string | null; notes: string | null; status: string };
 type Supplement = { id: string; supplement_number: number; status: string; requested_amount: number; approved_amount: number; submitted_at: string | null; response_at: string | null; carrier_response: string | null; notes: string | null };
@@ -40,7 +41,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [supplementAttachments, setSupplementAttachments] = useState<Record<string, Attachment[]>>({});
   const [costEstimates, setCostEstimates] = useState<Record<string, number>>({});
-  const [history, setHistory] = useState<any[]>([]);
+  const [history, setHistory] = useState<any[]>([]);\n  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [showExpense, setShowExpense] = useState(false);
   const [showSupplement, setShowSupplement] = useState(false);
@@ -153,20 +154,28 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     setOverheadRate(String(project.overhead_rate ?? ""));
     setOverheadFixed(String(project.overhead_fixed_amount ?? ""));
     if (!supabase) return;
-    const [e, s, h, t] = await Promise.all([
+    const [e, s, h, t, fh, eh, sh, th] = await Promise.all([
       supabase.from("crm_project_expenses").select("id,category,amount,paid_amount,payment_status,expense_date,vendor_payee,description,receipt_file_id").eq("project_id", project.id).order("expense_date", { ascending: false }),
       supabase.from("crm_project_supplements").select("id,supplement_number,status,requested_amount,approved_amount,submitted_at,response_at,carrier_response,notes").eq("project_id", project.id).order("supplement_number"),
       supabase.from("crm_project_stage_history").select("id,from_stage,to_stage,changed_at,note").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(30),
-      supabase.from("crm_project_transactions").select("id,transaction_type,amount,transaction_date,reference_number,payment_method,notes,status").eq("project_id", project.id).order("transaction_date", { ascending: false })
+      supabase.from("crm_project_transactions").select("id,transaction_type,amount,transaction_date,reference_number,payment_method,notes,status").eq("project_id", project.id).order("transaction_date", { ascending: false }),
+      supabase.from("crm_project_financial_history").select("id,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20),
+      supabase.from("crm_project_expense_history").select("id,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20),
+      supabase.from("crm_project_supplement_history").select("id,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20),
+      supabase.from("crm_project_transaction_history").select("id,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20)
     ]);
-    if (e.error) setError(e.error.message);
-    if (s.error) setError(s.error.message);
-    if (h.error) setError(h.error.message);
-    if (t.error) setError(t.error.message);
+    for (const result of [e,s,h,t,fh,eh,sh,th]) if (result.error) setError(result.error.message);
     setExpenses((e.data ?? []) as Expense[]);
     setSupplements((s.data ?? []) as Supplement[]);
     setTransactions((t.data ?? []) as Transaction[]);
     setHistory(h.data ?? []);
+    const audit: AuditEvent[] = [
+      ...(fh.data ?? []).map((x: any) => ({ ...x, kind: "Financial change" })),
+      ...(eh.data ?? []).map((x: any) => ({ ...x, kind: "Expense change" })),
+      ...(sh.data ?? []).map((x: any) => ({ ...x, kind: "Supplement change" })),
+      ...(th.data ?? []).map((x: any) => ({ ...x, kind: "Invoice or payment change" }))
+    ].sort((a,b)=>new Date(b.changed_at).getTime()-new Date(a.changed_at).getTime());
+    setAuditEvents(audit);
     const supplementIds = (s.data ?? []).map((item: Supplement) => item.id);
     if (supplementIds.length) {
       const { data: files, error: fileError } = await supabase.from("crm_files").select("id,related_id,bucket_id,object_path,original_filename").eq("division_id", project.division_id).eq("related_type", "supplement").in("related_id", supplementIds);
@@ -559,6 +568,8 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         {supplements.length?<div className="table-wrap"><table><thead><tr><th>#</th><th>Status</th><th>Requested</th><th>Approved</th><th>Submitted</th><th>Carrier response</th><th>Attachments</th><th>Update</th></tr></thead><tbody>{supplements.map(s=><tr key={s.id}><td>{s.supplement_number}</td><td>{stageLabel(s.status)}</td><td>{money(s.requested_amount)}</td><td>{money(s.approved_amount)}</td><td>{s.submitted_at?new Date(s.submitted_at).toLocaleDateString():"—"}</td><td>{s.carrier_response || "—"}</td><td>{(supplementAttachments[s.id] || []).map(file=><button key={file.id} className="secondary-button compact" onClick={()=>void openSupplementAttachment(file)}>View {file.original_filename}</button>)}</td><td>{scope !== "combined" && canWrite && <button className="secondary-button compact" onClick={()=>{setSupplementEditing(s.id);setSupplementApproved(String(s.approved_amount||0));setSupplementResponse(s.carrier_response||"");setSupplementResponseDate(s.response_at?s.response_at.slice(0,10):new Date().toISOString().slice(0,10));setSupplementStatusEdit(s.status);}}>Update</button>}</td></tr>)}</tbody></table></div>:<div className="empty-state">No supplements recorded.</div>}</>}
       <div className="panel-heading subheading"><div><h3>Stage history</h3></div></div>
       {history.length?<div className="history-list">{history.map(item=><div key={item.id}><strong>{stageLabel(item.from_stage||"Project created")} → {stageLabel(item.to_stage)}</strong><span>{new Date(item.changed_at).toLocaleString()}</span>{item.note&&<p>{item.note}</p>}</div>)}</div>:<div className="empty-state">No stage changes recorded yet.</div>}
+      <div className="panel-heading subheading"><div><h3>Financial and record edit history</h3><p className="muted">Changes to financial values, expenses, supplements, invoices, and payments are retained.</p></div></div>
+      {auditEvents.length ? <div className="history-list">{auditEvents.map(item=><details key={item.id}><summary><strong>{item.kind}</strong><span>{new Date(item.changed_at).toLocaleString()}</span></summary><pre>{JSON.stringify({before:item.before_values,after:item.after_values},null,2)}</pre></details>)}</div> : <div className="empty-state">No financial edits recorded yet.</div>}
     </section>}
   </div>;
 }
