@@ -6,11 +6,12 @@ import Inspections from "./Inspections";
 import Warranties from "./Warranties";
 import DocumentDeliveries from "./DocumentDeliveries";
 import RoofrMeasurements from "./RoofrMeasurements";
+import ProposalTemplates from "./ProposalTemplates";
 
 type DivisionId = "TRD" | "CRD";
 type Role = "owner" | "division_admin" | "office_manager" | "sales_rep" | "project_manager" | "field_inspector" | "production_manager" | "accounting" | "read_only";
 type Membership = { division_id: DivisionId; role: Role };
-type View = "overview" | "leads" | "customers" | "contacts" | "properties" | "claims" | "roofs" | "documents" | "appointments" | "proposals" | "warranties" | "deliveries" | "inspections" | "projects" | "tasks" | "team";
+type View = "overview" | "leads" | "customers" | "contacts" | "properties" | "claims" | "roofs" | "documents" | "appointments" | "proposals" | "proposal_templates" | "warranties" | "deliveries" | "inspections" | "projects" | "tasks" | "team";
 type Lead = { id: string; service_interest: string | null; status: string; priority: string; source: string | null; description: string | null; created_at: string };
 type Customer = { id: string; display_name: string; customer_type: string; email: string | null; phone: string | null; billing_address_line1?: string | null; billing_city?: string | null; billing_state?: string | null; billing_postal_code?: string | null; created_at: string };
 type GenericRow = Record<string, string | number | null>;
@@ -27,6 +28,7 @@ const navigation: { id: View; label: string; icon: string }[] = [
   { id: "appointments", label: "Schedule", icon: "▣" },
   { id: "inspections", label: "Inspections", icon: "⌕" },
   { id: "proposals", label: "Proposals", icon: "▧" },
+  { id: "proposal_templates", label: "Proposal templates", icon: "⚙" },
   { id: "warranties", label: "Warranties", icon: "▤" },
   { id: "deliveries", label: "Delivery history", icon: "✉" },
   { id: "projects", label: "Projects", icon: "▤" },
@@ -168,7 +170,7 @@ function App() {
     <aside className="sidebar">
       <div className="sidebar-brand"><div className="brand-mark small">RD</div><div><strong>ROOF DOCTORS</strong><span>OPERATIONS</span></div></div>
       <div className="division-picker"><label htmlFor="division">WORKSPACE</label><select id="division" value={division} onChange={(event) => { setDivision(event.target.value as DivisionId); setView("overview"); }}><option value="TRD" disabled={!memberships.some((item) => item.division_id === "TRD")}>Residential · TRD</option><option value="CRD" disabled={!memberships.some((item) => item.division_id === "CRD")}>Commercial · CRD</option></select></div>
-      <nav className="main-nav">{navigation.filter((item) => item.id !== "team" || isOwner).map((item) => <button key={item.id} className={view === item.id ? "nav-item active" : "nav-item"} onClick={() => setView(item.id)}><span className="nav-icon">{item.icon}</span>{item.label}</button>)}</nav>
+      <nav className="main-nav">{navigation.filter((item) => (item.id !== "team" && item.id !== "proposal_templates") || isOwner).map((item) => <button key={item.id} className={view === item.id ? "nav-item active" : "nav-item"} onClick={() => setView(item.id)}><span className="nav-icon">{item.icon}</span>{item.label}</button>)}</nav>
       <div className="sidebar-bottom"><div className="secure-note"><span className="status-dot"></span> Secure employee access</div><button className="signout-button" onClick={signOut}>Sign out</button></div>
     </aside>
     <main className="main-area">
@@ -185,6 +187,7 @@ function App() {
       {view === "appointments" && <DataList division={division} view="appointments" userId={session.user.id} canWrite={canWriteAppointments} />}
       {view === "inspections" && <Inspections division={division} userId={session.user.id} canWrite={canWriteInspections} />}
       {view === "proposals" && <Proposals division={division} userId={session.user.id} canWrite={canWriteLeads} />}
+      {view === "proposal_templates" && isOwner && <ProposalTemplates division={division} userId={session.user.id} />}
       {view === "warranties" && <Warranties division={division} userId={session.user.id} canWrite={canWriteProjects} />}
       {view === "deliveries" && <DocumentDeliveries division={division} />}
       {view === "projects" && <DataList division={division} view="projects" userId={session.user.id} canWrite={canWriteProjects} />}
