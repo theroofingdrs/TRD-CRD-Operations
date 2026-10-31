@@ -28,7 +28,7 @@ const stageLabel = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g
 const money = (value: number | null | undefined) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
 const cents = (value: string) => Math.round((Number(value) || 0) * 100) / 100;
 
-export default function ProjectPipeline({ division, userId, canWrite }: { division: Division; userId: string; canWrite: boolean }) {
+export default function ProjectPipeline({ division, userId, canWrite, canWriteFinancials }: { division: Division; userId: string; canWrite: boolean; canWriteFinancials: boolean }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
   const [customerNames, setCustomerNames] = useState<Record<string, string>>({});
@@ -87,7 +87,7 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
     if (!supabase) return;
     setError(""); setBusy(true);
     const [projectResult, linkResult, expenseResult, settingsResult] = await Promise.all([
-      supabase.from("crm_projects").select("id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").eq("division_id", division).order("created_at", { ascending: false }),
+      supabase.from("crm_projects").select("id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,updated_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").eq("division_id", division).order("created_at", { ascending: false }),
       supabase.from("crm_customer_divisions").select("customer_id").eq("division_id", division),
       supabase.from("crm_project_expenses").select("amount,category").eq("division_id", division),
       supabase.from("crm_division_financial_settings").select("stale_stage_days").eq("division_id", division).maybeSingle()
@@ -172,7 +172,7 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
   }
 
   async function assignWorkflow(project: Project, value: "retail" | "insurance") {
-    if (!supabase || !canWrite) return;
+    if (!supabase || !canWriteFinancials) return;
     setBusy(true); setError("");
     const { error: updateError } = await supabase.from("crm_projects").update({
       pipeline_type: value, workflow_stage: "new_lead", updated_at: new Date().toISOString()
@@ -222,7 +222,7 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
   }
 
   async function updateExpense(expense: Expense, changes: Partial<Expense>) {
-    if (!supabase || !canWrite || !selected) return;
+    if (!supabase || !canWriteFinancials || !selected) return;
     setBusy(true); setError("");
     const nextPaid = changes.paid_amount ?? expense.paid_amount;
     const nextStatus = changes.payment_status ?? expense.payment_status;
@@ -234,7 +234,7 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
   }
 
   async function updateSupplement(supplement: Supplement, changes: Partial<Supplement>) {
-    if (!supabase || !canWrite || !selected) return;
+    if (!supabase || !canWriteFinancials || !selected) return;
     setBusy(true); setError("");
     const { error: updateError } = await supabase.from("crm_project_supplements").update({
       ...changes,
@@ -390,7 +390,7 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
         <div><span>Direct costs</span><strong>{money(directExpenses)}</strong></div>
         <div><span>Gross profit</span><strong>{money(gross)}</strong></div><div><span>Commission earned</span><strong>{money(selected.commission_earned_amount)}</strong></div><div><span>Overhead allocated</span><strong>{money(selected.overhead_allocated_amount)}</strong></div><div><span>Net project profit</span><strong>{money(netProfit)}</strong></div>
       </div>
-      {canWrite && <form className="inline-form" onSubmit={saveFinancials}>
+      {canWriteFinancials && <form className="inline-form" onSubmit={saveFinancials}>
         <div className="panel-heading subheading"><div><h3>Contract and profitability</h3><p className="muted">Keep estimates, approved value, signed contract, invoicing, and cash collected separate.</p></div></div>
         <div className="form-grid">
           <label>Signed contract amount ($)<input type="number" min="0" step="0.01" value={financeContract} onChange={e=>setFinanceContract(e.target.value)} /></label>
@@ -408,9 +408,9 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
         </div>
         <button className="primary-button" disabled={busy}>Save financials</button>
       </form>}
-      <div className="panel-heading subheading"><div><h3>Job costs</h3><p className="muted">Record actual expenses. Ordered materials are not counted until an expense is entered.</p></div>{canWrite&&<button className="primary-button compact" onClick={()=>setShowExpense(v=>!v)}>+ Add expense</button>}</div>
+      <div className="panel-heading subheading"><div><h3>Job costs</h3><p className="muted">Record actual expenses. Ordered materials are not counted until an expense is entered.</p></div>{canWriteFinancials&&<button className="primary-button compact" onClick={()=>setShowExpense(v=>!v)}>+ Add expense</button>}</div>
       {showExpense&&<form className="inline-form" onSubmit={addExpense}><div className="form-grid"><label>Category<select value={expenseCategory} onChange={e=>setExpenseCategory(e.target.value)}><option value="materials">Materials</option><option value="labor">Labor</option><option value="equipment">Equipment</option><option value="permits">Permits</option><option value="sales_commission">Sales commission</option><option value="overhead">Overhead allocation</option><option value="other">Other</option></select></label><label>Amount ($)<input type="number" min="0.01" step="0.01" required value={expenseAmount} onChange={e=>setExpenseAmount(e.target.value)} /></label><label>Date<input type="date" required value={expenseDate} onChange={e=>setExpenseDate(e.target.value)} /></label><label>Vendor / payee<input value={vendor} onChange={e=>setVendor(e.target.value)} /></label><label className="wide">Description<input value={expenseDescription} onChange={e=>setExpenseDescription(e.target.value)} /></label><label className="wide">Receipt attachment<input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf" onChange={e=>setReceiptFile(e.target.files?.[0] || null)} /></label></div><button className="primary-button" disabled={busy}>Save expense</button></form>}
-      {expenses.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Category</th><th>Vendor</th><th>Description</th><th>Amount</th><th>Payment</th><th>Paid</th><th>Receipt</th></tr></thead><tbody>{expenses.map(x=><tr key={x.id}><td>{new Date(x.expense_date+"T12:00:00").toLocaleDateString()}</td><td>{stageLabel(x.category)}</td><td>{x.vendor_payee||"—"}</td><td>{x.description||"—"}</td><td>{money(x.amount)}</td><td>{canWrite ? <select value={x.payment_status} disabled={busy} onChange={e=>void updateExpense(x,{payment_status:e.target.value})}><option value="unpaid">Unpaid</option><option value="partially_paid">Partially paid</option><option value="paid">Paid</option></select> : stageLabel(x.payment_status)}</td><td>{canWrite ? <input aria-label="Paid amount" type="number" min="0" max={x.amount} step="0.01" defaultValue={x.paid_amount} onBlur={e=>{const v=cents(e.target.value);if(v!==x.paid_amount)void updateExpense(x,{paid_amount:v,payment_status:v===0?"unpaid":v>=x.amount?"paid":"partially_paid"});}} /> : money(x.paid_amount)}</td><td>{x.receipt_file_id ? <button className="secondary-button compact" onClick={()=>void openReceipt(x)}>View</button> : "—"}</td></tr>)}</tbody></table></div>:<div className="empty-state">No expenses recorded for this project.</div>}
+      {expenses.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Category</th><th>Vendor</th><th>Description</th><th>Amount</th><th>Payment</th><th>Paid</th><th>Receipt</th></tr></thead><tbody>{expenses.map(x=><tr key={x.id}><td>{new Date(x.expense_date+"T12:00:00").toLocaleDateString()}</td><td>{stageLabel(x.category)}</td><td>{x.vendor_payee||"—"}</td><td>{x.description||"—"}</td><td>{money(x.amount)}</td><td>{canWriteFinancials ? <select value={x.payment_status} disabled={busy} onChange={e=>void updateExpense(x,{payment_status:e.target.value})}><option value="unpaid">Unpaid</option><option value="partially_paid">Partially paid</option><option value="paid">Paid</option></select> : stageLabel(x.payment_status)}</td><td>{canWriteFinancials ? <input aria-label="Paid amount" type="number" min="0" max={x.amount} step="0.01" defaultValue={x.paid_amount} onBlur={e=>{const v=cents(e.target.value);if(v!==x.paid_amount)void updateExpense(x,{paid_amount:v,payment_status:v===0?"unpaid":v>=x.amount?"paid":"partially_paid"});}} /> : money(x.paid_amount)}</td><td>{x.receipt_file_id ? <button className="secondary-button compact" onClick={()=>void openReceipt(x)}>View</button> : "—"}</td></tr>)}</tbody></table></div>:<div className="empty-state">No expenses recorded for this project.</div>}
       {selected.pipeline_type==="insurance" && <><div className="panel-heading subheading"><div><h3>Supplements</h3><p className="muted">Each submission is tracked separately with its own response history.</p></div>{canWrite&&<button className="primary-button compact" onClick={()=>setShowSupplement(v=>!v)}>+ Add supplement</button>}</div>
         {showSupplement&&<form className="inline-form" onSubmit={addSupplement}><div className="form-grid"><label>Requested amount ($)<input type="number" min="0" step="0.01" required value={supplementAmount} onChange={e=>setSupplementAmount(e.target.value)} /></label><label>Status<select value={supplementStatus} onChange={e=>setSupplementStatus(e.target.value)}><option value="draft">Draft</option><option value="submitted">Submitted</option><option value="under_review">Under review</option><option value="approved">Approved</option><option value="partially_approved">Partially approved</option><option value="denied">Denied</option><option value="resubmitted">Resubmitted</option></select></label><label className="wide">Notes<textarea rows={2} value={supplementNotes} onChange={e=>setSupplementNotes(e.target.value)} /></label></div><button className="primary-button" disabled={busy}>Save supplement</button></form>}
         {supplementEditing && <form className="inline-form" onSubmit={e=>{e.preventDefault();const s=supplements.find(x=>x.id===supplementEditing);if(s)void updateSupplement(s,{approved_amount:cents(supplementApproved),status:supplementStatusEdit,carrier_response:supplementResponse,response_at:supplementResponseDate?new Date(supplementResponseDate).toISOString():null});}}><div className="form-grid"><label>Status<select value={supplementStatusEdit} onChange={e=>setSupplementStatusEdit(e.target.value)}><option value="draft">Draft</option><option value="submitted">Submitted</option><option value="under_review">Under review</option><option value="approved">Approved</option><option value="partially_approved">Partially approved</option><option value="denied">Denied</option><option value="resubmitted">Resubmitted</option></select></label><label>Approved amount ($)<input type="number" min="0" step="0.01" value={supplementApproved} onChange={e=>setSupplementApproved(e.target.value)} /></label><label>Response date<input type="date" value={supplementResponseDate} onChange={e=>setSupplementResponseDate(e.target.value)} /></label><label className="wide">Carrier response / notes<input value={supplementResponse} onChange={e=>setSupplementResponse(e.target.value)} /></label></div><button className="primary-button" disabled={busy}>Save carrier response</button><button type="button" className="secondary-button compact" onClick={()=>setSupplementEditing(null)}>Cancel</button></form>}
