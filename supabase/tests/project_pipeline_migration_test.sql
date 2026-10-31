@@ -67,6 +67,8 @@ CREATE TABLE public.crm_files (
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 ALTER TABLE public.crm_files ENABLE ROW LEVEL SECURITY;
+CREATE POLICY crm_files_read ON public.crm_files FOR SELECT TO authenticated
+  USING (app_private.has_division_resource_access(division_id, 'files', false));
 
 CREATE OR REPLACE FUNCTION app_private.has_division_resource_access(p_division_id text, p_resource text, p_write boolean DEFAULT false)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO ''
@@ -93,6 +95,7 @@ VALUES ('00000000-0000-0000-0000-000000000001', 'TRD', 'owner');
 
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
 SET ROLE authenticated;
+CREATE TEMP TABLE test_ids(project_id uuid, supplement_id uuid, expense_id uuid);
 
 INSERT INTO public.crm_projects
   (division_id, customer_id, property_id, project_name, pipeline_type, workflow_stage, created_by)
@@ -100,6 +103,7 @@ VALUES
   ('TRD', '00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000020',
    'Pipeline migration test', 'insurance', 'new_lead', auth.uid())
 RETURNING id AS test_project_id \gset
+INSERT INTO pg_temp.test_ids(project_id) VALUES (:'test_project_id');
 
 INSERT INTO public.crm_project_transactions
   (division_id, project_id, transaction_type, amount, transaction_date, reference_number, entered_by)
@@ -109,10 +113,10 @@ VALUES
 
 DO $$
 BEGIN
-  IF (SELECT invoiced_amount FROM public.crm_projects WHERE id = :'test_project_id') <> 12000 THEN
+  IF (SELECT invoiced_amount FROM public.crm_projects WHERE id = (SELECT project_id FROM pg_temp.test_ids)) <> 12000 THEN
     RAISE EXCEPTION 'Invoice total did not synchronize';
   END IF;
-  IF (SELECT collected_amount FROM public.crm_projects WHERE id = :'test_project_id') <> 2500 THEN
+  IF (SELECT collected_amount FROM public.crm_projects WHERE id = (SELECT project_id FROM pg_temp.test_ids)) <> 2500 THEN
     RAISE EXCEPTION 'Payment total did not synchronize';
   END IF;
 END $$;
@@ -127,6 +131,7 @@ INSERT INTO public.crm_project_supplements
 VALUES
   ('TRD', :'test_project_id', 1, 1800, 'submitted', auth.uid())
 RETURNING id AS test_supplement_id \gset
+INSERT INTO pg_temp.test_ids(supplement_id) VALUES (:'test_supplement_id');
 
 UPDATE public.crm_project_supplements
 SET status = 'partially_approved', approved_amount = 900,
@@ -156,6 +161,7 @@ INSERT INTO public.crm_project_expenses
   (division_id, project_id, category, amount, receipt_file_id, entered_by)
 VALUES ('TRD', :'test_project_id', 'materials', 125, :'test_receipt_id', auth.uid())
 RETURNING id AS test_expense_id \gset
+INSERT INTO pg_temp.test_ids(expense_id) VALUES (:'test_expense_id');
 
 UPDATE public.crm_project_expenses
 SET paid_amount = 125, payment_status = 'paid'
@@ -163,19 +169,19 @@ WHERE id = :'test_expense_id';
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM public.crm_project_stage_history WHERE project_id = :'test_project_id' AND to_stage = 'new_lead') THEN
+  IF NOT EXISTS (SELECT 1 FROM public.crm_project_stage_history WHERE project_id = (SELECT project_id FROM pg_temp.test_ids) AND to_stage = 'new_lead') THEN
     RAISE EXCEPTION 'Initial stage history was not recorded';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.crm_project_financial_history WHERE project_id = :'test_project_id') THEN
     RAISE EXCEPTION 'Financial edit history was not recorded';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.crm_project_supplement_history WHERE supplement_id = :'test_supplement_id') THEN
+  IF NOT EXISTS (SELECT 1 FROM public.crm_project_supplement_history WHERE supplement_id = (SELECT supplement_id FROM pg_temp.test_ids)) THEN
     RAISE EXCEPTION 'Supplement history was not recorded';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.crm_project_expense_history WHERE expense_id = :'test_expense_id') THEN
+  IF NOT EXISTS (SELECT 1 FROM public.crm_project_expense_history WHERE expense_id = (SELECT expense_id FROM pg_temp.test_ids)) THEN
     RAISE EXCEPTION 'Expense history was not recorded';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.crm_project_cost_estimates WHERE project_id = :'test_project_id' AND category = 'materials') THEN
+  IF NOT EXISTS (SELECT 1 FROM public.crm_project_cost_estimates WHERE project_id = (SELECT project_id FROM pg_temp.test_ids) AND category = 'materials') THEN
     RAISE EXCEPTION 'Cost estimate was not saved';
   END IF;
 END $$;
