@@ -120,6 +120,7 @@ VALUES ('00000000-0000-0000-0000-000000000040','TRD','00000000-0000-0000-0000-00
 \ir ../migrations/20261031220000_add_project_pipeline_and_job_costing.sql
 \ir ../migrations/20261031220100_complete_project_pipeline_stage_gates.sql
 \ir ../migrations/20261031220200_add_project_transaction_attachments.sql
+\ir ../migrations/20261031220300_add_company_expense_ledger.sql
 
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
 SET ROLE authenticated;
@@ -411,6 +412,51 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM = 'Retail workflow accepted an insurance-only stage' THEN RAISE; END IF;
   END;
+END
+$body$;
+
+-- Company-level expenses remain separate from project overhead allocations and keep receipt history.
+INSERT INTO public.crm_company_expenses
+  (division_id, expense_date, category, amount, paid_amount, payment_status, vendor_payee, description, entered_by)
+VALUES ('TRD', CURRENT_DATE, 'utilities', 1200, 0, 'unpaid', 'Test Utility Co', 'Monthly utility bill', auth.uid())
+RETURNING id AS test_company_expense_id \\gset;
+
+INSERT INTO storage.objects(bucket_id,name)
+VALUES ('roof-doctors-private','TRD/company-expenses/company-expense-test.pdf');
+INSERT INTO public.crm_files
+  (division_id,related_type,related_id,bucket_id,object_path,original_filename,content_type,file_size_bytes,uploaded_by,metadata)
+VALUES
+  ('TRD','company_expense',:'test_company_expense_id','roof-doctors-private',
+   'TRD/company-expenses/company-expense-test.pdf','company-expense-test.pdf',
+   'application/pdf',100,auth.uid(),
+   jsonb_build_object('document_category','company_expense_receipt'))
+RETURNING id AS test_company_receipt_id \\gset;
+UPDATE public.crm_company_expenses
+SET receipt_file_id = :'test_company_receipt_id'
+WHERE id = :'test_company_expense_id';
+
+UPDATE public.crm_company_expenses
+SET paid_amount = 600, payment_status = 'partially_paid', updated_at = now()
+WHERE id = :'test_company_expense_id';
+UPDATE public.crm_company_expenses
+SET paid_amount = 1200, payment_status = 'paid', updated_at = now()
+WHERE id = :'test_company_expense_id';
+
+DO $body$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.crm_company_expenses
+    WHERE id = :'test_company_expense_id' AND receipt_file_id = :'test_company_receipt_id'
+      AND payment_status = 'paid' AND paid_amount = 1200
+  ) THEN
+    RAISE EXCEPTION 'Company expense receipt or payment update was not saved';
+  END IF;
+  IF (SELECT count(*) FROM public.crm_company_expense_history WHERE expense_id = :'test_company_expense_id') <> 2 THEN
+    RAISE EXCEPTION 'Company expense edits were not retained in history';
+  END IF;
+  IF has_table_privilege('authenticated','public.crm_company_expenses','DELETE') THEN
+    RAISE EXCEPTION 'Company expenses unexpectedly allow deletion';
+  END IF;
 END
 $body$;
 
