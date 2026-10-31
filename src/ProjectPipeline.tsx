@@ -320,10 +320,59 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
 
   async function moveProject(project: Project, nextStage: string) {
     if (!supabase || !canWrite || !project.pipeline_type || nextStage === (project.workflow_stage || "new_lead")) return;
+    let orderReference: string | null = null;
+    let completedDate: string | null = null;
+    let override = false;
+    let note = window.prompt("Optional stage change note:", "") ?? "";
+    if (nextStage === "materials_ordered") {
+      const value = window.prompt("Enter the purchase order or material order reference. Leave blank only to request an authorized override:", project.materials_order_reference || "");
+      if (value === null) return;
+      orderReference = value.trim() || null;
+      if (!orderReference) {
+        if (!canOverrideGates || !window.confirm("No order reference was entered. Use an authorized override and record the reason?")) return;
+        override = true;
+        note = [note, "Material order reference not available"].filter(Boolean).join(" | ");
+      }
+    }
+    if (nextStage === "work_completed") {
+      const value = window.prompt("Enter the work completion date (YYYY-MM-DD). Leave blank only to request an authorized override:", new Date().toISOString().slice(0,10));
+      if (value === null) return;
+      completedDate = value.trim() || null;
+      if (completedDate && !/^\\d{4}-\\d{2}-\\d{2}$/.test(completedDate)) { setError("Enter the completion date as YYYY-MM-DD."); return; }
+      if (!completedDate) {
+        if (!canOverrideGates || !window.confirm("No completion date was entered. Use an authorized override and record the reason?")) return;
+        override = true;
+        note = [note, "Completion date not recorded"].filter(Boolean).join(" | ");
+      }
+    }
+    if (nextStage === "supplement_approved" || nextStage === "supplement_partially_approved") {
+      if (Number(project.supplements_approved_amount || 0) <= 0) {
+        if (!canOverrideGates || !window.confirm("No carrier-approved amount is recorded. Use an authorized override?")) return;
+        override = true;
+        note = [note, "Carrier approved amount not recorded"].filter(Boolean).join(" | ");
+      }
+    }
+    if (nextStage === "closed" && Number(project.invoiced_amount || 0) > Number(project.collected_amount || 0)) {
+      const balance = Number(project.invoiced_amount || 0) - Number(project.collected_amount || 0);
+      if (!canOverrideGates || !window.confirm("This project has an outstanding invoice balance of " + money(balance) + ". Close with an authorized override?")) return;
+      override = true;
+      note = [note, "Outstanding balance waived or handled outside the CRM"].filter(Boolean).join(" | ");
+    }
     setBusy(true); setError("");
-    const { error: updateError } = await supabase.from("crm_projects").update({ workflow_stage: nextStage, updated_at: new Date().toISOString() }).eq("id", project.id).eq("division_id", project.division_id);
+    const { error: updateError } = await supabase.rpc("crm_move_project_stage", {
+      p_project_id: project.id, p_next_stage: nextStage, p_note: note.trim() || null,
+      p_materials_order_reference: orderReference, p_work_completed_at: completedDate,
+      p_authorized_override: override
+    });
     if (updateError) setError(updateError.message);
-    else { setMessage("Project stage updated."); await load(); if (selected?.id === project.id) await openProject({ ...project, workflow_stage: nextStage }); }
+    else {
+      setMessage("Project stage updated.");
+      await load();
+      if (selected?.id === project.id) {
+        const { data: fresh } = await supabase.from("crm_projects").select("*").eq("id", project.id).single();
+        await openProject((fresh || { ...project, workflow_stage: nextStage }) as Project);
+      }
+    }
     setBusy(false);
   }
 
@@ -341,8 +390,6 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       setError("Receipt must be JPG, PNG, WebP, or PDF and no larger than 15 MB."); setBusy(false); return;
     }
     const amount = cents(expenseAmount);
-    const duplicate = expenses.some(x => x.category === expenseCategory && Math.round(Number(x.amount)*100) === Math.round(amount*100) && x.expense_date === expenseDate && (x.vendor_payee || "").trim().toLowerCase() === vendor.trim().toLowerCase());
-    if (duplicate && !window.confirm("A similar expense already exists for this project. Add another anyway?")) { setBusy(false); return; }
     const { data: expenseRow, error: insertError } = await supabase.from("crm_project_expenses").insert({
       division_id: selected.division_id, project_id: selected.id, category: expenseCategory,
       amount, paid_amount: 0, payment_status: "unpaid", expense_date: expenseDate,
@@ -444,9 +491,9 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     const { error: updateError } = await supabase.from("crm_project_supplements").update({
       ...changes,
       submitted_at: changes.status && ["submitted","resubmitted","under_review"].includes(changes.status) ? new Date().toISOString() : supplement.submitted_at,
-      status: changes.status ?? supplementStatusEdit,
+      status: changes.status ?? supplement.status,
       response_at: changes.status && ["approved","partially_approved","denied"].includes(changes.status) || ["approved","partially_approved","denied"].includes(supplementStatusEdit) ? (supplementResponseDate ? new Date(supplementResponseDate).toISOString() : new Date().toISOString()) : supplement.response_at,
-      carrier_response: supplementResponse.trim() || supplement.carrier_response,
+      carrier_response: changes.carrier_response ?? (supplementResponse.trim() || supplement.carrier_response),
       updated_at: new Date().toISOString()
     }).eq("id", supplement.id).eq("division_id", selected.division_id);
     if (updateError) setError(updateError.message);
@@ -510,7 +557,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     const contractAmount = cents(financeContract);
     const collected = Number(selected.collected_amount || 0);
     const contractValueNow = (contractAmount || approved) + Number(selected.supplements_approved_amount || 0);
-    const grossNow = contractValueNow - direct;
+    const grossNow = Math.max(0, contractValueNow - direct);
     const rate = cents(commissionRate);
     const fixed = cents(commissionFixed);
     const earned = commissionMethod === "fixed" ? fixed
