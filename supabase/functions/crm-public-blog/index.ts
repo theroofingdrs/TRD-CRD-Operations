@@ -7,7 +7,7 @@ const corsHeaders = {
   "Content-Type": "application/json",
 };
 
-function json(body: Record<string, unknown>, status = 200) {
+function readKey(singleName: string, mapName: string): string {\n  const direct = Deno.env.get(singleName);\n  if (direct) return direct;\n  try {\n    const values = JSON.parse(Deno.env.get(mapName) ?? "{}") as Record<string, string>;\n    return values.default ?? Object.values(values)[0] ?? "";\n  } catch {\n    return "";\n  }\n}\n\nfunction json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: corsHeaders });
 }
 
