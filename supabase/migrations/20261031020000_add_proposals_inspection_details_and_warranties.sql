@@ -50,23 +50,23 @@ ALTER TABLE public.crm_proposals ENABLE ROW LEVEL SECURITY;
 CREATE POLICY crm_proposals_read ON public.crm_proposals
   FOR SELECT TO authenticated
   USING (
-    app_private.has_division_resource_access(division_id, 'projects', false)
+    app_private.has_division_resource_access(division_id, 'leads', false)
     AND app_private.property_in_division(division_id, property_id)
   );
 
 CREATE POLICY crm_proposals_insert ON public.crm_proposals
   FOR INSERT TO authenticated
   WITH CHECK (
-    app_private.has_division_resource_access(division_id, 'projects', true)
+    app_private.has_division_resource_access(division_id, 'leads', true)
     AND app_private.project_links_match_division(division_id, customer_id, property_id)
     AND (created_by IS NULL OR created_by = (SELECT auth.uid()))
   );
 
 CREATE POLICY crm_proposals_update ON public.crm_proposals
   FOR UPDATE TO authenticated
-  USING (app_private.has_division_resource_access(division_id, 'projects', true))
+  USING (app_private.has_division_resource_access(division_id, 'leads', true))
   WITH CHECK (
-    app_private.has_division_resource_access(division_id, 'projects', true)
+    app_private.has_division_resource_access(division_id, 'leads', true)
     AND app_private.project_links_match_division(division_id, customer_id, property_id)
   );
 
