@@ -595,7 +595,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       await load();
       const { data: fresh } = await supabase.from("crm_projects").select("*").eq("id", selected.id).single();
       await openProject((fresh || selected) as Project);
-      if (!error) setMessage(transactionType === "invoice" ? "Invoice recorded with its original document." : "Payment recorded with its receipt.");
+      setMessage(transactionType === "invoice" ? "Invoice recorded. Any attached original document is linked to this transaction." : "Payment recorded. Any attached receipt is linked to this transaction.");
     }
     setBusy(false);
   }
