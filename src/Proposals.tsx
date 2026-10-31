@@ -89,7 +89,7 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
       if (eligibleReports.length === 1) {
         const report = eligibleReports[0];
         setSelectedRoofrReportId(report.id);
-        const imported = (report.metadata?.extracted_measurements || []).filter(item => typeof item.value === "number" && Number.isFinite(item.value)).map(item => ({ description: item.label + " from Roofr", quantity: String(item.value), unit: item.unit === "FACETS" ? "EA" : item.unit, unit_price: "" }));
+        const imported = (report.metadata?.extracted_measurements || []).filter(item => typeof item.value === "number" && Number.isFinite(item.value)).map(item => ({ description: item.label + " from Roofr", quantity: String(item.value), unit: item.unit === "FACETS" ? "EA" : item.unit, unit_price: "", line_type: "other" as const, apply_waste: false }));
         setLineItems(current => [...current.filter(item => !item.description.toLowerCase().endsWith(" from roofr")), ...imported]);
         setMessage("The only reviewed Roofr report for this property was automatically selected and its measurements were imported.");
       }
@@ -146,7 +146,7 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
     setSelectedRoofrReportId(report.id);
     if (!measurements.length) return;
     setLineItems(current => {
-      const imported = measurements.filter(item => typeof item.value === "number" && Number.isFinite(item.value)).map(item => ({ description: item.label + " from Roofr", quantity: String(item.value), unit: item.unit === "FACETS" ? "EA" : item.unit, unit_price: "" }));
+      const imported = measurements.filter(item => typeof item.value === "number" && Number.isFinite(item.value)).map(item => ({ description: item.label + " from Roofr", quantity: String(item.value), unit: item.unit === "FACETS" ? "EA" : item.unit, unit_price: "", line_type: "other" as const, apply_waste: false }));
       return [...current.filter(item => item.description.trim() && !item.description.toLowerCase().endsWith(" from roofr")), ...imported];
     });
     setMessage("Reviewed Roofr quantities added as new estimate lines. Existing line items were left unchanged.");
@@ -155,7 +155,10 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
     const selected = allCatalogItems.find(item => item.description === catalogSelection && item.category === catalogCategory);
     if (!selected) return;
     const savedPrice = priceBookRows.find(row=>row.category===selected.category&&row.description===selected.description&&row.unit===selected.unit)?.unit_price;
-    setLineItems(current => [...current, { description: selected.description, quantity: "1", unit: selected.unit, unit_price: savedPrice == null ? "" : String(savedPrice) }]);
+    const labor = selected.category.toLowerCase().includes("labor") || selected.description.toLowerCase().includes("labor") || selected.category.toLowerCase().includes("access and material handling");
+    const quantity = roofrQuantityForItem(selected.description,selected.unit);
+    const applyWaste = !labor && (selected.unit === "SQ" || selected.unit === "SF");
+    setLineItems(current => [...current, { description: selected.description, quantity, unit: selected.unit, unit_price: savedPrice == null ? "" : String(savedPrice), category:selected.category, line_type:labor?"labor":"material", apply_waste:applyWaste }]);
     setCatalogSelection("");
   }
   async function sendPdf(id: string) {
@@ -170,8 +173,9 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
     if (!supabase || !customerId || !propertyId) return;
     setBusy(true); setMessage("");
     const savedItems = pricingMode === "lump_sum" ? [] : lineItems.filter(item => item.description.trim()).map(item => ({
-      description: item.description.trim(), quantity: Number(item.quantity || 1), unit: item.unit || "EA", unit_price: Number(item.unit_price || 0),
-      amount: roundMoney(Number(item.quantity || 1) * Number(item.unit_price || 0))
+      description: item.description.trim(), quantity: effectiveQuantity(item), source_quantity: Number(item.quantity || 1), unit: item.unit || "EA", unit_price: Number(item.unit_price || 0),
+      line_type: item.line_type || "other", apply_waste: Boolean(item.apply_waste), waste_factor_percent_applied: item.apply_waste ? Number(wasteFactorPercent) : 0, category: item.category || null,
+      amount: lineAmount(item)
     }));
     const { error } = await supabase.from("crm_proposals").insert({
       division_id: division, customer_id: customerId, property_id: propertyId, title: title.trim(),
@@ -185,7 +189,7 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
     else {
       setMessage("Proposal draft saved to this customer and property.");
       setShowForm(false); setTitle(""); setScope(""); setConditions(""); setExclusions(""); setLumpSum(""); setSelectedRoofrReportId("");
-      setLineItems([{ description: "", quantity: "1", unit: "EA", unit_price: "" }]); setTaxRate("0"); setOverheadEnabled(true); setProfitEnabled(true); setValidUntil(""); setWasteFactorPercent("10"); setComplexityFactor("standard"); setPitchFactor("standard");
+      setLineItems([{ description: "", quantity: "1", unit: "EA", unit_price: "", line_type:"other", apply_waste:false }]); setTaxRate("0"); setOverheadEnabled(true); setProfitEnabled(true); setValidUntil(""); setWasteFactorPercent("10"); setComplexityFactor("standard"); setComplexityRate("0"); setPitchFactor("standard"); setPitchRate("0");
       await load();
     }
     setBusy(false);
