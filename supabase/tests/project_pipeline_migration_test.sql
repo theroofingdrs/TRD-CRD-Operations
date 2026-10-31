@@ -92,9 +92,9 @@ INSERT INTO auth.users(id) VALUES ('00000000-0000-0000-0000-000000000001');
 INSERT INTO public.crm_memberships(user_id, division_id, role)
 VALUES ('00000000-0000-0000-0000-000000000001', 'TRD', 'owner');
 
-\ir ../migrations/20261031140000_add_project_pipeline_and_job_costing.sql
-\ir ../migrations/20261031193000_complete_project_pipeline_stage_gates.sql
-\ir ../migrations/20261031200000_add_project_transaction_attachments.sql
+\ir ../migrations/20261031220000_add_project_pipeline_and_job_costing.sql
+\ir ../migrations/20261031220100_complete_project_pipeline_stage_gates.sql
+\ir ../migrations/20261031220200_add_project_transaction_attachments.sql
 
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
 SET ROLE authenticated;
