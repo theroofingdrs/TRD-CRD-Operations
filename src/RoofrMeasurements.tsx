@@ -151,6 +151,27 @@ export default function RoofrMeasurements({ division, userId, properties, canWri
     else if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   }
 
+  async function reextractReport(row: ReportRow) {
+    if (!supabase) return;
+    setBusy(true); setMessage("Re-reading the saved Roofr PDF...");
+    const { data, error } = await supabase.storage.from(row.bucket_id).download(row.object_path);
+    if (error || !data) { setBusy(false); setMessage(error?.message || "The saved PDF could not be downloaded."); return; }
+    try {
+      const file = new File([data], row.original_filename, { type: "application/pdf" });
+      const extracted = await extractPdfMeasurements(file);
+      setReview(row);
+      setMeasurements(extracted.measurements);
+      setStructures(extracted.structures);
+      const savedWaste = Number(row.metadata?.waste_factor_percent || 10);
+      setWasteFactor(savedWaste >= 20 ? "20+" : String(savedWaste));
+      setCustomWasteFactor(String(Math.max(20, savedWaste)));
+      setMessage("Re-extraction complete. Check the values and save the reviewed measurements to update this report.");
+    } catch (error) {
+      setMessage("The original PDF is safe, but re-extraction failed: " + (error instanceof Error ? error.message : String(error)));
+    }
+    setBusy(false);
+  }
+
   async function saveReview() {
     if (!supabase || !review) return;
     setBusy(true);
@@ -172,13 +193,13 @@ export default function RoofrMeasurements({ division, userId, properties, canWri
         <p className="fine-print">PDF only. Maximum 15 MB. The original report is retained in private property storage.</p>
       </form>}
       {message && <p className="inline-message">{message}</p>}
-      {reports.length > 0 && <div className="table-wrap"><table><thead><tr><th>Report</th><th>Uploaded</th><th>Extraction</th><th>Action</th></tr></thead><tbody>{reports.map(row => <tr key={row.id}><td>{row.original_filename}</td><td>{new Date(row.created_at).toLocaleDateString()}</td><td>{String(row.metadata?.extraction_status || "uploaded").replaceAll("_", " ")}</td><td><button type="button" className="text-button" onClick={() => { setReview(row); setMeasurements((row.metadata?.extracted_measurements as Measurement[]) || []); setStructures((row.metadata?.extracted_structures as RoofStructure[]) || []); const savedWaste = Number(row.metadata?.waste_factor_percent || 10); setWasteFactor(savedWaste >= 20 ? "20+" : String(savedWaste)); setCustomWasteFactor(String(Math.max(20, savedWaste))); }}>Review</button> <button type="button" className="text-button" onClick={() => void openReport(row)}>Open PDF</button></td></tr>)}</tbody></table></div>}
+      {reports.length > 0 && <div className="table-wrap"><table><thead><tr><th>Report</th><th>Uploaded</th><th>Extraction</th><th>Action</th></tr></thead><tbody>{reports.map(row => <tr key={row.id}><td>{row.original_filename}</td><td>{new Date(row.created_at).toLocaleDateString()}</td><td>{String(row.metadata?.extraction_status || "uploaded").replaceAll("_", " ")}</td><td><button type="button" className="text-button" onClick={() => { setReview(row); setMeasurements((row.metadata?.extracted_measurements as Measurement[]) || []); setStructures((row.metadata?.extracted_structures as RoofStructure[]) || []); const savedWaste = Number(row.metadata?.waste_factor_percent || 10); setWasteFactor(savedWaste >= 20 ? "20+" : String(savedWaste)); setCustomWasteFactor(String(Math.max(20, savedWaste))); }}>Review</button> <button type="button" className="text-button" disabled={busy} onClick={() => void reextractReport(row)}>Re-extract</button> <button type="button" className="text-button" onClick={() => void openReport(row)}>Open PDF</button></td></tr>)}</tbody></table></div>}
       {review && <div className="content-stack"><h4>Review extracted quantities</h4>
         {measurements.length === 0 ? <p className="muted">No recognizable text quantities were found. This report is still saved. A scanned or image based PDF will need OCR support.</p> :
           <div className="table-wrap"><table><thead><tr><th>Measurement</th><th>Quantity</th><th>Unit</th><th>Source</th></tr></thead><tbody>{measurements.map((item, index) => <tr key={item.label}><td>{item.label}</td><td><input type="number" min="0" step="0.01" value={item.value} onChange={e => setMeasurements(current => current.map((m, i) => i === index ? { ...m, value: Number(e.target.value) } : m))} /></td><td>{item.unit}</td><td>{item.source_label}</td></tr>)}</tbody></table></div>}
         {structures.length > 0 && <div><h4>Individual structure breakdowns</h4><p className="muted">Structure values are reference details only. They are not added to the overall roof totals.</p>{structures.map(structure => <div key={structure.name}><strong>{structure.name}</strong><ul>{structure.measurements.map(item => <li key={item.label}>{item.label}: {item.value.toFixed(2)} {item.unit}</li>)}</ul></div>)}</div>}
         <div className="content-stack"><h4>Roofing waste allowance</h4><p className="muted">Choose one combined allowance based on roof complexity and pitch. It is applied to pitched roof squares only. Flat roofing quantities remain separate.</p>
-          <div className="button-row">{["10", "12", "15", "20+"].map(option => <button key={option} type="button" className={wasteFactor === option ? "primary-button" : "secondary-button"} onClick={() => setWasteFactor(option)}>{option}%</button>)}</div>
+          <div className="button-row">{["10", "12", "15", "20+"].map(option => <button key={option} type="button" className={wasteFactor === option ? "primary-button" : "secondary-button"} onClick={() => setWasteFactor(option)}>{option === "20+" ? "20%+" : option + "%"}</button>)}</div>
           {wasteFactor === "20+" && <label>Custom waste allowance (%)<input type="number" min="20" max="100" step="1" value={customWasteFactor} onChange={e => setCustomWasteFactor(e.target.value)} /></label>}
           {(() => { const pitched = measurements.find(item => item.label === "Pitched roof squares")?.value || 0; const factor = wasteFactor === "20+" ? Math.max(20, Number(customWasteFactor) || 20) : Number(wasteFactor); return <p><strong>Estimated pitched quantity with {factor}% allowance: {(pitched * (1 + factor / 100)).toFixed(2)} SQ</strong></p>; })()}
         </div>
