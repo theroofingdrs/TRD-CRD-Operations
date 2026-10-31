@@ -611,4 +611,59 @@ CREATE TRIGGER crm_project_supplements_log_update
   AFTER UPDATE ON public.crm_project_supplements
   FOR EACH ROW EXECUTE FUNCTION app_private.log_project_supplement_change();
 
+
+CREATE TABLE public.crm_project_cost_estimates (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  division_id text NOT NULL REFERENCES public.crm_divisions(id),
+  project_id uuid NOT NULL REFERENCES public.crm_projects(id),
+  category text NOT NULL CHECK (category IN ('materials','labor','equipment','permits','sales_commission','overhead','other')),
+  estimated_amount numeric(14,2) NOT NULL CHECK (estimated_amount >= 0),
+  notes text,
+  updated_by uuid REFERENCES auth.users(id),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (project_id, category)
+);
+ALTER TABLE public.crm_project_cost_estimates ENABLE ROW LEVEL SECURITY;
+CREATE POLICY crm_project_cost_estimates_read ON public.crm_project_cost_estimates
+  FOR SELECT TO authenticated USING (app_private.has_division_financial_access(division_id, false));
+CREATE POLICY crm_project_cost_estimates_insert ON public.crm_project_cost_estimates
+  FOR INSERT TO authenticated WITH CHECK (
+    app_private.has_division_financial_access(division_id, true)
+    AND (updated_by IS NULL OR updated_by = (SELECT auth.uid()))
+    AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = project_id AND p.division_id = division_id)
+  );
+CREATE POLICY crm_project_cost_estimates_update ON public.crm_project_cost_estimates
+  FOR UPDATE TO authenticated USING (app_private.has_division_financial_access(division_id, true))
+  WITH CHECK (
+    app_private.has_division_financial_access(division_id, true)
+    AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = project_id AND p.division_id = division_id)
+  );
+GRANT SELECT, INSERT, UPDATE ON public.crm_project_cost_estimates TO authenticated;
+
+CREATE POLICY crm_files_supplement_attachment_insert ON public.crm_files
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    related_type = 'supplement'
+    AND metadata->>'document_category' = 'supplement_attachment'
+    AND app_private.has_division_resource_access(division_id, 'projects', true)
+    AND (uploaded_by IS NULL OR uploaded_by = (SELECT auth.uid()))
+    AND EXISTS (
+      SELECT 1 FROM public.crm_project_supplements s
+      JOIN public.crm_projects p ON p.id = s.project_id
+      WHERE s.id = related_id AND p.division_id = division_id
+    )
+  );
+CREATE POLICY crm_files_supplement_attachment_read ON public.crm_files
+  FOR SELECT TO authenticated
+  USING (
+    related_type = 'supplement'
+    AND metadata->>'document_category' = 'supplement_attachment'
+    AND app_private.has_division_resource_access(division_id, 'projects', false)
+    AND EXISTS (
+      SELECT 1 FROM public.crm_project_supplements s
+      JOIN public.crm_projects p ON p.id = s.project_id
+      WHERE s.id = related_id AND p.division_id = division_id
+    )
+  );
+
 -- Receipt uploads reuse the existing private file bucket and metadata table.
