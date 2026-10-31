@@ -114,7 +114,7 @@ INSERT INTO public.crm_project_transactions
   (division_id, project_id, transaction_type, amount, transaction_date, reference_number, entered_by)
 VALUES ('TRD', :'test_project_id', 'payment', 2500, CURRENT_DATE, 'PAY-TEST-1', auth.uid())
 RETURNING id AS test_transaction_id \gset
-INSERT INTO pg_temp.test_ids(transaction_id) VALUES (:'test_transaction_id');
+UPDATE pg_temp.test_ids SET transaction_id = :'test_transaction_id';
 
 DO $$
 BEGIN
@@ -140,7 +140,7 @@ INSERT INTO public.crm_project_supplements
 VALUES
   ('TRD', :'test_project_id', 1, 1800, 'submitted', auth.uid())
 RETURNING id AS test_supplement_id \gset
-INSERT INTO pg_temp.test_ids(supplement_id) VALUES (:'test_supplement_id');
+UPDATE pg_temp.test_ids SET supplement_id = :'test_supplement_id';
 
 UPDATE public.crm_project_supplements
 SET status = 'partially_approved', approved_amount = 900,
@@ -170,7 +170,7 @@ INSERT INTO public.crm_project_expenses
   (division_id, project_id, category, amount, receipt_file_id, entered_by)
 VALUES ('TRD', :'test_project_id', 'materials', 125, :'test_receipt_id', auth.uid())
 RETURNING id AS test_expense_id \gset
-INSERT INTO pg_temp.test_ids(expense_id) VALUES (:'test_expense_id');
+UPDATE pg_temp.test_ids SET expense_id = :'test_expense_id';
 
 UPDATE public.crm_project_expenses
 SET paid_amount = 125, payment_status = 'paid'
