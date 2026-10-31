@@ -15,6 +15,7 @@ ALTER TABLE public.crm_projects
   ADD COLUMN IF NOT EXISTS commission_method text,
   ADD COLUMN IF NOT EXISTS commission_rate numeric(8,4),
   ADD COLUMN IF NOT EXISTS commission_fixed_amount numeric(14,2),
+  ADD COLUMN IF NOT EXISTS commission_salesperson_name text,
   ADD COLUMN IF NOT EXISTS commission_earned_amount numeric(14,2) NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS commission_paid_amount numeric(14,2) NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS overhead_method text,
@@ -147,6 +148,27 @@ CREATE POLICY crm_project_supplements_update ON public.crm_project_supplements
   );
 GRANT SELECT, INSERT, UPDATE ON public.crm_project_supplements TO authenticated;
 
+CREATE OR REPLACE FUNCTION app_private.has_division_financial_access(p_division_id text, p_write boolean DEFAULT false)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.crm_memberships m
+    WHERE m.user_id = (SELECT auth.uid())
+      AND m.division_id = p_division_id
+      AND m.active = true
+      AND (
+        NOT p_write
+        OR m.role IN ('owner','division_admin','office_manager','project_manager','accounting')
+      )
+  );
+$function$;
+GRANT EXECUTE ON FUNCTION app_private.has_division_financial_access(text, boolean) TO authenticated;
+
 CREATE TABLE public.crm_project_expenses (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   division_id text NOT NULL REFERENCES public.crm_divisions(id),
@@ -175,11 +197,11 @@ CREATE INDEX crm_project_expenses_division_status_idx
 ALTER TABLE public.crm_project_expenses ENABLE ROW LEVEL SECURITY;
 CREATE POLICY crm_project_expenses_read ON public.crm_project_expenses
   FOR SELECT TO authenticated
-  USING (app_private.has_division_resource_access(division_id, 'projects', false));
+  USING (app_private.has_division_financial_access(division_id, false));
 CREATE POLICY crm_project_expenses_insert ON public.crm_project_expenses
   FOR INSERT TO authenticated
   WITH CHECK (
-    app_private.has_division_resource_access(division_id, 'projects', true)
+    app_private.has_division_financial_access(division_id, true)
     AND (entered_by IS NULL OR entered_by = (SELECT auth.uid()))
     AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = project_id AND p.division_id = division_id)
     AND (receipt_file_id IS NULL OR EXISTS (
@@ -190,9 +212,9 @@ CREATE POLICY crm_project_expenses_insert ON public.crm_project_expenses
   );
 CREATE POLICY crm_project_expenses_update ON public.crm_project_expenses
   FOR UPDATE TO authenticated
-  USING (app_private.has_division_resource_access(division_id, 'projects', true))
+  USING (app_private.has_division_financial_access(division_id, true))
   WITH CHECK (
-    app_private.has_division_resource_access(division_id, 'projects', true)
+    app_private.has_division_financial_access(division_id, true)
     AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = project_id AND p.division_id = division_id)
   );
 GRANT SELECT, INSERT, UPDATE ON public.crm_project_expenses TO authenticated;
@@ -213,12 +235,146 @@ CREATE TABLE public.crm_division_financial_settings (
 ALTER TABLE public.crm_division_financial_settings ENABLE ROW LEVEL SECURITY;
 CREATE POLICY crm_division_financial_settings_read ON public.crm_division_financial_settings
   FOR SELECT TO authenticated
-  USING (app_private.has_division_resource_access(division_id, 'projects', false));
+  USING (app_private.has_division_financial_access(division_id, false));
 CREATE POLICY crm_division_financial_settings_write ON public.crm_division_financial_settings
   FOR ALL TO authenticated
-  USING (app_private.has_division_resource_access(division_id, 'projects', true))
-  WITH CHECK (app_private.has_division_resource_access(division_id, 'projects', true));
+  USING (app_private.has_division_financial_access(division_id, true))
+  WITH CHECK (app_private.has_division_financial_access(division_id, true));
 GRANT SELECT, INSERT, UPDATE ON public.crm_division_financial_settings TO authenticated;
 
--- Reuse the CRM's existing private file bucket and metadata table for receipts.
--- Receipt uploads must be registered with related_type='project' and related_id=the project UUID.
+
+-- Allow accounting to upload and read only receipt files attached to projects.
+CREATE POLICY crm_files_expense_receipt_insert ON public.crm_files
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    related_type = 'project'
+    AND metadata->>'document_category' = 'expense_receipt'
+    AND app_private.has_division_financial_access(division_id, true)
+    AND (uploaded_by IS NULL OR uploaded_by = (SELECT auth.uid()))
+    AND EXISTS (
+      SELECT 1 FROM public.crm_projects p
+      WHERE p.id = related_id AND p.division_id = division_id
+    )
+  );
+CREATE POLICY crm_files_expense_receipt_read ON public.crm_files
+  FOR SELECT TO authenticated
+  USING (
+    related_type = 'project'
+    AND metadata->>'document_category' = 'expense_receipt'
+    AND app_private.has_division_financial_access(division_id, false)
+    AND EXISTS (
+      SELECT 1 FROM public.crm_project_expenses e
+      WHERE e.receipt_file_id = id AND e.division_id = division_id
+    )
+  );
+
+CREATE POLICY project_expense_receipts_storage_insert ON storage.objects
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    bucket_id = 'roof-doctors-private'
+    AND (storage.foldername(name))[1] IN ('TRD','CRD')
+    AND EXISTS (
+      SELECT 1 FROM public.crm_projects p
+      WHERE p.id::text = (storage.foldername(name))[2]
+        AND p.division_id = (storage.foldername(name))[1]
+        AND app_private.has_division_financial_access(p.division_id, true)
+    )
+  );
+CREATE POLICY project_expense_receipts_storage_read ON storage.objects
+  FOR SELECT TO authenticated
+  USING (
+    bucket_id = 'roof-doctors-private'
+    AND (storage.foldername(name))[1] IN ('TRD','CRD')
+    AND EXISTS (
+      SELECT 1 FROM public.crm_projects p
+      WHERE p.id::text = (storage.foldername(name))[2]
+        AND p.division_id = (storage.foldername(name))[1]
+        AND app_private.has_division_financial_access(p.division_id, false)
+    )
+  );
+
+CREATE TABLE public.crm_project_financial_history (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  division_id text NOT NULL REFERENCES public.crm_divisions(id),
+  project_id uuid NOT NULL REFERENCES public.crm_projects(id),
+  changed_by uuid REFERENCES auth.users(id),
+  before_values jsonb NOT NULL,
+  after_values jsonb NOT NULL,
+  changed_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX crm_project_financial_history_project_idx
+  ON public.crm_project_financial_history (project_id, changed_at DESC);
+ALTER TABLE public.crm_project_financial_history ENABLE ROW LEVEL SECURITY;
+CREATE POLICY crm_project_financial_history_read ON public.crm_project_financial_history
+  FOR SELECT TO authenticated
+  USING (app_private.has_division_financial_access(division_id, false));
+CREATE POLICY crm_project_financial_history_insert ON public.crm_project_financial_history
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    app_private.has_division_financial_access(division_id, true)
+    AND (changed_by IS NULL OR changed_by = (SELECT auth.uid()))
+  );
+GRANT SELECT, INSERT ON public.crm_project_financial_history TO authenticated;
+
+CREATE OR REPLACE FUNCTION app_private.log_project_financial_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path TO ''
+AS $function$
+DECLARE
+  before_data jsonb;
+  after_data jsonb;
+BEGIN
+  before_data := jsonb_build_object(
+    'contract_amount', OLD.contract_amount,
+    'initial_approved_amount', OLD.initial_approved_amount,
+    'invoiced_amount', OLD.invoiced_amount,
+    'collected_amount', OLD.collected_amount,
+    'commission_method', OLD.commission_method,
+    'commission_rate', OLD.commission_rate,
+    'commission_fixed_amount', OLD.commission_fixed_amount,
+    'commission_salesperson_name', OLD.commission_salesperson_name,
+    'commission_earned_amount', OLD.commission_earned_amount,
+    'commission_paid_amount', OLD.commission_paid_amount,
+    'overhead_method', OLD.overhead_method,
+    'overhead_rate', OLD.overhead_rate,
+    'overhead_fixed_amount', OLD.overhead_fixed_amount,
+    'overhead_allocated_amount', OLD.overhead_allocated_amount
+  );
+  after_data := jsonb_build_object(
+    'contract_amount', NEW.contract_amount,
+    'initial_approved_amount', NEW.initial_approved_amount,
+    'invoiced_amount', NEW.invoiced_amount,
+    'collected_amount', NEW.collected_amount,
+    'commission_method', NEW.commission_method,
+    'commission_rate', NEW.commission_rate,
+    'commission_fixed_amount', NEW.commission_fixed_amount,
+    'commission_salesperson_name', NEW.commission_salesperson_name,
+    'commission_earned_amount', NEW.commission_earned_amount,
+    'commission_paid_amount', NEW.commission_paid_amount,
+    'overhead_method', NEW.overhead_method,
+    'overhead_rate', NEW.overhead_rate,
+    'overhead_fixed_amount', NEW.overhead_fixed_amount,
+    'overhead_allocated_amount', NEW.overhead_allocated_amount
+  );
+  IF before_data IS DISTINCT FROM after_data THEN
+    INSERT INTO public.crm_project_financial_history
+      (division_id, project_id, changed_by, before_values, after_values)
+    VALUES
+      (NEW.division_id, NEW.id, (SELECT auth.uid()), before_data, after_data);
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER crm_projects_log_financial_change
+  AFTER UPDATE OF contract_amount, initial_approved_amount, invoiced_amount, collected_amount,
+    commission_method, commission_rate, commission_fixed_amount, commission_salesperson_name,
+    commission_earned_amount, commission_paid_amount, overhead_method, overhead_rate,
+    overhead_fixed_amount, overhead_allocated_amount
+  ON public.crm_projects
+  FOR EACH ROW EXECUTE FUNCTION app_private.log_project_financial_change();
+
+
+-- Receipt uploads reuse the existing private file bucket and metadata table.
