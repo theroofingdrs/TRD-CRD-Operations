@@ -28,6 +28,17 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Type check and production build
         run: npm run build
+      - name: Test editable price book migration in disposable PostgreSQL
+        run: |
+          docker run --detach --rm --name price-book-test-db --publish 5434:5432 --volume "$GITHUB_WORKSPACE:/workspace:ro" --env POSTGRES_PASSWORD=ci-test postgres:17
+          trap 'docker stop price-book-test-db >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            if docker exec price-book-test-db pg_isready --username postgres --dbname postgres; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec --interactive --workdir /workspace/supabase/tests price-book-test-db psql --host 127.0.0.1 --username postgres --dbname postgres --file /workspace/supabase/tests/price_book_migration_test.sql
       - name: Set up Deno
         uses: denoland/setup-deno@v2
       - name: Type check Supabase Edge Functions
