@@ -128,7 +128,7 @@ END $$;
 
 SELECT public.crm_update_project_financials(
   :'test_project_id', 12000, 8000, 'contract_percent', 5, NULL, 'Test Salesperson',
-  600, 100, 'contract_percent', 8, NULL, 960
+  600, 100, CURRENT_DATE, 'contract_percent', 8, NULL, 960
 );
 
 UPDATE public.crm_project_transactions
