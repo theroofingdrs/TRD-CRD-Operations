@@ -55,6 +55,9 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [showExpense, setShowExpense] = useState(false);
   const [showSupplement, setShowSupplement] = useState(false);
   const [divisionExpenseTotal, setDivisionExpenseTotal] = useState(0);
+  const [unpaidVendorBills, setUnpaidVendorBills] = useState(0);
+  const [projectExpenseSummary, setProjectExpenseSummary] = useState<Record<string,{direct:number;materials:number;labor:number}>>({});
+  const [projectBudgetSummary, setProjectBudgetSummary] = useState<Record<string,number>>({});
   const [monthlyCollected, setMonthlyCollected] = useState(0);
   const [staleDays, setStaleDays] = useState(7);
   const [defaultCommissionMethod, setDefaultCommissionMethod] = useState("manual");
@@ -127,10 +130,10 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const load = useCallback(async () => {
     if (!supabase) return;
     setError(""); setBusy(true);
-    const [projectResult, linkResult, expenseResult, settingsResult, transactionResult, memberResult, workflowSettingsResult] = await Promise.all([
+    const [projectResult, linkResult, expenseResult, settingsResult, transactionResult, memberResult, workflowSettingsResult, budgetResult] = await Promise.all([
       supabase.from("crm_projects").select("id,division_id,project_manager_id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").in("division_id", visibleDivisions).order("created_at", { ascending: false }),
       supabase.from("crm_customer_divisions").select("customer_id").in("division_id", visibleDivisions),
-      supabase.from("crm_project_expenses").select("amount,category").in("division_id", visibleDivisions),
+      supabase.from("crm_project_expenses").select("project_id,amount,category,paid_amount,payment_status").in("division_id", visibleDivisions),
       supabase.from("crm_division_financial_settings").select("stale_stage_days,default_commission_method,default_commission_rate,default_commission_fixed_amount,default_overhead_method,default_overhead_rate,default_overhead_fixed_amount").eq("division_id", division).maybeSingle(),
       supabase.from("crm_project_transactions").select("amount,transaction_date").in("division_id", visibleDivisions).eq("transaction_type", "payment").eq("status", "recorded").gte("transaction_date", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0,10)),
       supabase.from("crm_memberships").select("user_id,role").in("division_id", visibleDivisions).eq("active", true),
@@ -140,6 +143,22 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     setProjects((projectResult.data ?? []) as Project[]);
     if (expenseResult.error) setError(expenseResult.error.message);
     setDivisionExpenseTotal((expenseResult.data ?? []).reduce((sum: number, item: { amount: number }) => sum + Math.round(Number(item.amount || 0) * 100), 0) / 100);
+    const expenseByProject: Record<string,{direct:number;materials:number;labor:number}> = {};
+    let unpaidTotal = 0;
+    (expenseResult.data ?? []).forEach((item: {project_id:string;amount:number;category:string;paid_amount:number;payment_status:string}) => {
+      const amount = Number(item.amount || 0);
+      const row = expenseByProject[item.project_id] || (expenseByProject[item.project_id] = {direct:0,materials:0,labor:0});
+      if (item.category !== "overhead" && item.category !== "sales_commission") row.direct += amount;
+      if (item.category === "materials") row.materials += amount;
+      if (item.category === "labor") row.labor += amount;
+      if (item.payment_status !== "paid" && item.payment_status !== "void") unpaidTotal += Math.max(0,amount-Number(item.paid_amount||0));
+    });
+    setProjectExpenseSummary(expenseByProject);
+    setUnpaidVendorBills(unpaidTotal);
+    if (budgetResult.error) setError(budgetResult.error.message);
+    const budgetByProject: Record<string,number> = {};
+    (budgetResult.data ?? []).forEach((item: {project_id:string;estimated_amount:number}) => { budgetByProject[item.project_id] = (budgetByProject[item.project_id] || 0) + Number(item.estimated_amount||0); });
+    setProjectBudgetSummary(budgetByProject);
     setMonthlyCollected((transactionResult.data ?? []).reduce((sum: number, item: { amount: number }) => sum + Math.round(Number(item.amount || 0) * 100), 0) / 100);
     if (settingsResult.data?.stale_stage_days) setStaleDays(settingsResult.data.stale_stage_days); else setStaleDays(7);
     const memberIds = [...new Set((memberResult.data ?? []).map((item: {user_id:string}) => item.user_id))];
@@ -608,6 +627,11 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const attention = filtered.filter(p => p.workflow_stage !== "closed" && ((p.next_action_due_at && new Date(p.next_action_due_at).getTime() < Date.now()) || Math.floor((Date.now() - new Date(stageLastChanged[p.id] || p.created_at).getTime()) / 86400000) >= staleDays));
   const activeContractValue = filtered.filter(p => p.workflow_stage !== "closed").reduce((sum,p)=>sum+Number(p.contract_amount || p.initial_approved_amount || 0)+Number(p.supplements_approved_amount || 0),0);
   const collectedTotal = filtered.reduce((sum,p)=>sum+Number(p.collected_amount || 0),0);
+  const receivableTotal = filtered.reduce((sum,p)=>sum+Math.max(0,Number(p.invoiced_amount||0)-Number(p.collected_amount||0)),0);
+  const recordedNetProfit = filtered.reduce((sum,p)=>sum+(Number(p.contract_amount||p.initial_approved_amount||0)+Number(p.supplements_approved_amount||0))-(projectExpenseSummary[p.id]?.direct||0)-Number(p.commission_earned_amount||0)-Number(p.overhead_allocated_amount||0),0);
+  const projectsWithBudgets = filtered.filter(p=>projectBudgetSummary[p.id]!==undefined);
+  const projectedProfit = projectsWithBudgets.reduce((sum,p)=>sum+(Number(p.contract_amount||p.initial_approved_amount||0)+Number(p.supplements_approved_amount||0))-projectBudgetSummary[p.id],0);
+
 
   return <div className="content-stack project-pipeline">
     <section className="panel">
@@ -617,8 +641,14 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         <div><span>Collected revenue</span><strong>{money(collectedTotal)}</strong></div>
         <div><span>Collected this month</span><strong>{money(monthlyCollected)}</strong></div>
         <div><span>Recorded expenses</span><strong>{money(divisionExpenseTotal)}</strong></div>
+        <div><span>Receivables</span><strong>{money(receivableTotal)}</strong></div>
+        <div><span>Unpaid vendor bills</span><strong>{money(unpaidVendorBills)}</strong></div>
+        <div><span>Recorded net profit</span><strong>{money(recordedNetProfit)}</strong></div>
+        <div><span>Projected profit from budgets</span><strong>{money(projectedProfit)}</strong></div>
         <div><span>Needs attention</span><strong>{attention.length}</strong></div>
       </div>
+      <div className="panel-heading subheading"><div><h3>Project profitability</h3><p className="muted">Recorded net profit uses expenses entered so far. Projected profit uses saved cost budgets for {projectsWithBudgets.length} projects.</p></div></div>
+      {filtered.length ? <div className="table-wrap"><table><thead><tr><th>Project</th><th>Division</th><th>Contract value</th><th>Actual direct costs</th><th>Recorded net profit</th><th>Budgeted profit</th></tr></thead><tbody>{filtered.slice(0,20).map(p=>{const value=Number(p.contract_amount||p.initial_approved_amount||0)+Number(p.supplements_approved_amount||0);const actual=value-(projectExpenseSummary[p.id]?.direct||0)-Number(p.commission_earned_amount||0)-Number(p.overhead_allocated_amount||0);const budget=projectBudgetSummary[p.id];return <tr key={p.id}><td><button className="pipeline-list-link" onClick={()=>void openProject(p)}>{p.project_name}</button></td><td>{p.division_id}</td><td>{money(value)}</td><td>{money(projectExpenseSummary[p.id]?.direct||0)}</td><td>{money(actual)}</td><td>{budget===undefined?"Not budgeted":money(value-budget)}</td></tr>;})}</tbody></table></div> : <p className="muted">No project profitability data yet.</p>}
       <div className="panel-heading subheading"><div><h3>Needs attention</h3><p className="muted">Overdue next actions and projects unchanged for {staleDays} days or more.</p></div>{scope !== "combined" && canManageSettings && <button className="secondary-button compact" onClick={()=>setSettingsOpen(v=>!v)}>Pipeline settings</button>}</div>
       {scope !== "combined" && canManageSettings && settingsOpen && <><form className="inline-form" onSubmit={saveSettings}><div className="form-grid"><label>Stale stage threshold (days)<input type="number" min="1" max="365" value={staleDays} onChange={e=>setStaleDays(Math.max(1,Math.min(365,Number(e.target.value)||1)))} /></label>
         <label>Default commission method<select value={defaultCommissionMethod} onChange={e=>setDefaultCommissionMethod(e.target.value)}><option value="fixed">Fixed amount</option><option value="contract_percent">Percent of contract</option><option value="collected_percent">Percent of collected revenue</option><option value="gross_profit_percent">Percent of gross profit</option><option value="manual">Manual</option></select></label>
