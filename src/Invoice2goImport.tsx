@@ -185,7 +185,31 @@ export default function ImportCenter({ division, userId, canShareBoth }: { divis
     return { ...client, matched: match || null };
   }), [clients, existing]);
 
-  async function loadHistory() {\n    if (!supabase) return;\n    const { data, error } = await supabase.from("crm_historical_documents").select("id,customer_id,document_type,document_number,document_date,due_date,status,total_amount,original_filename,storage_file_id,created_at").eq("division_id", division).order("document_date", { ascending: false }).limit(100);\n    if (error) { setMessage(error.message); return; }\n    const rows = (data || []) as Record<string, unknown>[];\n    setHistoryRows(rows);\n    const ids = Array.from(new Set(rows.map((r) => String(r.customer_id || "")).filter(Boolean)));\n    if (ids.length) {\n      const { data: customers } = await supabase.from("crm_customers").select("id,display_name").in("id", ids);\n      setHistoryCustomers(Object.fromEntries((customers || []).map((r: {id:string;display_name:string}) => [r.id, r.display_name])));\n    } else setHistoryCustomers({});\n  }\n\n  useEffect(() => { void loadHistory(); }, [division]);\n\n  async function openHistoricalFile(fileId: string) {\n    if (!supabase) return;\n    const { data: fileRow, error } = await supabase.from("crm_files").select("bucket_id,object_path").eq("id", fileId).maybeSingle();\n    if (error || !fileRow) { setMessage(error?.message || "File record not found."); return; }\n    const { data, error: signedError } = await supabase.storage.from(fileRow.bucket_id).createSignedUrl(fileRow.object_path, 60);\n    if (signedError) setMessage(signedError.message);\n    else if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener,noreferrer");\n  }\n\n  async function loadExisting() {
+  async function loadHistory() {
+    if (!supabase) return;
+    const { data, error } = await supabase.from("crm_historical_documents").select("id,customer_id,document_type,document_number,document_date,due_date,status,total_amount,original_filename,storage_file_id,created_at").eq("division_id", division).order("document_date", { ascending: false }).limit(100);
+    if (error) { setMessage(error.message); return; }
+    const rows = (data || []) as Record<string, unknown>[];
+    setHistoryRows(rows);
+    const ids = Array.from(new Set(rows.map((r) => String(r.customer_id || "")).filter(Boolean)));
+    if (ids.length) {
+      const { data: customers } = await supabase.from("crm_customers").select("id,display_name").in("id", ids);
+      setHistoryCustomers(Object.fromEntries((customers || []).map((r: {id:string;display_name:string}) => [r.id, r.display_name])));
+    } else setHistoryCustomers({});
+  }
+
+  useEffect(() => { void loadHistory(); }, [division]);
+
+  async function openHistoricalFile(fileId: string) {
+    if (!supabase) return;
+    const { data: fileRow, error } = await supabase.from("crm_files").select("bucket_id,object_path").eq("id", fileId).maybeSingle();
+    if (error || !fileRow) { setMessage(error?.message || "File record not found."); return; }
+    const { data, error: signedError } = await supabase.storage.from(fileRow.bucket_id).createSignedUrl(fileRow.object_path, 60);
+    if (signedError) setMessage(signedError.message);
+    else if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  }
+
+  async function loadExisting() {
     if (!supabase) return;
     const { data: links, error: linkError } = await supabase.from("crm_customer_divisions").select("customer_id").eq("division_id", division);
     if (linkError) throw linkError;
