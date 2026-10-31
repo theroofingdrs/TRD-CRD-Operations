@@ -463,8 +463,10 @@ function Claims({ division, userId, canWrite }: { division: DivisionId; userId: 
   const [rows,setRows]=useState<GenericRow[]>([]);
   const [customers,setCustomers]=useState<{id:string;display_name:string}[]>([]);
   const [properties,setProperties]=useState<{id:string;customer_id:string;address_line1:string;city:string;state:string}[]>([]);
+  const [projects,setProjects]=useState<{id:string;customer_id:string;property_id:string;project_name:string}[]>([]);
   const [customerId,setCustomerId]=useState("");
   const [propertyId,setPropertyId]=useState("");
+  const [projectId,setProjectId]=useState("");
   const [claimNumber,setClaimNumber]=useState("");
   const [policyNumber,setPolicyNumber]=useState("");
   const [carrier,setCarrier]=useState("");
@@ -490,17 +492,20 @@ function Claims({ division, userId, canWrite }: { division: DivisionId; userId: 
     const {data:links,error:linkError}=await supabase.from("crm_customer_divisions").select("customer_id").eq("division_id",division);
     if(linkError)setMessage(linkError.message);
     const ids=(links??[]).map((x:{customer_id:string})=>x.customer_id);
-    if(!ids.length){setCustomers([]);setProperties([]);setRows([]);setLoading(false);return;}
-    const [customerResult,propertyResult,claimResult]=await Promise.all([
+    if(!ids.length){setCustomers([]);setProperties([]);setProjects([]);setRows([]);setLoading(false);return;}
+    const [customerResult,propertyResult,projectResult,claimResult]=await Promise.all([
       supabase.from("crm_customers").select("id,display_name").in("id",ids).order("display_name"),
       supabase.from("crm_properties").select("id,customer_id,address_line1,city,state").in("customer_id",ids).order("address_line1"),
-      supabase.from("crm_claims").select("id,customer_id,property_id,claim_number,policy_number,insurance_carrier,date_of_loss,claim_status,adjuster_name,approved_amount").eq("division_id",division).order("created_at",{ascending:false})
+      supabase.from("crm_projects").select("id,customer_id,property_id,project_name").in("customer_id",ids).order("created_at",{ascending:false}),
+      supabase.from("crm_claims").select("id,customer_id,property_id,project_id,claim_number,policy_number,insurance_carrier,date_of_loss,claim_status,adjuster_name,approved_amount").eq("division_id",division).order("created_at",{ascending:false})
     ]);
     if(customerResult.error)setMessage(customerResult.error.message);
     if(propertyResult.error)setMessage(propertyResult.error.message);
+    if(projectResult.error)setMessage(projectResult.error.message);
     if(claimResult.error)setMessage(claimResult.error.message);
     setCustomers(customerResult.data??[]);
     setProperties(propertyResult.data??[]);
+    setProjects(projectResult.data??[]);
     setRows((claimResult.data??[]) as GenericRow[]);
     if(!customerId&&customerResult.data?.length)setCustomerId(customerResult.data[0].id);
     setLoading(false);
@@ -512,7 +517,7 @@ function Claims({ division, userId, canWrite }: { division: DivisionId; userId: 
     if(!supabase)return;
     setSaving(true);setMessage("");
     const {error}=await supabase.from("crm_claims").insert({
-      division_id:division,customer_id:customerId,property_id:propertyId,
+      division_id:division,customer_id:customerId,property_id:propertyId,project_id:projectId||null,
       claim_number:claimNumber.trim()||null,policy_number:policyNumber.trim()||null,
       insurance_carrier:carrier.trim()||null,date_of_loss:dateOfLoss||null,
       adjuster_name:adjuster.trim()||null,adjuster_email:adjusterEmail.trim()||null,adjuster_phone:adjusterPhone.trim()||null,
@@ -530,7 +535,8 @@ function Claims({ division, userId, canWrite }: { division: DivisionId; userId: 
     <div className="panel-heading"><div><p className="eyebrow">CLAIM REGISTER</p><h2>Insurance claims</h2><p className="muted">Every claim is attached to the customer and the specific property. Projects can be linked to a claim.</p></div></div>
     {canWrite&&customers.length>0&&<form className="inline-form" onSubmit={createClaim}><div className="form-grid">
       <label>Customer / organization<select required value={customerId} onChange={e=>{setCustomerId(e.target.value);setPropertyId("");}}>{customers.map(c=><option key={c.id} value={c.id}>{c.display_name}</option>)}</select></label>
-      <label>Property<select required value={propertyId} onChange={e=>setPropertyId(e.target.value)}><option value="">Select property</option>{properties.filter(p=>p.customer_id===customerId).map(p=><option key={p.id} value={p.id}>{[p.address_line1,p.city,p.state].filter(Boolean).join(", ")}</option>)}</select></label>
+      <label>Property<select required value={propertyId} onChange={e=>{setPropertyId(e.target.value);setProjectId("");}}><option value="">Select property</option>{properties.filter(p=>p.customer_id===customerId).map(p=><option key={p.id} value={p.id}>{[p.address_line1,p.city,p.state].filter(Boolean).join(", ")}</option>)}</select></label>
+      <label>Related project (optional)<select value={projectId} onChange={e=>setProjectId(e.target.value)}><option value="">No project linked yet</option>{projects.filter(p=>p.customer_id===customerId&&p.property_id===propertyId).map(p=><option key={p.id} value={p.id}>{p.project_name}</option>)}</select></label>
       <label>Insurance carrier<input value={carrier} onChange={e=>setCarrier(e.target.value)} placeholder="Carrier name"/></label>
       <label>Claim number<input value={claimNumber} onChange={e=>setClaimNumber(e.target.value)}/></label>
       <label>Policy number<input value={policyNumber} onChange={e=>setPolicyNumber(e.target.value)}/></label>
