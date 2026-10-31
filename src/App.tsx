@@ -528,14 +528,14 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
       const { data, error } = await supabase.from("crm_customers").insert({ ...customerValues, created_by: userId }).select("id").single();
       if (error) setMessage(error.message);
       else {
-        if (primaryContactName.trim()) {
-          const { error: contactError } = await supabase.from("crm_contacts").insert({ customer_id: data.id, full_name: primaryContactName.trim(), is_primary: true });
-          if (contactError) setMessage("Customer created, but primary contact could not be saved: " + contactError.message);
-        }
         const divisionLinks = shareWithBoth ? [{ customer_id: data.id, division_id: "TRD" }, { customer_id: data.id, division_id: "CRD" }] : [{ customer_id: data.id, division_id: division }];
         const { error: linkError } = await supabase.from("crm_customer_divisions").insert(divisionLinks);
         if (linkError) setMessage("Customer was created, but division linking failed: " + linkError.message);
         else {
+          if (primaryContactName.trim()) {
+            const { error: contactError } = await supabase.from("crm_contacts").insert({ customer_id: data.id, full_name: primaryContactName.trim(), is_primary: true });
+            if (contactError) setMessage("Customer created, but primary contact could not be saved: " + contactError.message);
+          }
           const propertyValues = propertyInsertValues(data.id, newProperties);
           let propertyErrorMessage = "";
           if (propertyValues.length) {
