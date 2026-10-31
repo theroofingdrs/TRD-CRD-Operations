@@ -70,8 +70,13 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [supplementStatusEdit, setSupplementStatusEdit] = useState("under_review");
   const [financeContract, setFinanceContract] = useState("");
   const [financeApproved, setFinanceApproved] = useState("");
-  const [financeInvoiced, setFinanceInvoiced] = useState("");
-  const [financeCollected, setFinanceCollected] = useState("");
+  const [transactionType, setTransactionType] = useState<"invoice" | "payment">("invoice");
+  const [transactionAmount, setTransactionAmount] = useState("");
+  const [transactionDate, setTransactionDate] = useState(new Date().toISOString().slice(0,10));
+  const [transactionReference, setTransactionReference] = useState("");
+  const [transactionMethod, setTransactionMethod] = useState("");
+  const [transactionNotes, setTransactionNotes] = useState("");
+
   const [commissionMethod, setCommissionMethod] = useState("manual");
   const [commissionRate, setCommissionRate] = useState("");
   const [commissionFixed, setCommissionFixed] = useState("");
