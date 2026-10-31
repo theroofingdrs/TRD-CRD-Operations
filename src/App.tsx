@@ -329,7 +329,7 @@ function Customers({ division, userId, canWrite, canShareBoth }: { division: Div
       supabase.from("crm_properties").select("id,address_line1,city,state,postal_code,property_type,county,parcel_number,building_name").eq("customer_id", customerId).order("created_at", { ascending: false }),
       supabase.from("crm_contacts").select("id,full_name,title,email,phone,is_primary").eq("customer_id", customerId).order("is_primary", { ascending: false }),
       supabase.from("crm_projects").select("id,project_name,project_type,status,contract_amount,property_id").eq("customer_id", customerId).order("created_at", { ascending: false }),
-      supabase.from("crm_claims").select("id,claim_number,insurance_carrier,date_of_loss,claim_status,adjuster_name,approved_amount,property_id").eq("customer_id", customerId).order("created_at", { ascending: false }),
+      supabase.from("crm_claims").select("id,claim_number,policy_number,insurance_carrier,date_of_loss,claim_status,adjuster_name,adjuster_email,adjuster_phone,deductible,approved_amount,replacement_cost_value,actual_cash_value,supplement_amount,property_id").eq("customer_id", customerId).order("created_at", { ascending: false }),
       supabase.from("crm_leads").select("id,service_interest,status,priority,created_at,property_id").eq("customer_id", customerId).order("created_at", { ascending: false }),
       supabase.from("crm_appointments").select("id,appointment_type,status,starts_at,location_notes,property_id").eq("customer_id", customerId).order("starts_at", { ascending: false }),
       supabase.from("crm_inspections").select("id,status,inspected_at,overall_condition,summary,property_id").eq("customer_id", customerId).order("inspected_at", { ascending: false })
@@ -446,7 +446,7 @@ function Customers({ division, userId, canWrite, canShareBoth }: { division: Div
         <div className="form-grid"><div><strong>Billing / mailing address</strong><p>{[selected.billing_address_line1,selected.billing_city,selected.billing_state,selected.billing_postal_code].filter(Boolean).join(", ") || "Not entered"}</p></div><div><strong>Linked records</strong><p>{properties.length} properties · {contacts.length} contacts · {leads.length} leads · {projects.length} projects · {claims.length} claims · {roofs.length} roof systems · {appointments.length} appointments · {inspections.length} inspections · {files.length} files</p></div></div>
         <div><h3>Properties</h3>{properties.length ? <div className="table-wrap"><table><thead><tr><th>Property</th><th>Type</th><th>County</th><th>Parcel / building</th></tr></thead><tbody>{properties.map((p) => <tr key={String(p.id)}><td><strong>{[p.address_line1,p.city,p.state,p.postal_code].filter(Boolean).join(", ")}</strong></td><td>{String(p.property_type || "—")}</td><td>{String(p.county || "—")}</td><td>{[p.parcel_number,p.building_name].filter(Boolean).join(" · ") || "—"}</td></tr>)}</tbody></table></div> : <p className="muted">No properties linked yet.</p>}</div>
         <div><h3>Roof systems</h3>{roofs.length ? <div className="table-wrap"><table><thead><tr><th>Property</th><th>Roof section</th><th>System / material</th><th>Installed</th><th>Condition</th></tr></thead><tbody>{roofs.map((roof) => <tr key={String(roof.id)}><td>{propertyAddress(roof.property_id)}</td><td>{String(roof.roof_section || "—")}</td><td>{[roof.roof_type,roof.covering_material].filter(Boolean).join(" · ") || "—"}</td><td>{String(roof.installation_year || "—")}</td><td>{String(roof.condition_summary || "—")}</td></tr>)}</tbody></table></div> : <p className="muted">No roof systems linked yet.</p>}</div>
-        <div><h3>Insurance claims</h3>{claims.length ? <div className="table-wrap"><table><thead><tr><th>Claim number</th><th>Property</th><th>Carrier</th><th>Date of loss</th><th>Status</th><th>Adjuster</th></tr></thead><tbody>{claims.map((claim) => <tr key={String(claim.id)}><td>{String(claim.claim_number || "Not entered")}</td><td>{propertyAddress(claim.property_id)}</td><td>{String(claim.insurance_carrier || "—")}</td><td>{String(claim.date_of_loss || "—")}</td><td>{String(claim.claim_status || "—")}</td><td>{String(claim.adjuster_name || "—")}</td></tr>)}</tbody></table></div> : <p className="muted">No insurance claims linked yet.</p>}</div>
+        <div><h3>Insurance claims</h3>{claims.length ? <div className="table-wrap"><table><thead><tr><th>Claim number</th><th>Policy</th><th>Property</th><th>Carrier</th><th>Date of loss</th><th>Status</th><th>Adjuster</th><th>Deductible</th><th>Approved</th></tr></thead><tbody>{claims.map((claim) => <tr key={String(claim.id)}><td>{String(claim.claim_number || "Not entered")}</td><td>{String(claim.policy_number || "—")}</td><td>{propertyAddress(claim.property_id)}</td><td>{String(claim.insurance_carrier || "—")}</td><td>{String(claim.date_of_loss || "—")}</td><td>{String(claim.claim_status || "—")}</td><td>{String(claim.adjuster_name || "—")}</td><td>{claim.deductible == null ? "—" : "$"+Number(claim.deductible).toLocaleString()}</td><td>{claim.approved_amount == null ? "—" : "$"+Number(claim.approved_amount).toLocaleString()}</td></tr>)}</tbody></table></div> : <p className="muted">No insurance claims linked yet.</p>}</div>
         <div><h3>Projects</h3>{projects.length ? <div className="table-wrap"><table><thead><tr><th>Project</th><th>Property</th><th>Type</th><th>Status</th><th>Contract</th></tr></thead><tbody>{projects.map((project) => <tr key={String(project.id)}><td>{String(project.project_name)}</td><td>{propertyAddress(project.property_id)}</td><td>{String(project.project_type || "—")}</td><td>{String(project.status || "—")}</td><td>{project.contract_amount == null ? "—" : "$"+Number(project.contract_amount).toLocaleString()}</td></tr>)}</tbody></table></div> : <p className="muted">No projects linked yet.</p>}</div>
         <div><h3>Contacts</h3>{contacts.length ? <div className="table-wrap"><table><thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Phone</th><th>Primary</th></tr></thead><tbody>{contacts.map((contact) => <tr key={String(contact.id)}><td>{String(contact.full_name)}</td><td>{String(contact.title || "—")}</td><td>{String(contact.email || "—")}</td><td>{String(contact.phone || "—")}</td><td>{contact.is_primary ? "Yes" : "No"}</td></tr>)}</tbody></table></div> : <p className="muted">No contacts linked yet.</p>}</div>
         <div><h3>Leads and opportunities</h3>{leads.length ? <div className="table-wrap"><table><thead><tr><th>Service</th><th>Property</th><th>Status</th><th>Priority</th><th>Created</th></tr></thead><tbody>{leads.map((lead) => <tr key={String(lead.id)}><td>{String(lead.service_interest || "General inquiry")}</td><td>{propertyAddress(lead.property_id)}</td><td>{String(lead.status || "—")}</td><td>{String(lead.priority || "—")}</td><td>{String(lead.created_at || "—")}</td></tr>)}</tbody></table></div> : <p className="muted">No leads linked yet.</p>}</div>
@@ -470,6 +470,15 @@ function Claims({ division, userId, canWrite }: { division: DivisionId; userId: 
   const [carrier,setCarrier]=useState("");
   const [dateOfLoss,setDateOfLoss]=useState("");
   const [adjuster,setAdjuster]=useState("");
+  const [adjusterEmail,setAdjusterEmail]=useState("");
+  const [adjusterPhone,setAdjusterPhone]=useState("");
+  const [dateReported,setDateReported]=useState("");
+  const [deductible,setDeductible]=useState("");
+  const [approvedAmount,setApprovedAmount]=useState("");
+  const [replacementCost,setReplacementCost]=useState("");
+  const [actualCash,setActualCash]=useState("");
+  const [supplement,setSupplement]=useState("");
+  const [claimNotes,setClaimNotes]=useState("");
   const [status,setStatus]=useState("open");
   const [message,setMessage]=useState("");
   const [loading,setLoading]=useState(true);
@@ -506,10 +515,13 @@ function Claims({ division, userId, canWrite }: { division: DivisionId; userId: 
       division_id:division,customer_id:customerId,property_id:propertyId,
       claim_number:claimNumber.trim()||null,policy_number:policyNumber.trim()||null,
       insurance_carrier:carrier.trim()||null,date_of_loss:dateOfLoss||null,
-      adjuster_name:adjuster.trim()||null,claim_status:status,created_by:userId
+      adjuster_name:adjuster.trim()||null,adjuster_email:adjusterEmail.trim()||null,adjuster_phone:adjusterPhone.trim()||null,
+      date_reported:dateReported||null,deductible:deductible?Number(deductible):null,approved_amount:approvedAmount?Number(approvedAmount):null,
+      replacement_cost_value:replacementCost?Number(replacementCost):null,actual_cash_value:actualCash?Number(actualCash):null,
+      supplement_amount:supplement?Number(supplement):null,notes:claimNotes.trim()||null,claim_status:status,created_by:userId
     });
     if(error)setMessage(error.message);
-    else{setClaimNumber("");setPolicyNumber("");setCarrier("");setDateOfLoss("");setAdjuster("");setMessage("Insurance claim saved.");await load();}
+    else{setClaimNumber("");setPolicyNumber("");setCarrier("");setDateOfLoss("");setAdjuster("");setAdjusterEmail("");setAdjusterPhone("");setDateReported("");setDeductible("");setApprovedAmount("");setReplacementCost("");setActualCash("");setSupplement("");setClaimNotes("");setMessage("Insurance claim saved.");await load();}
     setSaving(false);
   }
   const customerName=(id:unknown)=>customers.find(c=>c.id===id)?.display_name||"Customer";
@@ -524,6 +536,15 @@ function Claims({ division, userId, canWrite }: { division: DivisionId; userId: 
       <label>Policy number<input value={policyNumber} onChange={e=>setPolicyNumber(e.target.value)}/></label>
       <label>Date of loss<input type="date" value={dateOfLoss} onChange={e=>setDateOfLoss(e.target.value)}/></label>
       <label>Adjuster name<input value={adjuster} onChange={e=>setAdjuster(e.target.value)}/></label>
+      <label>Adjuster email<input type="email" value={adjusterEmail} onChange={e=>setAdjusterEmail(e.target.value)}/></label>
+      <label>Adjuster phone<input value={adjusterPhone} onChange={e=>setAdjusterPhone(e.target.value)}/></label>
+      <label>Date reported<input type="date" value={dateReported} onChange={e=>setDateReported(e.target.value)}/></label>
+      <label>Deductible ($)<input type="number" min="0" step="0.01" value={deductible} onChange={e=>setDeductible(e.target.value)}/></label>
+      <label>Approved amount ($)<input type="number" min="0" step="0.01" value={approvedAmount} onChange={e=>setApprovedAmount(e.target.value)}/></label>
+      <label>Replacement cost value ($)<input type="number" min="0" step="0.01" value={replacementCost} onChange={e=>setReplacementCost(e.target.value)}/></label>
+      <label>Actual cash value ($)<input type="number" min="0" step="0.01" value={actualCash} onChange={e=>setActualCash(e.target.value)}/></label>
+      <label>Supplement amount ($)<input type="number" min="0" step="0.01" value={supplement} onChange={e=>setSupplement(e.target.value)}/></label>
+      <label className="wide">Claim notes<textarea rows={3} value={claimNotes} onChange={e=>setClaimNotes(e.target.value)}/></label>
       <label>Claim status<select value={status} onChange={e=>setStatus(e.target.value)}><option value="open">Open</option><option value="filed">Filed</option><option value="inspection_scheduled">Inspection scheduled</option><option value="under_review">Under review</option><option value="approved">Approved</option><option value="partially_approved">Partially approved</option><option value="denied">Denied</option><option value="supplement_pending">Supplement pending</option><option value="closed">Closed</option></select></label>
     </div><button className="primary-button" disabled={saving||!customerId||!propertyId}>{saving?"Saving...":"Save claim"}</button></form>}
     {message&&<p className="inline-message">{message}</p>}
