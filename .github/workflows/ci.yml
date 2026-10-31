@@ -39,6 +39,7 @@ jobs:
           docker build \
             --build-arg VITE_SUPABASE_URL=https://example.supabase.co \
             --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=ci-placeholder \
+            --build-arg VITE_GOOGLE_MAPS_API_KEY=ci-placeholder \
             --tag trd-crd-operations:ci .
       - name: Smoke test Cloud Run container
         run: |
