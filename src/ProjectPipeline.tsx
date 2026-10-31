@@ -14,6 +14,7 @@ type Project = {
   next_action: string | null; next_action_due_at: string | null; updated_at: string; commission_method: string | null; commission_rate: number | null; commission_fixed_amount: number | null; commission_earned_amount: number; commission_paid_amount: number; commission_paid_at: string | null; commission_salesperson_name: string | null; overhead_method: string | null; overhead_rate: number | null; overhead_fixed_amount: number | null; overhead_allocated_amount: number; created_at: string;
 };
 type Expense = { id: string; category: string; amount: number; paid_amount: number; payment_status: string; expense_date: string; vendor_payee: string | null; description: string | null; notes: string | null; receipt_file_id: string | null };
+type CompanyExpense = { id: string; division_id: Division; expense_date: string; category: string; amount: number; paid_amount: number; payment_status: string; vendor_payee: string | null; description: string | null; notes: string | null; receipt_file_id: string | null; updated_at: string };
 type AuditEvent = { id: string; kind: string; changed_at: string; changed_by: string | null; changed_by_name?: string; before_values: Record<string, unknown>; after_values: Record<string, unknown> };
 type TeamMember = { user_id: string; display_name: string; role: string };
 type Attachment = { id: string; related_id: string; bucket_id: string; object_path: string; original_filename: string };
@@ -56,6 +57,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [supplements, setSupplements] = useState<Supplement[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [companyExpenses, setCompanyExpenses] = useState<CompanyExpense[]>([]);
   const [supplementAttachments, setSupplementAttachments] = useState<Record<string, Attachment[]>>({});
   const [costEstimates, setCostEstimates] = useState<Record<string, number>>({});
   const [history, setHistory] = useState<any[]>([]);
@@ -63,6 +65,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [showCreate, setShowCreate] = useState(false);
   const [showExpense, setShowExpense] = useState(false);
   const [showSupplement, setShowSupplement] = useState(false);
+  const [showCompanyExpense, setShowCompanyExpense] = useState(false);
   const [projectExpenseSummary, setProjectExpenseSummary] = useState<Record<string,{direct:number;recorded:number;materials:number;labor:number;unpaid:number}>>({});
   const [projectBudgetSummary, setProjectBudgetSummary] = useState<Record<string,number>>({});
   const [projectMonthlyCollected, setProjectMonthlyCollected] = useState<Record<string,number>>({});
@@ -107,6 +110,13 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [transactionMethod, setTransactionMethod] = useState("");
   const [transactionNotes, setTransactionNotes] = useState("");
   const [transactionFile, setTransactionFile] = useState<File | null>(null);
+  const [companyExpenseCategory, setCompanyExpenseCategory] = useState("overhead");
+  const [companyExpenseAmount, setCompanyExpenseAmount] = useState("");
+  const [companyExpenseDate, setCompanyExpenseDate] = useState(localDateString());
+  const [companyExpenseVendor, setCompanyExpenseVendor] = useState("");
+  const [companyExpenseDescription, setCompanyExpenseDescription] = useState("");
+  const [companyExpenseNotes, setCompanyExpenseNotes] = useState("");
+  const [companyExpenseReceipt, setCompanyExpenseReceipt] = useState<File | null>(null);
 
   const [commissionMethod, setCommissionMethod] = useState("manual");
   const [commissionRate, setCommissionRate] = useState("");
@@ -142,7 +152,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const load = useCallback(async () => {
     if (!supabase) return;
     setError(""); setBusy(true);
-    const [projectResult, linkResult, expenseResult, settingsResult, transactionResult, memberResult, workflowSettingsResult, budgetResult, leadResult, claimResult] = await Promise.all([
+    const [projectResult, linkResult, expenseResult, settingsResult, transactionResult, memberResult, workflowSettingsResult, budgetResult, leadResult, claimResult, companyExpenseResult] = await Promise.all([
       supabase.from("crm_projects").select("id,division_id,lead_id,claim_id,project_manager_id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,materials_order_reference,materials_ordered_at,work_completed_at,workflow_stage_note,workflow_stage_override,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_paid_at,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").in("division_id", visibleDivisions).order("created_at", { ascending: false }),
       supabase.from("crm_customer_divisions").select("customer_id").in("division_id", visibleDivisions),
       supabase.from("crm_project_expenses").select("project_id,amount,category,paid_amount,payment_status").in("division_id", visibleDivisions),
@@ -152,7 +162,8 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       supabase.from("crm_workflow_stage_settings").select("pipeline_type,stage_key,display_label,sort_order").eq("division_id", division),
       supabase.from("crm_project_cost_estimates").select("project_id,estimated_amount").in("division_id", visibleDivisions),
       supabase.from("crm_leads").select("id,division_id,customer_id,property_id,service_interest,status,assigned_to").in("division_id", visibleDivisions).order("created_at", { ascending: false }),
-      supabase.from("crm_claims").select("id,division_id,customer_id,property_id,lead_id,project_id,claim_number,insurance_carrier,claim_status").in("division_id", visibleDivisions).order("created_at", { ascending: false })
+      supabase.from("crm_claims").select("id,division_id,customer_id,property_id,lead_id,project_id,claim_number,insurance_carrier,claim_status").in("division_id", visibleDivisions).order("created_at", { ascending: false }),
+      supabase.from("crm_company_expenses").select("id,division_id,expense_date,category,amount,paid_amount,payment_status,vendor_payee,description,notes,receipt_file_id,updated_at").in("division_id", visibleDivisions).order("expense_date", { ascending: false })
     ]);
     if (projectResult.error) setError(projectResult.error.message);
     setProjects((projectResult.data ?? []) as Project[]);
@@ -160,6 +171,8 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     if (claimResult.error) setError(claimResult.error.message);
     setLeads((leadResult.data ?? []) as Lead[]);
     setClaims((claimResult.data ?? []) as Claim[]);
+    if (companyExpenseResult.error) setError(companyExpenseResult.error.message);
+    setCompanyExpenses((companyExpenseResult.data ?? []) as CompanyExpense[]);
     if (expenseResult.error) setError(expenseResult.error.message);
     const expenseByProject: Record<string,{direct:number;recorded:number;materials:number;labor:number;unpaid:number}> = {};
     (expenseResult.data ?? []).forEach((item: {project_id:string;amount:number;category:string;paid_amount:number;payment_status:string}) => {
