@@ -190,8 +190,18 @@ Deno.serve(async (req: Request) => {
     const proposalScope = clean(data.scope_of_work) || clean(savedTemplate?.default_scope);
     if (proposalScope) sections.push({ heading: "Scope of work", body: [proposalScope] });
     if (Array.isArray(data.line_items) && data.line_items.length) sections.push({ heading: "Itemized pricing", body: data.line_items.map((item: any) => String(item.description) + " | Qty " + item.quantity + " | " + money(item.unit_price) + " each | " + money(item.amount)) });
-    if (data.pricing_mode !== "lump_sum") sections.push({ heading: "Itemized total", body: ["Subtotal " + money(data.subtotal), "Tax " + money(data.tax_amount), "Total " + money(data.total_amount)] });
-    if (data.lump_sum_amount != null) sections.push({ heading: "Lump sum option", body: [money(data.lump_sum_amount)] });
+    const pricingBreakdown = data.template_data?.pricing_breakdown || {};
+    if (data.pricing_mode !== "lump_sum") sections.push({ heading: "Itemized total", body: [
+      "Line item subtotal " + money(pricingBreakdown.base_subtotal ?? data.subtotal),
+      ...(pricingBreakdown.overhead_enabled ? ["Overhead (" + String(pricingBreakdown.overhead_rate_percent ?? 10) + "%) " + money(pricingBreakdown.overhead_amount)] : []),
+      ...(pricingBreakdown.profit_enabled ? ["Profit (" + String(pricingBreakdown.profit_rate_percent ?? 10) + "% of subtotal plus overhead) " + money(pricingBreakdown.profit_amount)] : []),
+      "Subtotal before tax " + money(data.subtotal),
+      "Tax" + (pricingBreakdown.tax_rate_percent != null ? " (" + String(pricingBreakdown.tax_rate_percent) + "%)" : "") + " " + money(data.tax_amount),
+      "Total " + money(data.total_amount)
+    ] });
+    if (data.lump_sum_amount != null) sections.push({ heading: "Lump sum option", body: [
+      "Total including selected overhead, profit and tax " + money(data.lump_sum_amount)
+    ] });
     const proposalExclusions = clean(data.exclusions) || clean(savedTemplate?.default_exclusions);
     if (proposalExclusions) sections.push({ heading: "Exclusions", body: [proposalExclusions] });
     const proposalPaymentTerms = clean(data.payment_terms) || clean(savedTemplate?.payment_terms);
