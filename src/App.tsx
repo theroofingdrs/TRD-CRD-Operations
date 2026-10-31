@@ -131,7 +131,7 @@ function App() {
     <main className="main-area">
       <header className="topbar"><div><p className="eyebrow">{division} DIVISION</p><h1>{view === "overview" ? "Operations overview" : navigation.find((item) => item.id === view)?.label}</h1></div><div className="user-menu"><div className="avatar">{(profileName || "U").slice(0,1).toUpperCase()}</div><div><strong>{profileName || "Employee"}</strong><span>{currentMembership?.role?.replaceAll("_"," ")}</span></div></div></header>
       {workspaceError && <div className="error-banner">{workspaceError}</div>}
-      {view === "overview" && <Overview division={division} userId={session.user.id} onNavigate={setView} />}
+      {view === "overview" && <Overview division={division} onNavigate={setView} />}
       {view === "leads" && <Leads division={division} userId={session.user.id} canWrite={canWrite} />}
       {view === "customers" && <Customers division={division} userId={session.user.id} canWrite={canWrite} />}
       {view === "properties" && <DataList division={division} view="properties" />}
@@ -144,7 +144,7 @@ function App() {
   </div>;
 }
 
-function Overview({ division, userId, onNavigate }: { division: DivisionId; userId: string; onNavigate: (view: View) => void }) {
+function Overview({ division, onNavigate }: { division: DivisionId; onNavigate: (view: View) => void }) {
   const [counts, setCounts] = useState({ leads: 0, projects: 0, appointments: 0, tasks: 0 });
   const [recent, setRecent] = useState<Lead[]>([]);
   const [busy, setBusy] = useState(true);
@@ -283,9 +283,26 @@ function DataList({ division, view }: { division: DivisionId; view: Exclude<View
   const load = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
-    const { data, error: queryError } = await supabase.from(config.table).select(config.columns).eq("division_id", division).order(config.order, { ascending: view === "appointments" }).limit(100);
-    setError(queryError?.message ?? "");
-    setRows((data ?? []) as GenericRow[]);
+    let data: GenericRow[] = [];
+    let errorMessage = "";
+    if (view === "properties") {
+      const { data: links, error: linkError } = await supabase.from("crm_customer_divisions").select("customer_id").eq("division_id", division);
+      if (linkError) errorMessage = linkError.message;
+      else {
+        const customerIds = (links ?? []).map((item: { customer_id: string }) => item.customer_id);
+        if (customerIds.length) {
+          const result = await supabase.from("crm_properties").select(config.columns).in("customer_id", customerIds).order(config.order, { ascending: false }).limit(100);
+          data = (result.data ?? []) as GenericRow[];
+          errorMessage = result.error?.message ?? "";
+        }
+      }
+    } else {
+      const result = await supabase.from(config.table).select(config.columns).eq("division_id", division).order(config.order, { ascending: view === "appointments" }).limit(100);
+      data = (result.data ?? []) as GenericRow[];
+      errorMessage = result.error?.message ?? "";
+    }
+    setError(errorMessage);
+    setRows(data);
     setLoading(false);
   }, [config, division, view]);
   useEffect(() => { void load(); }, [load]);
