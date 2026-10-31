@@ -4,7 +4,7 @@ import { supabase } from "./lib/supabase";
 type Division = "TRD" | "CRD";
 type Property = { id: string; customer_id: string; address_line1: string; city: string; state: string };
 type Project = {
-  id: string; project_name: string; project_type: string | null; pipeline_type: "retail" | "insurance" | null;
+  id: string; division_id: Division; project_name: string; project_type: string | null; pipeline_type: "retail" | "insurance" | null;
   workflow_stage: string | null; status: string; property_id: string; customer_id: string;
   contract_amount: number | null; original_estimate_amount: number | null; initial_approved_amount: number | null;
   supplements_approved_amount: number; invoiced_amount: number; collected_amount: number;
@@ -30,7 +30,7 @@ const stageLabel = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g
 const money = (value: number | null | undefined) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
 const cents = (value: string) => Math.round((Number(value) || 0) * 100) / 100;
 
-export default function ProjectPipeline({ division, userId, canWrite, canWriteFinancials }: { division: Division; userId: string; canWrite: boolean; canWriteFinancials: boolean }) {
+export default function ProjectPipeline({ division, userId, canWrite, canWriteFinancials, availableDivisions }: { division: Division; userId: string; canWrite: boolean; canWriteFinancials: boolean; availableDivisions: Division[] }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
   const [customerNames, setCustomerNames] = useState<Record<string, string>>({});
@@ -90,7 +90,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [supplementAmount, setSupplementAmount] = useState("");
   const [supplementStatus, setSupplementStatus] = useState("draft");
   const [supplementNotes, setSupplementNotes] = useState("");
-  const [filter, setFilter] = useState<"all" | "retail" | "insurance">("all");
+  const [filter, setFilter] = useState<"all" | "retail" | "insurance">("all");\n  const [scope, setScope] = useState<"division" | "combined">("division");\n  const availableDivisionKey = availableDivisions.join("|");\n  const visibleDivisions = useMemo(() => scope === "combined" ? availableDivisions : [division], [scope, division, availableDivisionKey]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -99,11 +99,11 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     if (!supabase) return;
     setError(""); setBusy(true);
     const [projectResult, linkResult, expenseResult, settingsResult, transactionResult] = await Promise.all([
-      supabase.from("crm_projects").select("id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").eq("division_id", division).order("created_at", { ascending: false }),
+      supabase.from("crm_projects").select("id,division_id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").eq("division_id", division).order("created_at", { ascending: false }),
       supabase.from("crm_customer_divisions").select("customer_id").eq("division_id", division),
       supabase.from("crm_project_expenses").select("amount,category").eq("division_id", division),
       supabase.from("crm_division_financial_settings").select("stale_stage_days").eq("division_id", division).maybeSingle(),
-      supabase.from("crm_project_transactions").select("amount,transaction_date").eq("division_id", division).eq("transaction_type", "payment").eq("status", "recorded").gte("transaction_date", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0,10))
+      supabase.from("crm_project_transactions").select("amount,transaction_date").in("division_id", visibleDivisions).eq("transaction_type", "payment").eq("status", "recorded").gte("transaction_date", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0,10))
     ]);
     if (projectResult.error) setError(projectResult.error.message);
     setProjects((projectResult.data ?? []) as Project[]);
@@ -132,7 +132,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       if (!propertyId && p.data?.length) setPropertyId(p.data[0].id);
     } else { setProperties([]); setCustomerNames({}); }
     setBusy(false);
-  }, [division, propertyId]);
+  }, [division, propertyId, visibleDivisions]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -166,7 +166,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     setHistory(h.data ?? []);
     const supplementIds = (s.data ?? []).map((item: Supplement) => item.id);
     if (supplementIds.length) {
-      const { data: files, error: fileError } = await supabase.from("crm_files").select("id,related_id,bucket_id,object_path,original_filename").eq("division_id", division).eq("related_type", "supplement").in("related_id", supplementIds);
+      const { data: files, error: fileError } = await supabase.from("crm_files").select("id,related_id,bucket_id,object_path,original_filename").eq("division_id", project.division_id).eq("related_type", "supplement").in("related_id", supplementIds);
       if (fileError) setError(fileError.message);
       const grouped: Record<string, Attachment[]> = {};
       (files ?? []).forEach((file: Attachment) => { (grouped[file.related_id] ||= []).push(file); });
@@ -230,7 +230,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     const duplicate = expenses.some(x => x.category === expenseCategory && Math.round(Number(x.amount)*100) === Math.round(amount*100) && x.expense_date === expenseDate && (x.vendor_payee || "").trim().toLowerCase() === vendor.trim().toLowerCase());
     if (duplicate && !window.confirm("A similar expense already exists for this project. Add another anyway?")) { setBusy(false); return; }
     const { data: expenseRow, error: insertError } = await supabase.from("crm_project_expenses").insert({
-      division_id: division, project_id: selected.id, category: expenseCategory,
+      division_id: selected.division_id, project_id: selected.id, category: expenseCategory,
       amount, paid_amount: 0, payment_status: "unpaid", expense_date: expenseDate,
       vendor_payee: vendor.trim() || null, description: expenseDescription.trim() || null, entered_by: userId
     }).select("id").single();
@@ -238,12 +238,12 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     else {
       if (receiptFile) {
         const safeName = receiptFile.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-120) || "receipt";
-        const path = division + "/" + selected.id + "/" + crypto.randomUUID() + "-" + safeName;
+        const path = selected.division_id + "/" + selected.id + "/" + crypto.randomUUID() + "-" + safeName;
         const { error: uploadError } = await supabase.storage.from("roof-doctors-private").upload(path, receiptFile, { contentType: receiptFile.type, upsert: false });
         if (uploadError) setError("Expense saved, but receipt upload failed: " + uploadError.message);
         else {
           const { data: fileRow, error: fileError } = await supabase.from("crm_files").insert({
-            division_id: division, related_type: "project", related_id: selected.id,
+            division_id: selected.division_id, related_type: "project", related_id: selected.id,
             bucket_id: "roof-doctors-private", object_path: path, original_filename: receiptFile.name,
             content_type: receiptFile.type, file_size_bytes: receiptFile.size, uploaded_by: userId,
             metadata: { document_category: "expense_receipt", expense_id: expenseRow.id }
@@ -281,7 +281,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     }
     const nextNumber = Math.max(0, ...supplements.map(s => s.supplement_number)) + 1;
     const { data: supplementRow, error: insertError } = await supabase.from("crm_project_supplements").insert({
-      division_id: division, project_id: selected.id, supplement_number: nextNumber,
+      division_id: selected.division_id, project_id: selected.id, supplement_number: nextNumber,
       requested_amount: cents(supplementAmount), status: supplementStatus,
       submitted_at: ["submitted","resubmitted","under_review"].includes(supplementStatus) ? new Date().toISOString() : null,
       notes: supplementNotes.trim() || null, created_by: userId
@@ -295,7 +295,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         if (uploadError) setError("Supplement saved, but attachment upload failed: " + uploadError.message);
         else {
           const { error: fileError } = await supabase.from("crm_files").insert({
-            division_id: division, related_type: "supplement", related_id: supplementRow.id,
+            division_id: selected.division_id, related_type: "supplement", related_id: supplementRow.id,
             bucket_id: "roof-doctors-private", object_path: path, original_filename: supplementFile.name,
             content_type: supplementFile.type, file_size_bytes: supplementFile.size, uploaded_by: userId,
             metadata: { document_category: "supplement_attachment", project_id: selected.id }
@@ -317,7 +317,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     const nextStatus = changes.payment_status ?? expense.payment_status;
     const nextPaid = changes.paid_amount ?? (nextStatus === "paid" ? expense.amount : nextStatus === "unpaid" ? 0 : expense.paid_amount);
     if (nextPaid > expense.amount) { setError("Paid amount cannot exceed the expense amount."); setBusy(false); return; }
-    const { error: updateError } = await supabase.from("crm_project_expenses").update({ ...changes, paid_amount: nextPaid, payment_status: nextStatus, updated_at: new Date().toISOString() }).eq("id", expense.id).eq("division_id", division);
+    const { error: updateError } = await supabase.from("crm_project_expenses").update({ ...changes, paid_amount: nextPaid, payment_status: nextStatus, updated_at: new Date().toISOString() }).eq("id", expense.id).eq("division_id", selected.division_id);
     if (updateError) setError(updateError.message);
     else await openProject(selected);
     setBusy(false);
@@ -333,12 +333,12 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       response_at: changes.status && ["approved","partially_approved","denied"].includes(changes.status) || ["approved","partially_approved","denied"].includes(supplementStatusEdit) ? (supplementResponseDate ? new Date(supplementResponseDate).toISOString() : new Date().toISOString()) : supplement.response_at,
       carrier_response: supplementResponse.trim() || supplement.carrier_response,
       updated_at: new Date().toISOString()
-    }).eq("id", supplement.id).eq("division_id", division);
+    }).eq("id", supplement.id).eq("division_id", selected.division_id);
     if (updateError) setError(updateError.message);
     else {
       const { data: rows } = await supabase.from("crm_project_supplements").select("approved_amount").eq("project_id", selected.id);
       const approved = (rows || []).reduce((sum: number, row: { approved_amount: number }) => sum + Math.round(Number(row.approved_amount || 0) * 100), 0) / 100;
-      await supabase.from("crm_projects").update({ supplements_approved_amount: approved, updated_at: new Date().toISOString() }).eq("id", selected.id).eq("division_id", division);
+      await supabase.from("crm_projects").update({ supplements_approved_amount: approved, updated_at: new Date().toISOString() }).eq("id", selected.id).eq("division_id", selected.division_id);
       setSupplementEditing(null); setSupplementApproved(""); setSupplementResponse(""); setSupplementResponseDate("");
       await load(); await openProject({ ...selected, supplements_approved_amount: approved });
     }
@@ -357,7 +357,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     const amount = cents(value);
     setBusy(true); setError("");
     const { error: saveError } = await supabase.from("crm_project_cost_estimates").upsert({
-      division_id: division, project_id: selected.id, category, estimated_amount: amount,
+      division_id: selected.division_id, project_id: selected.id, category, estimated_amount: amount,
       updated_by: userId, updated_at: new Date().toISOString()
     }, { onConflict: "project_id,category" });
     if (saveError) setError(saveError.message);
@@ -372,7 +372,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     if (amount <= 0) { setError("Enter an amount greater than zero."); return; }
     setBusy(true); setError("");
     const { error: insertError } = await supabase.from("crm_project_transactions").insert({
-      division_id: division, project_id: selected.id, transaction_type: transactionType,
+      division_id: selected.division_id, project_id: selected.id, transaction_type: transactionType,
       amount, transaction_date: transactionDate, reference_number: transactionReference.trim() || null,
       payment_method: transactionType === "payment" ? transactionMethod || null : null,
       notes: transactionNotes.trim() || null, entered_by: userId
@@ -463,7 +463,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
 
   return <div className="content-stack project-pipeline">
     <section className="panel">
-      <div className="panel-heading"><div><p className="eyebrow">{division} PROJECT OPERATIONS</p><h2>Project pipeline</h2><p className="muted">Track each job from lead through completion. Customers and properties remain in the existing CRM records.</p></div><div className="panel-actions"><span className="record-count">{filtered.length} projects</span>{canWrite && <button className="primary-button compact" onClick={() => setShowCreate(v => !v)}>+ New project</button>}</div></div>
+      <div className="panel-heading"><div><p className="eyebrow">{scope === "combined" ? "TRD + CRD" : division} PROJECT OPERATIONS</p><h2>Project pipeline</h2><p className="muted">Track each job from lead through completion. Customers and properties remain in the existing CRM records.</p></div><div className="panel-actions"><span className="record-count">{filtered.length} projects</span>{scope !== "combined" && canWrite && <button className="primary-button compact" onClick={() => setShowCreate(v => !v)}>+ New project</button>}</div></div>
       <div className="financial-summary pipeline-overview">
         <div><span>Active contract value</span><strong>{money(activeContractValue)}</strong></div>
         <div><span>Collected revenue</span><strong>{money(collectedTotal)}</strong></div>
@@ -471,10 +471,10 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         <div><span>Recorded expenses</span><strong>{money(divisionExpenseTotal)}</strong></div>
         <div><span>Needs attention</span><strong>{attention.length}</strong></div>
       </div>
-      <div className="panel-heading subheading"><div><h3>Needs attention</h3><p className="muted">Overdue next actions and projects unchanged for {staleDays} days or more.</p></div><button className="secondary-button compact" onClick={()=>setSettingsOpen(v=>!v)}>Pipeline settings</button></div>
+      <div className="panel-heading subheading"><div><h3>Needs attention</h3><p className="muted">Overdue next actions and projects unchanged for {staleDays} days or more.</p></div>{scope !== "combined" && <button className="secondary-button compact" onClick={()=>setSettingsOpen(v=>!v)}>Pipeline settings</button>}</div>
       {settingsOpen && <form className="inline-form" onSubmit={saveSettings}><div className="form-grid"><label>Stale stage threshold (days)<input type="number" min="1" max="365" value={staleDays} onChange={e=>setStaleDays(Math.max(1,Math.min(365,Number(e.target.value)||1)))} /></label></div><button className="primary-button" disabled={busy}>Save settings</button></form>}
       {attention.length ? <div className="attention-list">{attention.slice(0,10).map(p=><button key={p.id} className="attention-item" onClick={()=>void openProject(p)}><strong>{p.project_name}</strong><span>{p.next_action_due_at && new Date(p.next_action_due_at).getTime()<Date.now() ? "Overdue next action" : "Stale project"} · {stageLabel(p.workflow_stage || "unassigned")}</span><small>{p.next_action || "Review project and set a next action"}</small></button>)}</div> : <p className="muted">No projects currently need attention.</p>}
-      <div className="pipeline-toolbar"><div className="segmented-filter"><button className={filter==="all"?"active":""} onClick={()=>setFilter("all")}>All</button><button className={filter==="retail"?"active":""} onClick={()=>setFilter("retail")}>Retail</button><button className={filter==="insurance"?"active":""} onClick={()=>setFilter("insurance")}>Insurance</button></div></div>
+      <div className="pipeline-toolbar"><div className="segmented-filter">{availableDivisions.length > 1 && <><button className={scope==="division"?"active":""} onClick={()=>setScope("division")}>Current division</button><button className={scope==="combined"?"active":""} onClick={()=>{setScope("combined");setSelected(null);}}>Combined TRD + CRD</button></>}</div><div className="segmented-filter"><button className={filter==="all"?"active":""} onClick={()=>setFilter("all")}>All</button><button className={filter==="retail"?"active":""} onClick={()=>setFilter("retail")}>Retail</button><button className={filter==="insurance"?"active":""} onClick={()=>setFilter("insurance")}>Insurance</button></div></div>
       {showCreate && <form className="inline-form" onSubmit={createProject}><div className="form-grid">
         <label>Project name<input required value={projectName} onChange={e=>setProjectName(e.target.value)} placeholder="Customer or property project name" /></label>
         <label>Project category<select value={projectType} onChange={e=>setProjectType(e.target.value)}><option value="roof_replacement">Roof replacement</option><option value="repair">Repair</option><option value="restoration">Restoration</option><option value="coating">Roof coating</option><option value="maintenance">Maintenance</option><option value="other">Other</option></select></label>
@@ -492,20 +492,20 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         const stages = project.pipeline_type === "insurance" ? insuranceStages : retailStages;
         return <article className="pipeline-card" key={project.id}>
           <button className="pipeline-card-main" onClick={()=>void openProject(project)}>
-            <span className="pipeline-card-type">{project.pipeline_type ? stageLabel(project.pipeline_type) : "Workflow not assigned"}</span>
+            <span className="pipeline-card-type">{project.division_id} · {project.pipeline_type ? stageLabel(project.pipeline_type) : "Workflow not assigned"}</span>
             <strong>{project.project_name}</strong><span className="muted">{addressFor(project.property_id)}</span>
             <span className="pipeline-card-stage">{stageLabel(project.workflow_stage || project.status || "planning")}</span>
             <span className="pipeline-card-value">{money(project.contract_amount || project.original_estimate_amount)}</span>
             {project.next_action && <span className="muted">Next: {project.next_action}</span>}
             {project.next_action_due_at && <span className="muted">Due {new Date(project.next_action_due_at).toLocaleDateString()}</span>}
           </button>
-          {canWrite && <label className="stage-quick-edit">{project.pipeline_type ? "Move to" : "Assign workflow"}<select value={project.pipeline_type ? (project.workflow_stage || stages[0]) : ""} onChange={e=>project.pipeline_type ? void moveProject(project,e.target.value) : e.target.value && void assignWorkflow(project,e.target.value as "retail"|"insurance")} disabled={busy}><option value="" disabled>{project.pipeline_type ? "Select stage" : "Choose workflow"}</option>{!project.pipeline_type && <><option value="retail">Retail</option><option value="insurance">Insurance</option></>}{project.pipeline_type && stages.map(s=><option key={s} value={s}>{stageLabel(s)}</option>)}</select></label>}
+          {scope !== "combined" && canWrite && <label className="stage-quick-edit">{project.pipeline_type ? "Move to" : "Assign workflow"}<select value={project.pipeline_type ? (project.workflow_stage || stages[0]) : ""} onChange={e=>project.pipeline_type ? void moveProject(project,e.target.value) : e.target.value && void assignWorkflow(project,e.target.value as "retail"|"insurance")} disabled={busy}><option value="" disabled>{project.pipeline_type ? "Select stage" : "Choose workflow"}</option>{!project.pipeline_type && <><option value="retail">Retail</option><option value="insurance">Insurance</option></>}{project.pipeline_type && stages.map(s=><option key={s} value={s}>{stageLabel(s)}</option>)}</select></label>}
         </article>;
       })}</div> : <div className="empty-state"><strong>No projects in this view</strong><span>Create a project using an existing customer property.</span></div>}
     </section>
 
     {selected && <section className="panel project-detail">
-      <div className="panel-heading"><div><p className="eyebrow">PROJECT DETAIL</p><h2>{selected.project_name}</h2><p className="muted">{addressFor(selected.property_id)} · {customerNames[selected.customer_id] || "Customer"}</p></div><button className="secondary-button compact" onClick={()=>setSelected(null)}>Close</button></div>
+      <div className="panel-heading"><div><p className="eyebrow">PROJECT DETAIL</p><h2>{selected.project_name}</h2><p className="muted">{selected.division_id} · {addressFor(selected.property_id)} · {customerNames[selected.customer_id] || "Customer"}</p></div><button className="secondary-button compact" onClick={()=>setSelected(null)}>Close</button></div>
       <div className="financial-summary">
         <div><span>Contract / approved value</span><strong>{money(contractValue)}</strong></div>
         <div><span>Invoiced</span><strong>{money(selected.invoiced_amount)}</strong></div>
@@ -535,10 +535,10 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       <div className="table-wrap"><table><thead><tr><th>Category</th><th>Estimated ($)</th><th>Actual ($)</th><th>Variance ($)</th><th></th></tr></thead><tbody>{["materials","labor","equipment","permits","sales_commission","overhead","other"].map(category=>{
         const actual = category==="sales_commission" ? Number(selected.commission_earned_amount||0) : category==="overhead" ? Number(selected.overhead_allocated_amount||0) : expenses.filter(x=>x.category===category).reduce((sum,x)=>sum+Number(x.amount||0),0);
         const estimated = Number(costEstimates[category]||0);
-        return <tr key={category}><td>{stageLabel(category)}</td><td>{canWriteFinancials ? <input type="number" min="0" step="0.01" defaultValue={estimated} onBlur={e=>{const v=cents(e.target.value);if(v!==estimated)void saveCostEstimate(category,e.target.value);}} /> : money(estimated)}</td><td>{money(actual)}</td><td>{money(actual-estimated)}</td><td>{actual>estimated && estimated>0 ? <span className="error-text">Over budget</span> : "—"}</td></tr>;
+        return <tr key={category}><td>{stageLabel(category)}</td><td>{scope !== "combined" && canWriteFinancials ? <input type="number" min="0" step="0.01" defaultValue={estimated} onBlur={e=>{const v=cents(e.target.value);if(v!==estimated)void saveCostEstimate(category,e.target.value);}} /> : money(estimated)}</td><td>{money(actual)}</td><td>{money(actual-estimated)}</td><td>{actual>estimated && estimated>0 ? <span className="error-text">Over budget</span> : "—"}</td></tr>;
       })}</tbody></table></div>
       <div className="panel-heading subheading"><div><h3>Invoices and payments</h3><p className="muted">Record each invoice and customer payment. Project totals update automatically and remain separate from approved contract value.</p></div></div>
-      {canWriteFinancials && <form className="inline-form" onSubmit={addTransaction}><div className="form-grid">
+      {scope !== "combined" && canWriteFinancials && <form className="inline-form" onSubmit={addTransaction}><div className="form-grid">
         <label>Transaction<select value={transactionType} onChange={e=>setTransactionType(e.target.value as "invoice"|"payment")}><option value="invoice">Invoice issued</option><option value="payment">Payment received</option></select></label>
         <label>Amount ($)<input required type="number" min="0.01" step="0.01" value={transactionAmount} onChange={e=>setTransactionAmount(e.target.value)} /></label>
         <label>Date<input required type="date" value={transactionDate} onChange={e=>setTransactionDate(e.target.value)} /></label>
@@ -547,13 +547,13 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         <label className="wide">Notes<input value={transactionNotes} onChange={e=>setTransactionNotes(e.target.value)} /></label>
       </div><button className="primary-button" disabled={busy}>Record {transactionType}</button></form>}
       {transactions.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Method</th><th>Amount</th><th>Status</th></tr></thead><tbody>{transactions.map(t=><tr key={t.id}><td>{new Date(t.transaction_date+"T12:00:00").toLocaleDateString()}</td><td>{stageLabel(t.transaction_type)}</td><td>{t.reference_number||"—"}</td><td>{t.payment_method||"—"}</td><td>{money(t.amount)}</td><td>{stageLabel(t.status)}</td></tr>)}</tbody></table></div> : <div className="empty-state">No invoices or payments recorded yet.</div>}
-      <div className="panel-heading subheading"><div><h3>Job costs</h3><p className="muted">Record actual expenses. Ordered materials are not counted until an expense is entered.</p></div>{canWriteFinancials&&<button className="primary-button compact" onClick={()=>setShowExpense(v=>!v)}>+ Add expense</button>}</div>
+      <div className="panel-heading subheading"><div><h3>Job costs</h3><p className="muted">Record actual expenses. Ordered materials are not counted until an expense is entered.</p></div>{scope !== "combined" && canWriteFinancials&&<button className="primary-button compact" onClick={()=>setShowExpense(v=>!v)}>+ Add expense</button>}</div>
       {showExpense&&<form className="inline-form" onSubmit={addExpense}><div className="form-grid"><label>Category<select value={expenseCategory} onChange={e=>setExpenseCategory(e.target.value)}><option value="materials">Materials</option><option value="labor">Labor</option><option value="equipment">Equipment</option><option value="permits">Permits</option><option value="sales_commission">Sales commission</option><option value="overhead">Overhead allocation</option><option value="other">Other</option></select></label><label>Amount ($)<input type="number" min="0.01" step="0.01" required value={expenseAmount} onChange={e=>setExpenseAmount(e.target.value)} /></label><label>Date<input type="date" required value={expenseDate} onChange={e=>setExpenseDate(e.target.value)} /></label><label>Vendor / payee<input value={vendor} onChange={e=>setVendor(e.target.value)} /></label><label className="wide">Description<input value={expenseDescription} onChange={e=>setExpenseDescription(e.target.value)} /></label><label className="wide">Receipt attachment<input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf" onChange={e=>setReceiptFile(e.target.files?.[0] || null)} /></label></div><button className="primary-button" disabled={busy}>Save expense</button></form>}
-      {expenses.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Category</th><th>Vendor</th><th>Description</th><th>Amount</th><th>Payment</th><th>Paid</th><th>Receipt</th></tr></thead><tbody>{expenses.map(x=><tr key={x.id}><td>{new Date(x.expense_date+"T12:00:00").toLocaleDateString()}</td><td>{stageLabel(x.category)}</td><td>{x.vendor_payee||"—"}</td><td>{x.description||"—"}</td><td>{money(x.amount)}</td><td>{canWriteFinancials ? <select value={x.payment_status} disabled={busy} onChange={e=>void updateExpense(x,{payment_status:e.target.value})}><option value="unpaid">Unpaid</option><option value="partially_paid">Partially paid</option><option value="paid">Paid</option></select> : stageLabel(x.payment_status)}</td><td>{canWriteFinancials ? <input aria-label="Paid amount" type="number" min="0" max={x.amount} step="0.01" defaultValue={x.paid_amount} onBlur={e=>{const v=cents(e.target.value);if(v!==x.paid_amount)void updateExpense(x,{paid_amount:v,payment_status:v===0?"unpaid":v>=x.amount?"paid":"partially_paid"});}} /> : money(x.paid_amount)}</td><td>{x.receipt_file_id ? <button className="secondary-button compact" onClick={()=>void openReceipt(x)}>View</button> : "—"}</td></tr>)}</tbody></table></div>:<div className="empty-state">No expenses recorded for this project.</div>}
-      {selected.pipeline_type==="insurance" && <><div className="panel-heading subheading"><div><h3>Supplements</h3><p className="muted">Each submission is tracked separately with its own response history.</p></div>{canWrite&&<button className="primary-button compact" onClick={()=>setShowSupplement(v=>!v)}>+ Add supplement</button>}</div>
+      {expenses.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Category</th><th>Vendor</th><th>Description</th><th>Amount</th><th>Payment</th><th>Paid</th><th>Receipt</th></tr></thead><tbody>{expenses.map(x=><tr key={x.id}><td>{new Date(x.expense_date+"T12:00:00").toLocaleDateString()}</td><td>{stageLabel(x.category)}</td><td>{x.vendor_payee||"—"}</td><td>{x.description||"—"}</td><td>{money(x.amount)}</td><td>{scope !== "combined" && canWriteFinancials ? <select value={x.payment_status} disabled={busy} onChange={e=>void updateExpense(x,{payment_status:e.target.value})}><option value="unpaid">Unpaid</option><option value="partially_paid">Partially paid</option><option value="paid">Paid</option></select> : stageLabel(x.payment_status)}</td><td>{scope !== "combined" && canWriteFinancials ? <input aria-label="Paid amount" type="number" min="0" max={x.amount} step="0.01" defaultValue={x.paid_amount} onBlur={e=>{const v=cents(e.target.value);if(v!==x.paid_amount)void updateExpense(x,{paid_amount:v,payment_status:v===0?"unpaid":v>=x.amount?"paid":"partially_paid"});}} /> : money(x.paid_amount)}</td><td>{x.receipt_file_id ? <button className="secondary-button compact" onClick={()=>void openReceipt(x)}>View</button> : "—"}</td></tr>)}</tbody></table></div>:<div className="empty-state">No expenses recorded for this project.</div>}
+      {selected.pipeline_type==="insurance" && <><div className="panel-heading subheading"><div><h3>Supplements</h3><p className="muted">Each submission is tracked separately with its own response history.</p></div>{scope !== "combined" && canWrite&&<button className="primary-button compact" onClick={()=>setShowSupplement(v=>!v)}>+ Add supplement</button>}</div>
         {showSupplement&&<form className="inline-form" onSubmit={addSupplement}><div className="form-grid"><label>Requested amount ($)<input type="number" min="0" step="0.01" required value={supplementAmount} onChange={e=>setSupplementAmount(e.target.value)} /></label><label>Status<select value={supplementStatus} onChange={e=>setSupplementStatus(e.target.value)}><option value="draft">Draft</option><option value="submitted">Submitted</option><option value="under_review">Under review</option><option value="approved">Approved</option><option value="partially_approved">Partially approved</option><option value="denied">Denied</option><option value="resubmitted">Resubmitted</option></select></label><label className="wide">Notes<textarea rows={2} value={supplementNotes} onChange={e=>setSupplementNotes(e.target.value)} /></label><label className="wide">Supporting document<input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf" onChange={e=>setSupplementFile(e.target.files?.[0] || null)} /></label></div><button className="primary-button" disabled={busy}>Save supplement</button></form>}
         {supplementEditing && <form className="inline-form" onSubmit={e=>{e.preventDefault();const s=supplements.find(x=>x.id===supplementEditing);if(s)void updateSupplement(s,{approved_amount:cents(supplementApproved),status:supplementStatusEdit,carrier_response:supplementResponse,response_at:supplementResponseDate?new Date(supplementResponseDate).toISOString():null});}}><div className="form-grid"><label>Status<select value={supplementStatusEdit} onChange={e=>setSupplementStatusEdit(e.target.value)}><option value="draft">Draft</option><option value="submitted">Submitted</option><option value="under_review">Under review</option><option value="approved">Approved</option><option value="partially_approved">Partially approved</option><option value="denied">Denied</option><option value="resubmitted">Resubmitted</option></select></label><label>Approved amount ($)<input type="number" min="0" step="0.01" value={supplementApproved} onChange={e=>setSupplementApproved(e.target.value)} /></label><label>Response date<input type="date" value={supplementResponseDate} onChange={e=>setSupplementResponseDate(e.target.value)} /></label><label className="wide">Carrier response / notes<input value={supplementResponse} onChange={e=>setSupplementResponse(e.target.value)} /></label></div><button className="primary-button" disabled={busy}>Save carrier response</button><button type="button" className="secondary-button compact" onClick={()=>setSupplementEditing(null)}>Cancel</button></form>}
-        {supplements.length?<div className="table-wrap"><table><thead><tr><th>#</th><th>Status</th><th>Requested</th><th>Approved</th><th>Submitted</th><th>Carrier response</th><th>Attachments</th><th>Update</th></tr></thead><tbody>{supplements.map(s=><tr key={s.id}><td>{s.supplement_number}</td><td>{stageLabel(s.status)}</td><td>{money(s.requested_amount)}</td><td>{money(s.approved_amount)}</td><td>{s.submitted_at?new Date(s.submitted_at).toLocaleDateString():"—"}</td><td>{s.carrier_response || "—"}</td><td>{(supplementAttachments[s.id] || []).map(file=><button key={file.id} className="secondary-button compact" onClick={()=>void openSupplementAttachment(file)}>View {file.original_filename}</button>)}</td><td>{canWrite && <button className="secondary-button compact" onClick={()=>{setSupplementEditing(s.id);setSupplementApproved(String(s.approved_amount||0));setSupplementResponse(s.carrier_response||"");setSupplementResponseDate(s.response_at?s.response_at.slice(0,10):new Date().toISOString().slice(0,10));setSupplementStatusEdit(s.status);}}>Update</button>}</td></tr>)}</tbody></table></div>:<div className="empty-state">No supplements recorded.</div>}</>}
+        {supplements.length?<div className="table-wrap"><table><thead><tr><th>#</th><th>Status</th><th>Requested</th><th>Approved</th><th>Submitted</th><th>Carrier response</th><th>Attachments</th><th>Update</th></tr></thead><tbody>{supplements.map(s=><tr key={s.id}><td>{s.supplement_number}</td><td>{stageLabel(s.status)}</td><td>{money(s.requested_amount)}</td><td>{money(s.approved_amount)}</td><td>{s.submitted_at?new Date(s.submitted_at).toLocaleDateString():"—"}</td><td>{s.carrier_response || "—"}</td><td>{(supplementAttachments[s.id] || []).map(file=><button key={file.id} className="secondary-button compact" onClick={()=>void openSupplementAttachment(file)}>View {file.original_filename}</button>)}</td><td>{scope !== "combined" && canWrite && <button className="secondary-button compact" onClick={()=>{setSupplementEditing(s.id);setSupplementApproved(String(s.approved_amount||0));setSupplementResponse(s.carrier_response||"");setSupplementResponseDate(s.response_at?s.response_at.slice(0,10):new Date().toISOString().slice(0,10));setSupplementStatusEdit(s.status);}}>Update</button>}</td></tr>)}</tbody></table></div>:<div className="empty-state">No supplements recorded.</div>}</>}
       <div className="panel-heading subheading"><div><h3>Stage history</h3></div></div>
       {history.length?<div className="history-list">{history.map(item=><div key={item.id}><strong>{stageLabel(item.from_stage||"Project created")} → {stageLabel(item.to_stage)}</strong><span>{new Date(item.changed_at).toLocaleString()}</span>{item.note&&<p>{item.note}</p>}</div>)}</div>:<div className="empty-state">No stage changes recorded yet.</div>}
     </section>}
