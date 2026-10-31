@@ -2,7 +2,9 @@
 
 ## Current state
 
-The React application source and Supabase database foundation are committed. The application is not deployed and no Cloud Run service has been created or changed.
+The React application source and Supabase database foundation are committed. GitHub Actions has passed the type check and production build. The application is not deployed and no Cloud Run service has been created or changed.
+
+An owner only `crm-invite-employee` Supabase Edge Function is deployed with JWT verification enabled. It checks active owner membership in the requested division, does not allow assigning owner access, and keeps privileged credentials server side. The function has not yet been exercised by sending a real employee invitation.
 
 ## Required environment
 
@@ -25,16 +27,17 @@ Suggested service name: `trd-crd-operations`.
 
 ## Pre deployment checks
 
-1. Generate and commit a package lockfile.
-2. Run `npm ci` and `npm run build`.
-3. Verify magic link login and logout.
-4. Verify owner access to both divisions.
-5. Verify division isolation and each employee role.
-6. Verify customer, property, lead, appointment, inspection, project, and task create flows.
-7. Verify private Storage upload and download using TRD and CRD folder prefixes.
+1. Confirm the committed `package-lock.json` is current and run `npm ci` and `npm run build`.
+2. Verify magic link login and logout using the approved local and hosted redirect URLs.
+3. Verify owner access to both divisions.
+4. Verify division isolation and each employee role.
+5. Verify customer, contact, property, roof system, lead, appointment, inspection, project, and task create flows.
+6. Test the owner only employee invitation function with a controlled test employee. Confirm a non owner receives a 403 response and owner role cannot be assigned.
+7. Verify private Storage upload and signed download using TRD and CRD folder prefixes, including a rejected oversized or unsupported file.
 8. Confirm no secret keys are present in the browser bundle.
-9. Confirm website lead intake remains unchanged.
+9. Confirm website lead intake remains unchanged and validate any future intake sync without altering source submissions.
 10. Review Supabase security and performance advisors.
+11. Generate and review a proper migration baseline from the live schema before further schema changes. Do not reset or recreate the database.
 
 ## Explicit hold points
 
