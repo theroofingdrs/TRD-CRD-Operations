@@ -71,7 +71,7 @@ The legacy `public.trd_records` table contains two existing website submissions.
 - Verified CRM tables have RLS policies.
 - Supabase security advisor still reports the eight legacy intake tables as RLS enabled without policies. They have no direct anon or authenticated table grants and remain intentionally untouched.
 - Leaked password protection is still disabled and requires an Auth dashboard setting change.
-- Storage policies for the existing private bucket have not yet been added.
+- The existing private bucket remains private, accepts JPEG, PNG, WebP, and PDF files up to 15 MB, and now has division scoped read, upload, update, and owner delete policies. Object paths must begin with TRD or CRD.
 
 ## Migration management note
 
