@@ -35,6 +35,11 @@ ALTER TABLE public.crm_projects
       AND collected_amount >= 0
       AND commission_earned_amount >= 0
       AND commission_paid_amount >= 0
+      AND commission_paid_amount <= commission_earned_amount
+      AND (commission_rate IS NULL OR commission_rate >= 0)
+      AND (commission_fixed_amount IS NULL OR commission_fixed_amount >= 0)
+      AND (overhead_rate IS NULL OR overhead_rate >= 0)
+      AND (overhead_fixed_amount IS NULL OR overhead_fixed_amount >= 0)
       AND overhead_allocated_amount >= 0
     ),
   ADD CONSTRAINT crm_projects_commission_method_check
@@ -343,6 +348,7 @@ BEGIN
   before_data := jsonb_build_object(
     'contract_amount', OLD.contract_amount,
     'initial_approved_amount', OLD.initial_approved_amount,
+    'supplements_approved_amount', OLD.supplements_approved_amount,
     'invoiced_amount', OLD.invoiced_amount,
     'collected_amount', OLD.collected_amount,
     'commission_method', OLD.commission_method,
@@ -359,6 +365,7 @@ BEGIN
   after_data := jsonb_build_object(
     'contract_amount', NEW.contract_amount,
     'initial_approved_amount', NEW.initial_approved_amount,
+    'supplements_approved_amount', NEW.supplements_approved_amount,
     'invoiced_amount', NEW.invoiced_amount,
     'collected_amount', NEW.collected_amount,
     'commission_method', NEW.commission_method,
@@ -383,7 +390,7 @@ END;
 $function$;
 
 CREATE TRIGGER crm_projects_log_financial_change
-  AFTER UPDATE OF contract_amount, initial_approved_amount, invoiced_amount, collected_amount,
+  AFTER UPDATE OF contract_amount, initial_approved_amount, supplements_approved_amount, invoiced_amount, collected_amount,
     commission_method, commission_rate, commission_fixed_amount, commission_salesperson_name,
     commission_earned_amount, commission_paid_amount, overhead_method, overhead_rate,
     overhead_fixed_amount, overhead_allocated_amount
@@ -667,6 +674,41 @@ CREATE POLICY crm_project_supplement_history_insert ON public.crm_project_supple
     )
   );
 GRANT SELECT, INSERT ON public.crm_project_supplement_history TO authenticated;
+
+CREATE OR REPLACE FUNCTION app_private.sync_project_supplement_approvals()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+DECLARE
+  target_project_id uuid;
+  target_division_id text;
+  approved_total numeric(14,2);
+BEGIN
+  IF TG_OP = 'UPDATE' AND (NEW.project_id IS DISTINCT FROM OLD.project_id OR NEW.division_id IS DISTINCT FROM OLD.division_id) THEN
+    RAISE EXCEPTION 'A supplement cannot be moved to another project or division';
+  END IF;
+  target_project_id := NEW.project_id;
+  target_division_id := NEW.division_id;
+  IF NOT app_private.has_division_resource_access(target_division_id, 'projects', true) THEN
+    RAISE EXCEPTION 'Not authorized to update supplement approvals';
+  END IF;
+  SELECT COALESCE(sum(approved_amount), 0)
+    INTO approved_total
+  FROM public.crm_project_supplements
+  WHERE project_id = target_project_id;
+  UPDATE public.crm_projects
+  SET supplements_approved_amount = approved_total,
+      updated_at = now()
+  WHERE id = target_project_id AND division_id = target_division_id;
+  RETURN NEW;
+END;
+$function$;
+REVOKE ALL ON FUNCTION app_private.sync_project_supplement_approvals() FROM PUBLIC, anon, authenticated;
+CREATE TRIGGER crm_project_supplements_sync_approvals
+  AFTER INSERT OR UPDATE ON public.crm_project_supplements
+  FOR EACH ROW EXECUTE FUNCTION app_private.sync_project_supplement_approvals();
 
 CREATE OR REPLACE FUNCTION app_private.log_project_supplement_change()
 RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path TO ''
