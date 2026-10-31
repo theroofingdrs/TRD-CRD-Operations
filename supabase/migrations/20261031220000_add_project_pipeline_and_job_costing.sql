@@ -132,12 +132,12 @@ CREATE POLICY crm_project_stage_history_insert ON public.crm_project_stage_histo
       WHERE p.id = crm_project_stage_history.project_id AND p.division_id = crm_project_stage_history.division_id
     )
   );
-GRANT SELECT, INSERT ON public.crm_project_stage_history TO authenticated;
+GRANT SELECT ON public.crm_project_stage_history TO authenticated;
 
 CREATE OR REPLACE FUNCTION app_private.log_project_stage_change()
 RETURNS trigger
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path TO ''
 AS $function$
 BEGIN
@@ -391,12 +391,12 @@ CREATE POLICY crm_project_financial_history_insert ON public.crm_project_financi
         AND p.division_id = crm_project_financial_history.division_id
     )
   );
-GRANT SELECT, INSERT ON public.crm_project_financial_history TO authenticated;
+GRANT SELECT ON public.crm_project_financial_history TO authenticated;
 
 CREATE OR REPLACE FUNCTION app_private.log_project_financial_change()
 RETURNS trigger
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path TO ''
 AS $function$
 DECLARE
@@ -525,10 +525,10 @@ CREATE POLICY crm_project_transaction_history_insert ON public.crm_project_trans
         AND t.division_id = crm_project_transaction_history.division_id
     )
   );
-GRANT SELECT, INSERT ON public.crm_project_transaction_history TO authenticated;
+GRANT SELECT ON public.crm_project_transaction_history TO authenticated;
 
 CREATE OR REPLACE FUNCTION app_private.log_project_transaction_change()
-RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path TO ''
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
 AS $function$
 BEGIN
   INSERT INTO public.crm_project_transaction_history
@@ -695,10 +695,10 @@ CREATE POLICY crm_project_expense_history_insert ON public.crm_project_expense_h
         AND e.division_id = crm_project_expense_history.division_id
     )
   );
-GRANT SELECT, INSERT ON public.crm_project_expense_history TO authenticated;
+GRANT SELECT ON public.crm_project_expense_history TO authenticated;
 
 CREATE OR REPLACE FUNCTION app_private.log_project_expense_change()
-RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path TO ''
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
 AS $function$
 BEGIN
   INSERT INTO public.crm_project_expense_history
@@ -735,7 +735,7 @@ CREATE POLICY crm_project_supplement_history_insert ON public.crm_project_supple
         AND s.division_id = crm_project_supplement_history.division_id
     )
   );
-GRANT SELECT, INSERT ON public.crm_project_supplement_history TO authenticated;
+GRANT SELECT ON public.crm_project_supplement_history TO authenticated;
 
 CREATE OR REPLACE FUNCTION app_private.sync_project_supplement_approvals()
 RETURNS trigger
@@ -773,7 +773,7 @@ CREATE TRIGGER crm_project_supplements_sync_approvals
   FOR EACH ROW EXECUTE FUNCTION app_private.sync_project_supplement_approvals();
 
 CREATE OR REPLACE FUNCTION app_private.log_project_supplement_change()
-RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path TO ''
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
 AS $function$
 BEGIN
   INSERT INTO public.crm_project_supplement_history
@@ -843,3 +843,10 @@ CREATE POLICY crm_files_supplement_attachment_read ON public.crm_files
   );
 
 -- Receipt uploads reuse the existing private file bucket and metadata table.
+
+-- Audit rows are written only by protected SECURITY DEFINER triggers, never by client inserts.
+REVOKE ALL ON FUNCTION app_private.log_project_stage_change() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION app_private.log_project_financial_change() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION app_private.log_project_expense_change() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION app_private.log_project_supplement_change() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION app_private.log_project_transaction_change() FROM PUBLIC, anon, authenticated;
