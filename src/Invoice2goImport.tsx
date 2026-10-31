@@ -164,7 +164,7 @@ function classifyAttachment(file: File): Attachment["type"] {
   return "other";
 }
 
-export default function ImportCenter({ division, userId }: { division: DivisionId; userId: string }) {
+export default function ImportCenter({ division, userId, canShareBoth }: { division: DivisionId; userId: string; canShareBoth: boolean }) {
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [historical, setHistorical] = useState<HistoricalRow[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -370,7 +370,7 @@ export default function ImportCenter({ division, userId }: { division: DivisionI
           <label>Import batch name<input value={batchName} onChange={(e) => setBatchName(e.target.value)} /></label>
           <label>Import into division<select value={division} disabled><option value="TRD">The Roof Doctors (Residential)</option><option value="CRD">Commercial Roof Doctors</option></select></label>
           <label className="wide">Select Invoice2go export files<input type="file" multiple accept=".csv,.tsv,.txt,.json,.zip,.pdf,.jpg,.jpeg,.png,.webp" onChange={(e) => e.target.files && void readFiles(e.target.files)} /><small>CSV, TSV, JSON, ZIP, PDF, JPG, PNG, and WebP. ZIP archives are unpacked in your browser. Nothing is uploaded until you confirm.</small></label>
-          <label className="wide"><span><input type="checkbox" checked={shareBoth} onChange={(e) => setShareBoth(e.target.checked)} /> Share imported customer records with both TRD and CRD</span><small>Use only when the customer belongs to both companies. Financial and historical documents remain assigned to the selected division.</small></label>
+          {canShareBoth && <label className="wide"><span><input type="checkbox" checked={shareBoth} onChange={(e) => setShareBoth(e.target.checked)} /> Share imported customer records with both TRD and CRD</span><small>Use only when the customer belongs to both companies. Financial and historical documents remain assigned to the selected division.</small></label>}
         </div>
       </div>
       {message && <p className="inline-message">{message}</p>}
