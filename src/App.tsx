@@ -310,7 +310,7 @@ function Documents({ division, userId, canWrite }: { division: DivisionId; userI
       const options=propertyRows??[];setProperties(options);
       setPropertyId(current=>options.some(p=>p.id===current)?current:(options[0]?.id??""));
     }else{setProperties([]);setPropertyId("");}
-    setRows((filesResult.data??[]) as typeof rows);
+    setRows((filesResult.data??[]) as unknown as typeof rows);
     setLoading(false);
   },[division]);
   useEffect(()=>{void load();},[load]);
