@@ -2,13 +2,15 @@
 
 ## Current state
 
-The React application source and Supabase database foundation are committed. GitHub Actions has passed the type check and production build. The application is not deployed and no Cloud Run service has been created or changed.
+The React application source and Supabase database foundation are committed. GitHub Actions validates the React production build, Supabase Edge Function types, and the Cloud Run Docker image. The application is not deployed and no Cloud Run service has been created or changed.
 
 An owner only `crm-invite-employee` Supabase Edge Function is deployed with JWT verification enabled. It checks active owner membership in the requested division, does not allow assigning owner access, and keeps privileged credentials server side. The function has not yet been exercised by sending a real employee invitation.
 
 An owner only `crm-import-website-intake` function is also deployed with JWT verification enabled. It reads legacy website submissions without modifying them, maps residential and commercial payloads into CRM customer, contact, property, and lead records, and uses each original intake record ID to skip records already imported. The import is initiated manually from the Leads screen and requires owner confirmation. It has not yet been run against the two live submissions.
 
 ## Required environment
+
+The browser application requires these public build arguments when building the container. The Dockerfile uses Node 22 and Nginx and listens on port 8080, as expected by Cloud Run. The GitHub workflow builds the image with placeholder public configuration only; it does not publish or deploy the image.
 
 The browser application requires:
 
@@ -29,7 +31,7 @@ Suggested service name: `trd-crd-operations`.
 
 ## Pre deployment checks
 
-1. Confirm the committed `package-lock.json` is current and run `npm ci` and `npm run build`.
+1. Confirm the committed `package-lock.json` is current and run `npm ci` and `npm run build`. Confirm the Docker image builds with the approved Supabase URL and publishable key.
 2. Verify magic link login and logout using the approved local and hosted redirect URLs.
 3. Verify owner access to both divisions.
 4. Verify division isolation and each employee role.
