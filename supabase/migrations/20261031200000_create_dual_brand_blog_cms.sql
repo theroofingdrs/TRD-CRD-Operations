@@ -47,6 +47,7 @@ drop trigger if exists crm_blog_posts_updated_at on public.crm_blog_posts;
 create trigger crm_blog_posts_updated_at
 before update on public.crm_blog_posts
 for each row execute function public.crm_blog_posts_set_updated_at();
+revoke all on function public.crm_blog_posts_set_updated_at() from public, anon, authenticated;
 
 alter table public.crm_blog_posts enable row level security;
 
