@@ -68,6 +68,9 @@ The legacy `public.trd_records` table contains two existing website submissions.
 - Verified newly created public tables receive RLS.
 - Verified division isolation: a simulated TRD only membership can read TRD but not CRD.
 - Verified Sales Rep can write leads but cannot write projects.
+- Verified Read Only can read assigned division records but cannot write leads.
+- Verified mismatched customer, property, and project references are rejected by division integrity checks.
+- Verified a test customer, division link, and lead can be created under the authenticated owner role; the test transaction was rolled back and created no sample data.
 - Verified CRM tables have RLS policies.
 - Supabase security advisor still reports the eight legacy intake tables as RLS enabled without policies. They have no direct anon or authenticated table grants and remain intentionally untouched.
 - Leaked password protection is still disabled and requires an Auth dashboard setting change.
