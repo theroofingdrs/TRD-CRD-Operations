@@ -9,6 +9,7 @@ type LineItem = { description: string; quantity: string; unit: string; unit_pric
 type RoofrMeasurement = { label: string; value: number; unit: string };
 type RoofrReport = { id: string; original_filename: string; created_at: string; metadata: { document_type?: string; extraction_status?: string; extracted_measurements?: RoofrMeasurement[]; predominant_pitch?: string | null; pitch_distribution?: { pitch: string; area_sqft: number; squares: number }[] } | null };
 type Proposal = { id: string; title: string; status: string; pricing_mode: string; total_amount: number; lump_sum_amount: number | null; created_at: string; customer_id: string; property_id: string };
+const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 export default function Proposals({ division, userId, canWrite, initialCustomerId = "", initialPropertyId = "", onLaunchConsumed }: { division: DivisionId; userId: string; canWrite: boolean; initialCustomerId?: string; initialPropertyId?: string; onLaunchConsumed?: () => void }) {
   const [rows, setRows] = useState<Proposal[]>([]);
@@ -23,6 +24,8 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
   const [lumpSum, setLumpSum] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([{ description: "", quantity: "1", unit: "EA", unit_price: "" }]);
   const [taxRate, setTaxRate] = useState("0");
+  const [overheadEnabled, setOverheadEnabled] = useState(true);
+  const [profitEnabled, setProfitEnabled] = useState(true);
   const [catalogCategory, setCatalogCategory] = useState(estimateCatalogCategories[0] || "Roofing systems and accessories");
   const [catalogSelection, setCatalogSelection] = useState("");
   const [catalogSearch, setCatalogSearch] = useState("");
@@ -92,10 +95,21 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
   const roofSquares = selectedRoofrReport?.metadata?.extracted_measurements?.find(item => item.label.toLowerCase().includes("roof squares"))?.value;
   const adjustedRoofSquares = typeof roofSquares === "number" ? roofSquares * (1 + Number(wasteFactorPercent) / 100) : null;
   const catalogMatches = estimateCatalog.filter(item => item.category === catalogCategory && (!catalogSearch.trim() || item.description.toLowerCase().includes(catalogSearch.trim().toLowerCase())));
-  const itemSubtotal = lineItems.reduce((sum, item) => sum + Math.max(0, Number(item.quantity || 0)) * Math.max(0, Number(item.unit_price || 0)), 0);
-  const subtotal = pricingMode === "lump_sum" ? Number(lumpSum || 0) : itemSubtotal;
-  const taxAmount = subtotal * Math.max(0, Number(taxRate || 0)) / 100;
-  const total = subtotal + taxAmount;
+  const itemSubtotal = roundMoney(lineItems.reduce((sum, item) => sum + Math.max(0, Number(item.quantity || 0)) * Math.max(0, Number(item.unit_price || 0)), 0));
+  const baseSubtotal = roundMoney(Math.max(0, pricingMode === "lump_sum" ? Number(lumpSum || 0) : itemSubtotal));
+  const overheadAmount = overheadEnabled ? roundMoney(baseSubtotal * 0.10) : 0;
+  const profitBase = roundMoney(baseSubtotal + overheadAmount);
+  const profitAmount = profitEnabled ? roundMoney(profitBase * 0.10) : 0;
+  const subtotal = roundMoney(baseSubtotal + overheadAmount + profitAmount);
+  const taxRateValue = Math.max(0, Number(taxRate || 0));
+  const taxAmount = roundMoney(subtotal * taxRateValue / 100);
+  const total = roundMoney(subtotal + taxAmount);
+  const lumpSumBase = roundMoney(Math.max(0, Number(lumpSum || 0)));
+  const lumpSumOverhead = overheadEnabled ? roundMoney(lumpSumBase * 0.10) : 0;
+  const lumpSumProfit = profitEnabled ? roundMoney((lumpSumBase + lumpSumOverhead) * 0.10) : 0;
+  const lumpSumSubtotal = roundMoney(lumpSumBase + lumpSumOverhead + lumpSumProfit);
+  const lumpSumTax = roundMoney(lumpSumSubtotal * taxRateValue / 100);
+  const calculatedLumpSumTotal = roundMoney(lumpSumSubtotal + lumpSumTax);
   function updateLine(index: number, patch: Partial<LineItem>) {
     setLineItems(current => current.map((item, i) => i === index ? { ...item, ...patch } : item));
   }
@@ -128,21 +142,21 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
     setBusy(true); setMessage("");
     const savedItems = pricingMode === "lump_sum" ? [] : lineItems.filter(item => item.description.trim()).map(item => ({
       description: item.description.trim(), quantity: Number(item.quantity || 1), unit: item.unit || "EA", unit_price: Number(item.unit_price || 0),
-      amount: Number(item.quantity || 1) * Number(item.unit_price || 0)
+      amount: roundMoney(Number(item.quantity || 1) * Number(item.unit_price || 0))
     }));
     const { error } = await supabase.from("crm_proposals").insert({
       division_id: division, customer_id: customerId, property_id: propertyId, title: title.trim(),
-      pricing_mode: pricingMode, line_items: savedItems, lump_sum_amount: pricingMode === "itemized" || !lumpSum ? null : Number(lumpSum),
+      pricing_mode: pricingMode, line_items: savedItems, lump_sum_amount: pricingMode === "itemized" || !lumpSum ? null : calculatedLumpSumTotal,
       subtotal, tax_amount: taxAmount, total_amount: total, scope_of_work: scope || null,
       existing_conditions: conditions || null, exclusions: exclusions || null, payment_terms: paymentTerms || null,
       valid_until: validUntil || null, warranty_summary: warrantySummary || null, created_by: userId,
-      template_data: { template: division === "TRD" ? "residential_standard_v1" : "commercial_standard_v1", tax_rate_percent: Number(taxRate || 0), roofr_report_id: selectedRoofrReportId || null, roofr_measurements: selectedRoofrReport?.metadata?.extracted_measurements || [], roofr_predominant_pitch: selectedRoofrReport?.metadata?.predominant_pitch || null, roofr_pitch_distribution: selectedRoofrReport?.metadata?.pitch_distribution || [], adjusted_roof_squares: adjustedRoofSquares, waste_factor_percent: Number(wasteFactorPercent), waste_factor_label: wasteFactorPercent === "20" ? "20%+" : wasteFactorPercent + "%", complexity_factor: complexityFactor, pitch_factor: pitchFactor }
+      template_data: { template: division === "TRD" ? "residential_standard_v1" : "commercial_standard_v1", tax_rate_percent: taxRateValue, pricing_breakdown: { base_subtotal: baseSubtotal, overhead_enabled: overheadEnabled, overhead_rate_percent: 10, overhead_amount: overheadAmount, profit_enabled: profitEnabled, profit_rate_percent: 10, profit_base: profitBase, profit_amount: profitAmount, subtotal_before_tax: subtotal, tax_rate_percent: taxRateValue, tax_amount: taxAmount, total: total, lump_sum_base: lumpSum ? lumpSumBase : null, lump_sum_overhead: lumpSum ? lumpSumOverhead : null, lump_sum_profit: lumpSum ? lumpSumProfit : null, lump_sum_subtotal_before_tax: lumpSum ? lumpSumSubtotal : null, lump_sum_tax: lumpSum ? lumpSumTax : null, lump_sum_total: lumpSum ? calculatedLumpSumTotal : null }, roofr_report_id: selectedRoofrReportId || null, roofr_measurements: selectedRoofrReport?.metadata?.extracted_measurements || [], roofr_predominant_pitch: selectedRoofrReport?.metadata?.predominant_pitch || null, roofr_pitch_distribution: selectedRoofrReport?.metadata?.pitch_distribution || [], adjusted_roof_squares: adjustedRoofSquares, waste_factor_percent: Number(wasteFactorPercent), waste_factor_label: wasteFactorPercent === "20" ? "20%+" : wasteFactorPercent + "%", complexity_factor: complexityFactor, pitch_factor: pitchFactor }
     });
     if (error) setMessage(error.message);
     else {
       setMessage("Proposal draft saved to this customer and property.");
       setShowForm(false); setTitle(""); setScope(""); setConditions(""); setExclusions(""); setLumpSum(""); setSelectedRoofrReportId("");
-      setLineItems([{ description: "", quantity: "1", unit: "EA", unit_price: "" }]); setTaxRate("0"); setValidUntil(""); setWasteFactorPercent("10"); setComplexityFactor("standard"); setPitchFactor("standard");
+      setLineItems([{ description: "", quantity: "1", unit: "EA", unit_price: "" }]); setTaxRate("0"); setOverheadEnabled(true); setProfitEnabled(true); setValidUntil(""); setWasteFactorPercent("10"); setComplexityFactor("standard"); setPitchFactor("standard");
       await load();
     }
     setBusy(false);
@@ -160,14 +174,14 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
       <label className="wide">Pricing format<select value={pricingMode} onChange={e => setPricingMode(e.target.value)}><option value="both">Show itemized and lump sum options</option><option value="itemized">Itemized only</option><option value="lump_sum">Lump sum only</option></select></label>
       {pricingMode !== "lump_sum" && <div className="wide"><h3>Itemized pricing</h3><div className="form-grid"><label>Catalog category<select value={catalogCategory} onChange={e => { setCatalogCategory(e.target.value); setCatalogSelection(""); }}>{estimateCatalogCategories.map(category => <option key={category} value={category}>{category}</option>)}</select></label><label>Search catalog<input value={catalogSearch} onChange={e => { setCatalogSearch(e.target.value); setCatalogSelection(""); }} placeholder="Search roof, tarp, magnet, hand load..." /></label><label className="wide">Catalog item<select value={catalogSelection} onChange={e => setCatalogSelection(e.target.value)}><option value="">Choose a standard estimate item</option>{catalogMatches.map(item => <option key={item.description} value={item.description}>{item.description} ({item.unit})</option>)}</select></label><button type="button" className="secondary-button" disabled={!catalogSelection} onClick={addCatalogItem}>+ Add catalog item</button></div><p className="muted">Starter reference catalog only. Descriptions and units are editable. Enter pricing from your current estimate or authorized price list. No Xactimate codes or prices are represented as official.</p>{lineItems.map((item,index) => <div className="form-grid" key={index}><label className="wide">Description<input required value={item.description} onChange={e => updateLine(index,{description:e.target.value})} placeholder="Labor, materials, tear off, decking..." /></label><label>Quantity<input type="number" min="0" step="0.01" value={item.quantity} onChange={e => updateLine(index,{quantity:e.target.value})} /></label><label>Unit<select value={item.unit} onChange={e => updateLine(index,{unit:e.target.value})}><option>EA</option><option>SF</option><option>LF</option><option>SQ</option><option>HR</option><option>DAY</option><option>WK</option><option>MO</option><option>LS</option></select></label><label>Unit price ($)<input type="number" min="0" step="0.01" value={item.unit_price} onChange={e => updateLine(index,{unit_price:e.target.value})} /></label><p className="muted">Line total: {(Number(item.quantity || 0)*Number(item.unit_price || 0)).toLocaleString("en-US",{style:"currency",currency:"USD"})}</p></div>)}<button type="button" className="secondary-button" onClick={() => setLineItems(current => [...current,{description:"",quantity:"1",unit:"EA",unit_price:""}])}>+ Add line item</button></div>}
       {pricingMode !== "itemized" && <label>Lump sum amount ($)<input required type="number" min="0.01" step="0.01" value={lumpSum} onChange={e => setLumpSum(e.target.value)} /></label>}
-      <label>Tax rate (%)<input type="number" min="0" step="0.01" value={taxRate} onChange={e => setTaxRate(e.target.value)} /></label>
+      <div className="wide"><h3>Overhead, profit and tax</h3><p className="muted">Calculations update automatically. Overhead is added first at 10%. Profit is then calculated at 10% of the subtotal plus overhead. Tax is calculated on the resulting pre-tax subtotal using the applicable rate entered below.</p><div className="form-grid"><label><input type="checkbox" checked={overheadEnabled} onChange={e => setOverheadEnabled(e.target.checked)} /> Add overhead (10%)</label><label><input type="checkbox" checked={profitEnabled} onChange={e => setProfitEnabled(e.target.checked)} /> Add profit (10%)</label><label>Applicable tax rate (%)<input type="number" min="0" step="0.01" value={taxRate} onChange={e => setTaxRate(e.target.value)} /></label></div><p className="fine-print">Enter the tax rate applicable to this job. Tax treatment can vary by jurisdiction and work type; this version applies the entered rate to the full pre-tax subtotal.</p></div>
       <label>Valid through<input type="date" value={validUntil} onChange={e => setValidUntil(e.target.value)} /></label>
       <label className="wide">Existing conditions<textarea rows={2} value={conditions} onChange={e => setConditions(e.target.value)} /></label>
       <label className="wide">Scope of work<textarea rows={4} value={scope} onChange={e => setScope(e.target.value)} placeholder={division === "TRD" ? "Describe tear off, decking, underlayment, flashing, roofing material, ventilation and cleanup." : "Describe roof sections, system, preparation, insulation, membrane or coating, details, access and phasing."} /></label>
       <label className="wide">Exclusions<textarea rows={2} value={exclusions} onChange={e => setExclusions(e.target.value)} /></label>
       <label className="wide">Payment terms<textarea rows={2} value={paymentTerms} onChange={e => setPaymentTerms(e.target.value)} /></label>
       <label className="wide">Warranty wording<textarea rows={2} value={warrantySummary} onChange={e => setWarrantySummary(e.target.value)} /></label>
-      <div className="wide"><strong>Current estimate total: {total.toLocaleString("en-US",{style:"currency",currency:"USD"})}</strong>{pricingMode === "both" && <p className="muted">The lump sum is stored as an alternate price. The itemized total is used as the proposal's recorded total until the customer selects an option.</p>}</div>
+      <div className="wide"><h3>Automatic estimate breakdown</h3><div className="table-wrap"><table><tbody><tr><td>Line item / lump sum base</td><td>{baseSubtotal.toLocaleString("en-US",{style:"currency",currency:"USD"})}</td></tr>{overheadEnabled && <tr><td>Overhead (10%)</td><td>{overheadAmount.toLocaleString("en-US",{style:"currency",currency:"USD"})}</td></tr>}{profitEnabled && <tr><td>Profit (10% of base plus overhead)</td><td>{profitAmount.toLocaleString("en-US",{style:"currency",currency:"USD"})}</td></tr>}<tr><td>Subtotal before tax</td><td>{subtotal.toLocaleString("en-US",{style:"currency",currency:"USD"})}</td></tr><tr><td>Tax ({taxRateValue.toFixed(2)}%)</td><td>{taxAmount.toLocaleString("en-US",{style:"currency",currency:"USD"})}</td></tr><tr><th>Current estimate total</th><th>{total.toLocaleString("en-US",{style:"currency",currency:"USD"})}</th></tr></tbody></table></div>{pricingMode === "both" && <p className="muted">Calculated lump sum alternative, including the selected overhead, profit and tax settings: {calculatedLumpSumTotal.toLocaleString("en-US",{style:"currency",currency:"USD"})}. The itemized total remains the recorded proposal total until the customer selects an option.</p>}</div>
     </div><button className="primary-button" disabled={busy || !customers.length || !customerProperties.length}>{busy ? "Saving..." : "Save proposal draft"}</button></form>}
     {message && <p className="inline-message">{message}</p>}
     {rows.length ? <div className="table-wrap"><table><thead><tr><th>Proposal</th><th>Customer</th><th>Pricing</th><th>Recorded total</th><th>Lump sum alternative</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{rows.map(r => <tr key={r.id}><td><strong>{r.title}</strong></td><td>{customers.find(c => c.id === r.customer_id)?.display_name || "Customer"}</td><td>{r.pricing_mode.replaceAll("_"," ")}</td><td>{Number(r.total_amount || 0).toLocaleString("en-US",{style:"currency",currency:"USD"})}</td><td>{r.lump_sum_amount == null ? "—" : Number(r.lump_sum_amount).toLocaleString("en-US",{style:"currency",currency:"USD"})}</td><td><span className={"pill " + r.status}>{r.status.replaceAll("_"," ")}</span></td><td>{new Date(r.created_at).toLocaleDateString()}</td><td><button type="button" className="secondary-button" disabled={sendingId===r.id} onClick={()=>sendPdf(r.id)}>{sendingId===r.id?"Sending...":"Send PDF by email"}</button></td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No proposal drafts yet</strong><span>Saved proposals will appear here and remain associated with their customer and property.</span></div>}
