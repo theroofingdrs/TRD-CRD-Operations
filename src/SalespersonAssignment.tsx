@@ -11,7 +11,7 @@ type Props = {
   compact?: boolean;
 };
 
-type Salesperson = { user_id: string; display_name: string; email: string };
+type Salesperson = { user_id: string; display_name: string; email: string; divisions: string[] };
 type History = { id: string; previous_assignee: string | null; new_assignee: string | null; changed_at: string; changed_by: string };
 
 export default function SalespersonAssignment({ entityType, entityId, division, assignedTo, isOwner, compact = false }: Props) {
@@ -23,14 +23,16 @@ export default function SalespersonAssignment({ entityType, entityId, division, 
   const load = useCallback(async () => {
     if (!supabase || !isOwner) return;
     const { data: memberships, error } = await supabase.from("crm_memberships")
-      .select("user_id").eq("division_id", division).eq("role", "sales_rep").eq("active", true);
+      .select("user_id,division_id").in("division_id", entityType === "customer" ? ["TRD", "CRD"] : [division]).eq("role", "sales_rep").eq("active", true);
     if (error) { setMessage(error.message); return; }
-    const ids = [...new Set((memberships ?? []).map((item: { user_id: string }) => item.user_id))];
+    const divisionMap = new Map<string, string[]>();
+    (memberships ?? []).forEach((item: { user_id: string; division_id: string }) => divisionMap.set(item.user_id, [...(divisionMap.get(item.user_id) ?? []), item.division_id]));
+    const ids = [...divisionMap.keys()];
     if (!ids.length) { setPeople([]); return; }
     const { data: profiles, error: profileError } = await supabase.from("crm_profiles")
       .select("user_id,display_name,email").in("user_id", ids).eq("active", true).order("display_name");
     if (profileError) { setMessage(profileError.message); return; }
-    setPeople((profiles ?? []).map((p: any) => ({ user_id: p.user_id, display_name: p.display_name || p.email || "Salesperson", email: p.email || "" })));
+    setPeople((profiles ?? []).map((p: any) => ({ user_id: p.user_id, display_name: p.display_name || p.email || "Salesperson", email: p.email || "", divisions: divisionMap.get(p.user_id) ?? [] })));
   }, [division, isOwner]);
 
   const loadHistory = useCallback(async () => {
@@ -60,11 +62,11 @@ export default function SalespersonAssignment({ entityType, entityId, division, 
     <select className="table-select" aria-label="Assigned salesperson" value={assignedTo || ""} disabled={busy}
       onChange={event => void assign(event.target.value)}>
       <option value="">Unassigned</option>
-      {people.map(person => <option key={person.user_id} value={person.user_id}>{person.display_name}</option>)}
+      {people.map(person => <option key={person.user_id} value={person.user_id}>{person.display_name}{entityType === "customer" ? ` (${person.divisions.join("/")})` : ""}</option>)}
     </select>
     {message && <span className="assignment-message">{message}</span>}
     {!compact && history.length > 0 && <details className="assignment-history"><summary>Assignment history ({history.length})</summary>
-      {history.map(item => <div key={item.id}>{new Date(item.changed_at).toLocaleString()} · {people.find(p => p.user_id === item.new_assignee)?.display_name || (item.new_assignee ? "Former salesperson" : "Unassigned")}</div>)}
+      {history.map(item => <div key={item.id}>{new Date(item.changed_at).toLocaleString()} · {people.find(p => p.user_id === item.previous_assignee)?.display_name || (item.previous_assignee ? "Former salesperson" : "Unassigned")} → {people.find(p => p.user_id === item.new_assignee)?.display_name || (item.new_assignee ? "Former salesperson" : "Unassigned")} · changed by admin</div>)}
     </details>}
   </div>;
 }
