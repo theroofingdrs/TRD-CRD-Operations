@@ -23,6 +23,7 @@ export default function Warranties({ division, userId, canWrite }: { division: D
   const [end,setEnd]=useState("");
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState("");
+  const [sendingId,setSendingId]=useState("");
   const load=useCallback(async()=>{
     if(!supabase)return;
     const [customerResult,warrantyResult]=await Promise.all([
@@ -41,6 +42,13 @@ export default function Warranties({ division, userId, canWrite }: { division: D
   },[division]);
   useEffect(()=>{void load();},[load]);
   const options=properties.filter(p=>p.customer_id===customerId);
+  async function sendPdf(id:string){
+    if(!supabase)return;
+    setSendingId(id);setMessage("");
+    const {data,error}=await supabase.functions.invoke("crm-send-document",{body:{document_type:"warranty",document_id:id}});
+    setMessage(error?.message||data?.error||(data?.success?"PDF emailed to "+data.recipient:"Document email could not be sent."));
+    setSendingId("");
+  }
   async function save(event:FormEvent){
     event.preventDefault(); if(!supabase||!customerId||!propertyId)return;
     setBusy(true);setMessage("");
@@ -69,6 +77,6 @@ export default function Warranties({ division, userId, canWrite }: { division: D
     <label>End date<input type="date" min={start||undefined} value={end} onChange={e=>setEnd(e.target.value)} /></label>
   </div><button className="primary-button" disabled={busy||!customers.length||!options.length}>{busy?"Saving...":"Save warranty record"}</button></form>}
   {message&&<p className="inline-message">{message}</p>}
-  {rows.length?<div className="table-wrap"><table><thead><tr><th>Warranty</th><th>Customer</th><th>Type</th><th>Coverage dates</th><th>Status</th></tr></thead><tbody>{rows.map(row=><tr key={row.id}><td><strong>{row.title}</strong></td><td>{customers.find(c=>c.id===row.customer_id)?.display_name||"Customer"}</td><td>{row.warranty_type}</td><td>{row.start_date||"Not set"} to {row.end_date||"Open"}</td><td>{row.status}</td></tr>)}</tbody></table></div>:<div className="empty-state">No warranty records yet.</div>}
+  {rows.length?<div className="table-wrap"><table><thead><tr><th>Warranty</th><th>Customer</th><th>Type</th><th>Coverage dates</th><th>Status</th><th>Action</th></tr></thead><tbody>{rows.map(row=><tr key={row.id}><td><strong>{row.title}</strong></td><td>{customers.find(c=>c.id===row.customer_id)?.display_name||"Customer"}</td><td>{row.warranty_type}</td><td>{row.start_date||"Not set"} to {row.end_date||"Open"}</td><td>{row.status}</td><td><button type="button" className="secondary-button" disabled={sendingId===row.id} onClick={()=>sendPdf(row.id)}>{sendingId===row.id?"Sending...":"Send PDF by email"}</button></td></tr>)}</tbody></table></div>:<div className="empty-state">No warranty records yet.</div>}
   </section></div>;
 }
