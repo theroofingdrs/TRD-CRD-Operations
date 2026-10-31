@@ -369,24 +369,9 @@ function DataList({ division, view, userId, canWrite }: { division: DivisionId; 
   const load = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
-    let data: GenericRow[] = [];
-    let errorMessage = "";
-    if (view === "properties") {
-      const { data: links, error: linkError } = await supabase.from("crm_customer_divisions").select("customer_id").eq("division_id", division);
-      if (linkError) errorMessage = linkError.message;
-      else {
-        const customerIds = (links ?? []).map((item: { customer_id: string }) => item.customer_id);
-        if (customerIds.length) {
-          const result = await supabase.from("crm_properties").select(config.columns).in("customer_id", customerIds).order(config.order, { ascending: false }).limit(100);
-          data = (result.data ?? []) as GenericRow[];
-          errorMessage = result.error?.message ?? "";
-        }
-      }
-    } else {
-      const result = await supabase.from(config.table).select(config.columns).eq("division_id", division).order(config.order, { ascending: view === "appointments" }).limit(100);
-      data = (result.data ?? []) as GenericRow[];
-      errorMessage = result.error?.message ?? "";
-    }
+    const result = await supabase.from(config.table).select(config.columns).eq("division_id", division).order(config.order, { ascending: view === "appointments" }).limit(100);
+    const data = (result.data ?? []) as GenericRow[];
+    const errorMessage = result.error?.message ?? "";
     setError(errorMessage);
     setRows(data);
     if (view === "projects" || view === "inspections") {
@@ -409,7 +394,7 @@ function DataList({ division, view, userId, canWrite }: { division: DivisionId; 
     setSaving(true);
     setError("");
     let payload: Record<string, unknown>;
-    let table = config.table;
+    const table = config.table;
     if (view === "appointments") {
       payload = { division_id: division, appointment_type: appointmentType, starts_at: new Date(startsAt).toISOString(), internal_notes: description || null, created_by: userId };
     } else if (view === "tasks") {
