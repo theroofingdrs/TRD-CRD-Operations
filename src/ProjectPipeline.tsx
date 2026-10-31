@@ -786,13 +786,15 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const stageFor = (project: Project) => project.pipeline_type ? (project.workflow_stage || "new_lead") : "unassigned";
   const daysInStage = (project: Project) => Math.max(0, Math.floor((Date.now() - new Date(stageLastChanged[project.id] || project.created_at).getTime()) / 86400000));
   const addressFor = (id: string) => { const p = properties.find(x => x.id === id); return p ? [p.address_line1,p.city,p.state].filter(Boolean).join(", ") : "Property"; };
+  const leadFor = (id: string | null) => id ? leads.find(item=>item.id===id) : undefined;
+  const claimFor = (id: string | null) => id ? claims.find(item=>item.id===id) : undefined;
   function exportProjectsCsv() {
-    const headers = ["Project","Division","Customer","Property","Workflow","Stage","Original Estimate","Contract or Approved Value","Invoiced","Collected","Receivable","Recorded Direct Costs","Commission Earned","Overhead Allocated","Next Action","Next Action Due","Project Manager"];
+    const headers = ["Project","Division","Customer","Property","Lead","Claim Number","Carrier","Workflow","Stage","Original Estimate","Contract or Approved Value","Invoiced","Collected","Receivable","Recorded Direct Costs","Commission Earned","Overhead Allocated","Next Action","Next Action Due","Project Manager"];
     const rows = filtered.map(project => {
       const value = Number(project.contract_amount||project.initial_approved_amount||0)+Number(project.supplements_approved_amount||0);
       const direct = projectExpenseSummary[project.id]?.direct || 0;
       const cell = (value: unknown) => '"' + String(value ?? "").replace(/"/g,'""') + '"';
-      return [project.project_name,project.division_id,customerNames[project.customer_id]||"",addressFor(project.property_id),project.pipeline_type||"",project.workflow_stage||"",project.original_estimate_amount||"",value,project.invoiced_amount||0,project.collected_amount||0,Math.max(0,Number(project.invoiced_amount||0)-Number(project.collected_amount||0)),direct,project.commission_earned_amount||0,project.overhead_allocated_amount||0,project.next_action||"",project.next_action_due_at||"",project.project_manager_id?staffNames[project.project_manager_id]||"Assigned":"Unassigned"].map(cell).join(",");
+      return [project.project_name,project.division_id,customerNames[project.customer_id]||"",addressFor(project.property_id),leadFor(project.lead_id)?.service_interest||"",claimFor(project.claim_id)?.claim_number||"",claimFor(project.claim_id)?.insurance_carrier||"",project.pipeline_type||"",project.workflow_stage||"",project.original_estimate_amount||"",value,project.invoiced_amount||0,project.collected_amount||0,Math.max(0,Number(project.invoiced_amount||0)-Number(project.collected_amount||0)),direct,project.commission_earned_amount||0,project.overhead_allocated_amount||0,project.next_action||"",project.next_action_due_at||"",project.project_manager_id?staffNames[project.project_manager_id]||"Assigned":"Unassigned"].map(cell).join(",");
     });
     const csv = [headers.map(h=>'"'+h.replace(/"/g,'""')+'"').join(","),...rows].join("\r\n");
     const blob = new Blob([csv],{type:"text/csv;charset=utf-8"});
@@ -810,7 +812,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         <strong>{project.project_name}</strong><span className="muted">{addressFor(project.property_id)}</span>
         <span className="pipeline-card-stage">{workflowLabel(project.workflow_stage || project.status || "planning", project.pipeline_type)}</span>
         <span className="pipeline-card-value">{money(project.contract_amount || project.initial_approved_amount || project.original_estimate_amount)}</span>
-        <span className="muted">Manager: {project.project_manager_id ? staffNames[project.project_manager_id] || teamMembers.find(m=>m.user_id===project.project_manager_id)?.display_name || "Assigned" : "Unassigned"}</span>
+        <span className="muted">Manager: {project.project_manager_id ? staffNames[project.project_manager_id] || teamMembers.find(m=>m.user_id===project.project_manager_id)?.display_name || "Assigned" : "Unassigned"}</span>{project.lead_id&&<span className="muted">Lead: {leadFor(project.lead_id)?.service_interest||"Linked lead"}</span>}{project.claim_id&&<span className="muted">Claim: {claimFor(project.claim_id)?.claim_number||"Linked claim"} · {claimFor(project.claim_id)?.insurance_carrier||"Carrier not set"}</span>}
         <span className="muted">{daysInStage(project)} days in stage</span>
         {project.next_action && <span className="muted">Next: {project.next_action}</span>}
         {project.next_action_due_at && <span className={new Date(project.next_action_due_at).getTime()<Date.now()?"error-text":"muted"}>Due {new Date(project.next_action_due_at).toLocaleDateString()}</span>}
@@ -904,7 +906,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     </section>
 
     {selected && <section className="panel project-detail">
-      <div className="panel-heading"><div><p className="eyebrow">PROJECT DETAIL</p><h2>{selected.project_name}</h2><p className="muted">{selected.division_id} · {addressFor(selected.property_id)} · {customerNames[selected.customer_id] || "Customer"}</p></div><button className="secondary-button compact" onClick={()=>setSelected(null)}>Close</button></div>
+      <div className="panel-heading"><div><p className="eyebrow">PROJECT DETAIL</p><h2>{selected.project_name}</h2><p className="muted">{selected.division_id} · {addressFor(selected.property_id)} · {customerNames[selected.customer_id] || "Customer"}{selected.lead_id ? " · Lead: "+(leadFor(selected.lead_id)?.service_interest||"Linked") : ""}{selected.claim_id ? " · Claim: "+(claimFor(selected.claim_id)?.claim_number||"Linked")+" · "+(claimFor(selected.claim_id)?.insurance_carrier||"Carrier not set") : ""}</p></div><button className="secondary-button compact" onClick={()=>setSelected(null)}>Close</button></div>
       {scope !== "combined" && canWrite && <div className="workflow-choice project-workflow-choice"><span className="form-label">Project workflow</span><label><input type="checkbox" checked={selected.pipeline_type==="retail"} disabled={selected.pipeline_type==="retail" || busy} onChange={()=>void assignWorkflow(selected,"retail")} /> Retail</label><label><input type="checkbox" checked={selected.pipeline_type==="insurance"} disabled={selected.pipeline_type==="insurance" || busy} onChange={()=>void assignWorkflow(selected,"insurance")} /> Insurance</label><p className="muted">Only one workflow can be active. Switching resets the current stage and records the previous and new workflow in history.</p></div>}
       <div className="financial-summary">
         <div><span>Original estimate</span><strong>{money(selected.original_estimate_amount)}</strong></div><div><span>Contract / approved value</span><strong>{money(contractValue)}</strong></div>
