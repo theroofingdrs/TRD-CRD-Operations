@@ -751,7 +751,8 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       const cell = (value: unknown) => '"' + String(value ?? "").replace(/"/g,'""') + '"';
       return [project.project_name,project.division_id,customerNames[project.customer_id]||"",addressFor(project.property_id),project.pipeline_type||"",project.workflow_stage||"",project.original_estimate_amount||"",value,project.invoiced_amount||0,project.collected_amount||0,Math.max(0,Number(project.invoiced_amount||0)-Number(project.collected_amount||0)),direct,project.commission_earned_amount||0,project.overhead_allocated_amount||0,project.next_action||"",project.next_action_due_at||"",project.project_manager_id?staffNames[project.project_manager_id]||"Assigned":"Unassigned"].map(cell).join(",");
     });
-    const csv = [headers.map(h=>'"'+h.replace(/"/g,'""')+'"').join(","),...rows].join("\r\n");
+    const csv = [headers.map(h=>'"'+h.replace(/"/g,'""')+'"').join(","),...rows].join("\r
+");
     const blob = new Blob([csv],{type:"text/csv;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -784,6 +785,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const attention = filtered.filter(p => p.workflow_stage !== "closed" && ((p.next_action_due_at && new Date(p.next_action_due_at).getTime() < Date.now()) || Math.floor((Date.now() - new Date(stageLastChanged[p.id] || p.created_at).getTime()) / 86400000) >= staleDays));
   const activeContractValue = filtered.filter(p => p.workflow_stage !== "closed").reduce((sum,p)=>sum+Number(p.contract_amount || p.initial_approved_amount || 0)+Number(p.supplements_approved_amount || 0),0);
   const collectedTotal = filtered.reduce((sum,p)=>sum+Number(p.collected_amount || 0),0);
+  const invoicedTotal = filtered.reduce((sum,p)=>sum+Number(p.invoiced_amount||0),0);
   const receivableTotal = filtered.reduce((sum,p)=>sum+Math.max(0,Number(p.invoiced_amount||0)-Number(p.collected_amount||0)),0);
   const recordedNetProfit = filtered.filter(p=>Number(p.contract_amount||p.initial_approved_amount||0)>0).reduce((sum,p)=>sum+(Number(p.contract_amount||p.initial_approved_amount||0)+Number(p.supplements_approved_amount||0))-(projectExpenseSummary[p.id]?.direct||0)-Number(p.commission_earned_amount||0)-Number(p.overhead_allocated_amount||0),0);
   const projectsWithBudgets = filtered.filter(p=>projectBudgetSummary[p.id]!==undefined);
@@ -803,12 +805,12 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       <div className="panel-heading"><div><p className="eyebrow">{scope === "combined" ? "TRD + CRD" : division} PROJECT OPERATIONS</p><h2>Project pipeline</h2><p className="muted">Track each job from lead through completion. Customers and properties remain in the existing CRM records.</p></div><div className="panel-actions"><button className="secondary-button compact" onClick={exportProjectsCsv}>Export CSV</button><span className="record-count">{filtered.length} projects</span>{scope !== "combined" && canWrite && <button className="primary-button compact" onClick={() => setShowCreate(v => !v)}>+ New project</button>}</div></div>
       <div className="financial-summary pipeline-overview">
         <div><span>Active contract value</span><strong>{money(activeContractValue)}</strong></div>
-        <div><span>Collected revenue</span><strong>{money(collectedTotal)}</strong></div>
+        <div><span>Invoiced</span><strong>{money(invoicedTotal)}</strong></div><div><span>Collected revenue</span><strong>{money(collectedTotal)}</strong></div>
         <div><span>Collected this month</span><strong>{money(monthlyCollected)}</strong></div>
         <div><span>Recorded expenses</span><strong>{money(recordedExpenses)}</strong></div><div><span>Materials</span><strong>{money(materialsTotal)}</strong></div><div><span>Labor</span><strong>{money(laborTotal)}</strong></div>
         <div><span>Receivables</span><strong>{money(receivableTotal)}</strong></div>
-        <div><span>Unpaid vendor bills</span><strong>{money(unpaidVendorBills)}</strong></div><div><span>Commission earned</span><strong>{money(commissionTotal)}</strong></div><div><span>Overhead allocated</span><strong>{money(overheadAllocatedTotal)}</strong></div>
-        <div><span>Recorded net profit</span><strong>{money(recordedNetProfit)}</strong></div>
+        <div><span>Unpaid vendor bills</span><strong>{money(unpaidVendorBills)}</strong></div><div><span>Commission earned</span><strong>{money(commissionTotal)}</strong></div><div><span>Commission paid</span><strong>{money(commissionPaidTotal)}</strong></div><div><span>Commission remaining</span><strong>{money(commissionRemainingTotal)}</strong></div><div><span>Overhead allocated</span><strong>{money(overheadAllocatedTotal)}</strong></div>
+        <div><span>Recorded gross profit</span><strong>{money(grossProfitTotal)}</strong></div><div><span>Recorded net profit</span><strong>{money(recordedNetProfit)}</strong></div>
         <div><span>Projected profit from budgets</span><strong>{money(projectedProfit)}</strong></div>
         <div><span>Needs attention</span><strong>{attention.length}</strong></div>
       </div>
@@ -864,7 +866,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         <div><span>Collected</span><strong>{money(selected.collected_amount)}</strong></div>
         <div><span>Recorded expenses</span><strong>{money(totalExpenses)}</strong></div>
         <div><span>Direct costs</span><strong>{money(directExpenses)}</strong></div>
-        <div><span>Gross profit</span><strong>{money(gross)}</strong></div><div><span>Commission earned</span><strong>{money(selected.commission_earned_amount)}</strong></div><div><span>Commission remaining</span><strong>{money(Number(selected.commission_earned_amount||0)-Number(selected.commission_paid_amount||0))}</strong></div><div><span>Overhead allocated</span><strong>{money(selected.overhead_allocated_amount)}</strong></div><div><span>Net project profit</span><strong>{money(netProfit)}</strong></div><div><span>Net margin</span><strong>{netMargin.toFixed(1)}%</strong></div>
+        <div><span>Gross profit</span><strong>{money(gross)}</strong></div><div><span>Commission earned</span><strong>{money(selected.commission_earned_amount)}</strong></div><div><span>Commission paid</span><strong>{money(selected.commission_paid_amount)}</strong></div><div><span>Commission remaining</span><strong>{money(Number(selected.commission_earned_amount||0)-Number(selected.commission_paid_amount||0))}</strong></div><div><span>Overhead allocated</span><strong>{money(selected.overhead_allocated_amount)}</strong></div><div><span>Net project profit</span><strong>{money(netProfit)}</strong></div><div><span>Net margin</span><strong>{netMargin.toFixed(1)}%</strong></div>
       </div>
       {canWriteFinancials && <form className="inline-form" onSubmit={saveFinancials}>
         <div className="panel-heading subheading"><div><h3>Contract and profitability</h3><p className="muted">Set contract and approval values, then manage invoices and payments in the transaction ledger.</p></div></div>
