@@ -31,11 +31,6 @@ function loadGoogleMaps(): Promise<any> {
   return window.__roofDoctorsMapsPromise;
 }
 
-function component(components: any[], type: string, useShort = false): string {
-  const found = components.find(item => item.types?.includes(type));
-  return found ? (useShort ? found.short_name : found.long_name) : "";
-}
-
 export function AddressAutocomplete({ value, onChange, onPlaceSelected, required, placeholder, disabled }: AddressAutocompleteProps) {
   const placesLibraryRef = useRef<any>(null);
   const sessionTokenRef = useRef<any>(null);
