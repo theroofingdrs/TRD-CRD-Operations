@@ -120,7 +120,8 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       supabase.from("crm_customer_divisions").select("customer_id").in("division_id", visibleDivisions),
       supabase.from("crm_project_expenses").select("amount,category").in("division_id", visibleDivisions),
       supabase.from("crm_division_financial_settings").select("stale_stage_days,default_commission_method,default_commission_rate,default_commission_fixed_amount,default_overhead_method,default_overhead_rate,default_overhead_fixed_amount").eq("division_id", division).maybeSingle(),
-      supabase.from("crm_project_transactions").select("amount,transaction_date").in("division_id", visibleDivisions).eq("transaction_type", "payment").eq("status", "recorded").gte("transaction_date", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0,10))
+      supabase.from("crm_project_transactions").select("amount,transaction_date").in("division_id", visibleDivisions).eq("transaction_type", "payment").eq("status", "recorded").gte("transaction_date", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0,10)),
+      supabase.from("crm_memberships").select("user_id,role").in("division_id", visibleDivisions).eq("active", true)
     ]);
     if (projectResult.error) setError(projectResult.error.message);
     setProjects((projectResult.data ?? []) as Project[]);
@@ -241,7 +242,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       original_estimate_amount: contract ? cents(contract) : null,
       next_action: nextAction.trim() || null,
       next_action_due_at: nextDue ? new Date(nextDue).toISOString() : null,
-      created_by: userId
+      created_by: userId, project_manager_id: projectManagerId || null
     });
     if (insertError) setError(insertError.message);
     else { setShowCreate(false); setProjectName(""); setProjectManagerId(""); setContract(""); setNextAction(""); setNextDue(""); setMessage("Project created."); await load(); }
