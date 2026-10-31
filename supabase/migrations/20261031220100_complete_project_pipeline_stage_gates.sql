@@ -263,6 +263,37 @@ CREATE TRIGGER crm_projects_enforce_stage_gate
 
 
 -- Keep a project's lead and insurance claim attached to the same customer, property and division.
+-- Audit history rows may only be inserted by a nested system trigger.
+CREATE OR REPLACE FUNCTION app_private.require_audit_trigger_context()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path TO ''
+AS $function$
+BEGIN
+  IF pg_trigger_depth() < 2 THEN
+    RAISE EXCEPTION 'Audit history can only be written by system-generated change triggers';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+REVOKE ALL ON FUNCTION app_private.require_audit_trigger_context() FROM PUBLIC, anon, authenticated;
+CREATE TRIGGER crm_project_stage_history_guard_insert
+  BEFORE INSERT ON public.crm_project_stage_history
+  FOR EACH ROW EXECUTE FUNCTION app_private.require_audit_trigger_context();
+CREATE TRIGGER crm_project_financial_history_guard_insert
+  BEFORE INSERT ON public.crm_project_financial_history
+  FOR EACH ROW EXECUTE FUNCTION app_private.require_audit_trigger_context();
+CREATE TRIGGER crm_project_expense_history_guard_insert
+  BEFORE INSERT ON public.crm_project_expense_history
+  FOR EACH ROW EXECUTE FUNCTION app_private.require_audit_trigger_context();
+CREATE TRIGGER crm_project_supplement_history_guard_insert
+  BEFORE INSERT ON public.crm_project_supplement_history
+  FOR EACH ROW EXECUTE FUNCTION app_private.require_audit_trigger_context();
+CREATE TRIGGER crm_project_transaction_history_guard_insert
+  BEFORE INSERT ON public.crm_project_transaction_history
+  FOR EACH ROW EXECUTE FUNCTION app_private.require_audit_trigger_context();
+
 CREATE OR REPLACE FUNCTION app_private.enforce_project_lead_claim_links()
 RETURNS trigger
 LANGUAGE plpgsql
