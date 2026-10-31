@@ -159,17 +159,27 @@ Deno.serve(async (req: Request) => {
     division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
     recipient = clean(data.crm_customers?.email); customerName = clean(data.crm_customers?.display_name);
     address = [data.crm_properties?.address_line1,data.crm_properties?.city,data.crm_properties?.state,data.crm_properties?.postal_code].filter(Boolean).join(", ");
-    title = data.title; brand = division === "TRD" ? "The ROOF Doctors" : "Commercial ROOF Doctors";
+    title = data.title;
+    const { data: savedTemplate } = await client.from("crm_proposal_templates")
+      .select("company_name,introduction,default_scope,default_exclusions,payment_terms,warranty_summary,footer_text")
+      .eq("division_id", division).maybeSingle();
+    brand = clean(savedTemplate?.company_name) || (division === "TRD" ? "The ROOF Doctors" : "Commercial ROOF Doctors");
+    if (savedTemplate?.introduction) sections.push({ heading: "Introduction", body: [savedTemplate.introduction] });
     sections.push({ heading: "Customer and property", body: [customerName, address, data.proposal_number ? "Proposal " + data.proposal_number : ""] });
     if (data.existing_conditions) sections.push({ heading: "Existing conditions", body: [data.existing_conditions] });
-    if (data.scope_of_work) sections.push({ heading: "Scope of work", body: [data.scope_of_work] });
+    const proposalScope = clean(data.scope_of_work) || clean(savedTemplate?.default_scope);
+    if (proposalScope) sections.push({ heading: "Scope of work", body: [proposalScope] });
     if (Array.isArray(data.line_items) && data.line_items.length) sections.push({ heading: "Itemized pricing", body: data.line_items.map((item: any) => String(item.description) + " | Qty " + item.quantity + " | " + money(item.unit_price) + " each | " + money(item.amount)) });
     if (data.pricing_mode !== "lump_sum") sections.push({ heading: "Itemized total", body: ["Subtotal " + money(data.subtotal), "Tax " + money(data.tax_amount), "Total " + money(data.total_amount)] });
     if (data.lump_sum_amount != null) sections.push({ heading: "Lump sum option", body: [money(data.lump_sum_amount)] });
-    if (data.exclusions) sections.push({ heading: "Exclusions", body: [data.exclusions] });
-    if (data.payment_terms) sections.push({ heading: "Payment terms", body: [data.payment_terms] });
-    if (data.warranty_summary) sections.push({ heading: "Warranty", body: [data.warranty_summary] });
+    const proposalExclusions = clean(data.exclusions) || clean(savedTemplate?.default_exclusions);
+    if (proposalExclusions) sections.push({ heading: "Exclusions", body: [proposalExclusions] });
+    const proposalPaymentTerms = clean(data.payment_terms) || clean(savedTemplate?.payment_terms);
+    if (proposalPaymentTerms) sections.push({ heading: "Payment terms", body: [proposalPaymentTerms] });
+    const proposalWarranty = clean(data.warranty_summary) || clean(savedTemplate?.warranty_summary);
+    if (proposalWarranty) sections.push({ heading: "Warranty", body: [proposalWarranty] });
     if (data.valid_until) sections.push({ heading: "Valid through", body: [data.valid_until] });
+    if (savedTemplate?.footer_text) sections.push({ heading: "Thank you", body: [savedTemplate.footer_text] });
   } else if (type === "inspection") {
     const { data, error } = await client.from("crm_inspections").select("id,division_id,customer_id,property_id,inspection_type,inspected_at,weather_conditions,overall_condition,summary,recommendations,measurements,roof_sections,claim_information,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
     if (error || !data) return json({ error: "Inspection not found or access denied." }, 404);
