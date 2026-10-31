@@ -245,9 +245,9 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       supabase.from("crm_project_stage_history").select("id,from_stage,to_stage,from_pipeline_type,to_pipeline_type,override_used,changed_at,note,changed_by").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(30),
       supabase.from("crm_project_transactions").select("id,transaction_type,amount,transaction_date,reference_number,payment_method,notes,status,void_reason,attachment_file_id").eq("project_id", project.id).order("transaction_date", { ascending: false }),
       supabase.from("crm_project_financial_history").select("id,changed_by,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20),
-      supabase.from("crm_project_expense_history").select("id,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20),
-      supabase.from("crm_project_supplement_history").select("id,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20),
-      supabase.from("crm_project_transaction_history").select("id,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20)
+      supabase.from("crm_project_expense_history").select("id,changed_by,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20),
+      supabase.from("crm_project_supplement_history").select("id,changed_by,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20),
+      supabase.from("crm_project_transaction_history").select("id,changed_by,changed_at,before_values,after_values").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(20)
     ]);
     for (const result of [e,s,h,t,fh,eh,sh,th]) if (result.error) setError(result.error.message);
     const auditUserIds = [...new Set([
