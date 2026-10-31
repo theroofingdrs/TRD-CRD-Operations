@@ -78,13 +78,12 @@ export default function RoofrMeasurements({ division, userId, properties, canWri
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
       setMessage("Please select a Roofr PDF report."); return;
     }
-    if (file.size > 25 * 1024 * 1024) { setMessage("The PDF must be 25 MB or smaller."); return; }
+    if (file.size > 15 * 1024 * 1024) { setMessage("The PDF must be 15 MB or smaller because that is the current private storage limit."); return; }
     setBusy(true); setMessage("Reading the Roofr report...");
-    let extracted: { text: string; measurements: Measurement[] };
+    let extracted: { text: string; measurements: Measurement[] } = { text: "", measurements: [] };
+    let extractionError = "";
     try { extracted = await extractPdfMeasurements(file); }
-    catch (error) {
-      setBusy(false); setMessage("The PDF could not be read in this browser. " + (error instanceof Error ? error.message : String(error))); return;
-    }
+    catch (error) { extractionError = error instanceof Error ? error.message : String(error); }
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-120) || "roofr-report.pdf";
     const path = division + "/" + propertyId + "/roofr-" + crypto.randomUUID() + "-" + safeName;
     const { error: storageError } = await supabase.storage.from("roof-doctors-private")
@@ -94,7 +93,7 @@ export default function RoofrMeasurements({ division, userId, properties, canWri
       division_id: division, related_type: "property", related_id: propertyId,
       bucket_id: "roof-doctors-private", object_path: path, original_filename: file.name,
       content_type: "application/pdf", file_size_bytes: file.size, uploaded_by: userId,
-      metadata: { document_type: "roofr_measurement_report", extraction_status: extracted.measurements.length ? "review_required" : "no_text_matches", extracted_at: new Date().toISOString(), extracted_measurements: extracted.measurements, extracted_text: extracted.text.slice(0, 100000) }
+      metadata: { document_type: "roofr_measurement_report", extraction_status: extractionError ? "extraction_failed" : extracted.measurements.length ? "review_required" : "no_text_matches", extraction_error: extractionError || null, extracted_at: new Date().toISOString(), extracted_measurements: extracted.measurements, extracted_text: extracted.text.slice(0, 100000) }
     }).select("id").single();
     if (error) {
       await supabase.storage.from("roof-doctors-private").remove([path]);
@@ -103,9 +102,11 @@ export default function RoofrMeasurements({ division, userId, properties, canWri
     setFile(null);
     const picker = document.getElementById("roofr-report-picker") as HTMLInputElement | null;
     if (picker) picker.value = "";
-    setMessage(extracted.measurements.length
-      ? "Report uploaded. " + extracted.measurements.length + " measurement values were found. Review them before using them in an estimate."
-      : "Report uploaded and saved. No matching text measurements were detected. The report is preserved for review.");
+    setMessage(extractionError
+      ? "Report uploaded and preserved. Automatic reading could not run: " + extractionError
+      : extracted.measurements.length
+        ? "Report uploaded. " + extracted.measurements.length + " measurement values were found. Review them before using them in an estimate."
+        : "Report uploaded and saved. No matching text measurements were detected. The report is preserved for review.");
     await load();
     const inserted = (await supabase.from("crm_files").select("id,related_id,original_filename,object_path,bucket_id,created_at,metadata").eq("id", data.id).single()).data as ReportRow | null;
     if (inserted) { setReview(inserted); setMeasurements((inserted.metadata?.extracted_measurements as Measurement[]) || []); }
