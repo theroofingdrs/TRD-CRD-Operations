@@ -162,7 +162,7 @@ Deno.serve(async (req: Request) => {
     if (data.warranty_summary) sections.push({ heading: "Warranty", body: [data.warranty_summary] });
     if (data.valid_until) sections.push({ heading: "Valid through", body: [data.valid_until] });
   } else if (type === "inspection") {
-    const { data, error } = await client.from("crm_inspections").select("id,division_id,customer_id,property_id,inspection_type,inspected_at,weather_conditions,overall_condition,summary,recommendations,measurements,roof_sections,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
+    const { data, error } = await client.from("crm_inspections").select("id,division_id,customer_id,property_id,inspection_type,inspected_at,weather_conditions,overall_condition,summary,recommendations,measurements,roof_sections,claim_information,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
     if (error || !data) return json({ error: "Inspection not found or access denied." }, 404);
     division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
     recipient = clean(data.crm_customers?.email); customerName = clean(data.crm_customers?.display_name);
@@ -171,6 +171,13 @@ Deno.serve(async (req: Request) => {
     sections.push({ heading: "Customer and property", body: [customerName, address, "Inspection type: " + data.inspection_type, "Inspected: " + (data.inspected_at || "Not recorded"), "Overall condition: " + (data.overall_condition || "Not recorded"), "Weather: " + (data.weather_conditions || "Not recorded")] });
     const measurements = data.measurements || {};
     sections.push({ heading: "Measurements", body: ["Roof area: " + (measurements.roof_area_sq_ft ?? "Not recorded") + " sq ft", "Roof squares: " + (measurements.roof_squares ?? "Not recorded"), "Pitch / slope: " + (measurements.pitch ?? "Not recorded")] });
+    const claim = data.claim_information || {};
+    const claimLines = [
+      ["Insurance carrier", claim.carrier], ["Policy number", claim.policy_number],
+      ["Claim number", claim.claim_number], ["Adjuster", claim.adjuster_name],
+      ["Adjuster phone", claim.adjuster_phone], ["Adjuster email", claim.adjuster_email]
+    ].filter((entry: any[]) => entry[1]).map((entry: any[]) => entry[0] + ": " + entry[1]);
+    if (claimLines.length) sections.push({ heading: "Insurance and claim information", body: claimLines });
     const { data: items } = await client.from("crm_inspection_items").select("category,location,observation,severity,recommendation").eq("inspection_id", id).order("created_at");
     sections.push({ heading: "Checklist findings", body: (items || []).map((item: any) => item.category + (item.location ? " (" + item.location + ")" : "") + ": " + item.observation + (item.severity && item.severity !== "none" ? " | Severity: " + item.severity : "") + (item.recommendation ? " | Recommendation: " + item.recommendation : "")) });
     if (data.roof_sections?.length) sections.push({ heading: "Roof sections", body: data.roof_sections.map((s: any) => s.name || "Section") });
