@@ -362,7 +362,7 @@ function Properties({ division, canWrite }: { division: DivisionId; canWrite: bo
       if (customerResult.error) setMessage(customerResult.error.message);
       if (propertyResult.error) setMessage(propertyResult.error.message);
       setCustomers(customerResult.data ?? []);
-      setRows((propertyResult.data ?? []) as GenericRow[]);
+      setRows((propertyResult.data ?? []) as unknown as GenericRow[]);
       if (!customerId && customerResult.data?.length) setCustomerId(customerResult.data[0].id);
     }
     setLoading(false);
