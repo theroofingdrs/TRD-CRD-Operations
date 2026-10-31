@@ -143,7 +143,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     if (!supabase) return;
     setError(""); setBusy(true);
     const [projectResult, linkResult, expenseResult, settingsResult, transactionResult, memberResult, workflowSettingsResult, budgetResult, leadResult, claimResult] = await Promise.all([
-      supabase.from("crm_projects").select("id,division_id,project_manager_id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,materials_order_reference,materials_ordered_at,work_completed_at,workflow_stage_note,workflow_stage_override,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_paid_at,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").in("division_id", visibleDivisions).order("created_at", { ascending: false }),
+      supabase.from("crm_projects").select("id,division_id,lead_id,claim_id,project_manager_id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,materials_order_reference,materials_ordered_at,work_completed_at,workflow_stage_note,workflow_stage_override,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_paid_at,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").in("division_id", visibleDivisions).order("created_at", { ascending: false }),
       supabase.from("crm_customer_divisions").select("customer_id").in("division_id", visibleDivisions),
       supabase.from("crm_project_expenses").select("project_id,amount,category,paid_amount,payment_status").in("division_id", visibleDivisions),
       supabase.from("crm_division_financial_settings").select("stale_stage_days,default_commission_method,default_commission_rate,default_commission_fixed_amount,default_overhead_method,default_overhead_rate,default_overhead_fixed_amount").eq("division_id", division).maybeSingle(),
@@ -302,9 +302,21 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     if (!supabase) return;
     const property = properties.find(p => p.id === propertyId);
     if (!property) { setError("Select a property linked to this division."); return; }
+    const lead = leads.find(item => item.id === leadId);
+    if (leadId && (!lead || lead.division_id !== division || lead.customer_id !== property.customer_id || (lead.property_id && lead.property_id !== property.id))) {
+      setError("The selected lead must belong to the selected customer and property."); return;
+    }
+    const claim = claims.find(item => item.id === claimId);
+    if (claimId && (pipelineType !== "insurance" || !claim || claim.division_id !== division || claim.customer_id !== property.customer_id || claim.property_id !== property.id || claim.project_id)) {
+      setError("The selected claim must be an unlinked claim for this customer, property and division."); return;
+    }
+    if (claim?.lead_id && leadId && claim.lead_id !== leadId) {
+      setError("The selected lead does not match the insurance claim."); return;
+    }
     setBusy(true); setError("");
-    const { error: insertError } = await supabase.from("crm_projects").insert({
+    const { data: projectRow, error: insertError } = await supabase.from("crm_projects").insert({
       division_id: division, customer_id: property.customer_id, property_id: property.id,
+      lead_id: lead?.id || claim?.lead_id || null, claim_id: claim?.id || null,
       project_name: projectName.trim(), project_type: projectType, pipeline_type: pipelineType,
       commission_method: defaultCommissionMethod, commission_rate: defaultCommissionRate ? cents(defaultCommissionRate) : null, commission_fixed_amount: defaultCommissionFixed ? cents(defaultCommissionFixed) : null,
       overhead_method: defaultOverheadMethod, overhead_rate: defaultOverheadRate ? cents(defaultOverheadRate) : null, overhead_fixed_amount: defaultOverheadFixed ? cents(defaultOverheadFixed) : null,
@@ -313,9 +325,18 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       next_action: nextAction.trim() || null,
       next_action_due_at: nextDue ? new Date(nextDue + "T23:59:59").toISOString() : null,
       created_by: userId, project_manager_id: projectManagerId || null
-    });
+    }).select("id").single();
     if (insertError) setError(insertError.message);
-    else { setShowCreate(false); setProjectName(""); setProjectManagerId(""); setContract(""); setNextAction(""); setNextDue(""); setMessage("Project created."); await load(); }
+    else {
+      let claimLinkError = "";
+      if (claim && projectRow?.id) {
+        const { error } = await supabase.from("crm_claims").update({ project_id: projectRow.id, updated_at: new Date().toISOString() }).eq("id", claim.id).eq("division_id", division);
+        if (error) claimLinkError = error.message;
+      }
+      setShowCreate(false); setProjectName(""); setProjectManagerId(""); setContract(""); setNextAction(""); setNextDue(""); setLeadId(""); setClaimId("");
+      setMessage(claimLinkError ? "Project created, but the claim record could not be linked: " + claimLinkError : "Project created and linked to its existing CRM lead and claim records where selected.");
+      await load();
+    }
     setBusy(false);
   }
 
