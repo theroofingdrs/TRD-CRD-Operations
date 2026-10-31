@@ -160,7 +160,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     const { error: insertError } = await supabase.from("crm_projects").insert({
       division_id: division, customer_id: property.customer_id, property_id: property.id,
       project_name: projectName.trim(), project_type: projectType, pipeline_type: pipelineType,
-      workflow_stage: stage, status: "planning", contract_amount: contract ? cents(contract) : null,
+      workflow_stage: stage, status: "planning", contract_amount: null,
       original_estimate_amount: contract ? cents(contract) : null,
       next_action: nextAction.trim() || null,
       next_action_due_at: nextDue ? new Date(nextDue).toISOString() : null,
@@ -172,7 +172,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   }
 
   async function assignWorkflow(project: Project, value: "retail" | "insurance") {
-    if (!supabase || !canWriteFinancials) return;
+    if (!supabase || !canWrite) return;
     setBusy(true); setError("");
     const { error: updateError } = await supabase.from("crm_projects").update({
       pipeline_type: value, workflow_stage: "new_lead", updated_at: new Date().toISOString()
@@ -195,15 +195,53 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     event.preventDefault();
     if (!supabase || !canWriteFinancials || !selected) return;
     setBusy(true); setError("");
-    const { error: insertError } = await supabase.from("crm_project_expenses").insert({
+    if (receiptFile && (!["image/jpeg","image/png","image/webp","application/pdf"].includes(receiptFile.type) || receiptFile.size > 15 * 1024 * 1024)) {
+      setError("Receipt must be JPG, PNG, WebP, or PDF and no larger than 15 MB."); setBusy(false); return;
+    }
+    const amount = cents(expenseAmount);
+    const duplicate = expenses.some(x => x.category === expenseCategory && Math.round(Number(x.amount)*100) === Math.round(amount*100) && x.expense_date === expenseDate && (x.vendor_payee || "").trim().toLowerCase() === vendor.trim().toLowerCase());
+    if (duplicate && !window.confirm("A similar expense already exists for this project. Add another anyway?")) { setBusy(false); return; }
+    const { data: expenseRow, error: insertError } = await supabase.from("crm_project_expenses").insert({
       division_id: division, project_id: selected.id, category: expenseCategory,
-      amount: cents(expenseAmount), paid_amount: 0, payment_status: "unpaid",
-      expense_date: expenseDate, vendor_payee: vendor.trim() || null,
-      description: expenseDescription.trim() || null, entered_by: userId
-    });
+      amount, paid_amount: 0, payment_status: "unpaid", expense_date: expenseDate,
+      vendor_payee: vendor.trim() || null, description: expenseDescription.trim() || null, entered_by: userId
+    }).select("id").single();
     if (insertError) setError(insertError.message);
-    else { setShowExpense(false); setExpenseAmount(""); setVendor(""); setExpenseDescription(""); await openProject(selected); }
+    else {
+      if (receiptFile) {
+        const safeName = receiptFile.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-120) || "receipt";
+        const path = division + "/" + selected.id + "/" + crypto.randomUUID() + "-" + safeName;
+        const { error: uploadError } = await supabase.storage.from("roof-doctors-private").upload(path, receiptFile, { contentType: receiptFile.type, upsert: false });
+        if (uploadError) setError("Expense saved, but receipt upload failed: " + uploadError.message);
+        else {
+          const { data: fileRow, error: fileError } = await supabase.from("crm_files").insert({
+            division_id: division, related_type: "project", related_id: selected.id,
+            bucket_id: "roof-doctors-private", object_path: path, original_filename: receiptFile.name,
+            content_type: receiptFile.type, file_size_bytes: receiptFile.size, uploaded_by: userId,
+            metadata: { document_category: "expense_receipt", expense_id: expenseRow.id }
+          }).select("id").single();
+          if (fileError) {
+            await supabase.storage.from("roof-doctors-private").remove([path]);
+            setError("Expense saved, but receipt registration failed: " + fileError.message);
+          } else {
+            const { error: linkError } = await supabase.from("crm_project_expenses").update({ receipt_file_id: fileRow.id }).eq("id", expenseRow.id).eq("division_id", division);
+            if (linkError) setError("Expense saved, but receipt linking failed: " + linkError.message);
+          }
+        }
+      }
+      setShowExpense(false); setExpenseAmount(""); setVendor(""); setExpenseDescription(""); setReceiptFile(null);
+      await openProject(selected);
+    }
     setBusy(false);
+  }
+
+  async function openReceipt(expense: Expense) {
+    if (!supabase || !expense.receipt_file_id) return;
+    const { data: fileRow, error: fileError } = await supabase.from("crm_files").select("bucket_id,object_path").eq("id", expense.receipt_file_id).single();
+    if (fileError || !fileRow) { setError(fileError?.message || "Receipt not found."); return; }
+    const { data, error: signedError } = await supabase.storage.from(fileRow.bucket_id).createSignedUrl(fileRow.object_path, 60);
+    if (signedError) setError(signedError.message);
+    else if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   }
 
   async function addSupplement(event: FormEvent) {
@@ -214,6 +252,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     const { error: insertError } = await supabase.from("crm_project_supplements").insert({
       division_id: division, project_id: selected.id, supplement_number: nextNumber,
       requested_amount: cents(supplementAmount), status: supplementStatus,
+      submitted_at: ["submitted","resubmitted","under_review"].includes(supplementStatus) ? new Date().toISOString() : null,
       notes: supplementNotes.trim() || null, created_by: userId
     });
     if (insertError) setError(insertError.message);
@@ -222,10 +261,10 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   }
 
   async function updateExpense(expense: Expense, changes: Partial<Expense>) {
-    if (!supabase || !canWrite || !selected) return;
+    if (!supabase || !canWriteFinancials || !selected) return;
     setBusy(true); setError("");
-    const nextPaid = changes.paid_amount ?? expense.paid_amount;
     const nextStatus = changes.payment_status ?? expense.payment_status;
+    const nextPaid = changes.paid_amount ?? (nextStatus === "paid" ? expense.amount : nextStatus === "unpaid" ? 0 : expense.paid_amount);
     if (nextPaid > expense.amount) { setError("Paid amount cannot exceed the expense amount."); setBusy(false); return; }
     const { error: updateError } = await supabase.from("crm_project_expenses").update({ ...changes, paid_amount: nextPaid, payment_status: nextStatus, updated_at: new Date().toISOString() }).eq("id", expense.id).eq("division_id", division);
     if (updateError) setError(updateError.message);
@@ -234,7 +273,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   }
 
   async function updateSupplement(supplement: Supplement, changes: Partial<Supplement>) {
-    if (!supabase || !canWriteFinancials || !selected) return;
+    if (!supabase || !canWrite || !selected) return;
     setBusy(true); setError("");
     const { error: updateError } = await supabase.from("crm_project_supplements").update({
       ...changes,
