@@ -39,4 +39,5 @@ CREATE POLICY crm_document_deliveries_update ON public.crm_document_deliveries
     CASE document_type WHEN 'proposal' THEN 'leads' WHEN 'inspection' THEN 'inspections' ELSE 'projects' END, true))
   WITH CHECK (app_private.has_division_resource_access(division_id,
     CASE document_type WHEN 'proposal' THEN 'leads' WHEN 'inspection' THEN 'inspections' ELSE 'projects' END, true));
-GRANT SELECT, INSERT, UPDATE ON public.crm_document_deliveries TO authenticated;
+GRANT SELECT, INSERT ON public.crm_document_deliveries TO authenticated;
+GRANT UPDATE (status, provider_message_id, error_message, sent_at) ON public.crm_document_deliveries TO authenticated;
