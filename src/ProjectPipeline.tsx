@@ -1,10 +1,10 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { DragEvent, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "./lib/supabase";
 
 type Division = "TRD" | "CRD";
 type Property = { id: string; customer_id: string; address_line1: string; city: string; state: string };
 type Project = {
-  id: string; division_id: Division; project_name: string; project_type: string | null; pipeline_type: "retail" | "insurance" | null;
+  id: string; division_id: Division; project_manager_id: string | null; project_name: string; project_type: string | null; pipeline_type: "retail" | "insurance" | null;
   workflow_stage: string | null; status: string; property_id: string; customer_id: string;
   contract_amount: number | null; original_estimate_amount: number | null; initial_approved_amount: number | null;
   supplements_approved_amount: number; invoiced_amount: number; collected_amount: number;
@@ -35,6 +35,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [projects, setProjects] = useState<Project[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
   const [customerNames, setCustomerNames] = useState<Record<string, string>>({});
+  const [staffNames, setStaffNames] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Project | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [supplements, setSupplements] = useState<Supplement[]>([]);
@@ -93,6 +94,8 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [supplementStatus, setSupplementStatus] = useState("draft");
   const [supplementNotes, setSupplementNotes] = useState("");
   const [filter, setFilter] = useState<"all" | "retail" | "insurance">("all");
+  const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
+  const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
   const [scope, setScope] = useState<"division" | "combined">("division");
   const availableDivisionKey = availableDivisions.join("|");
   const visibleDivisions = useMemo(() => scope === "combined" ? availableDivisions : [division], [scope, division, availableDivisionKey]);
@@ -104,7 +107,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     if (!supabase) return;
     setError(""); setBusy(true);
     const [projectResult, linkResult, expenseResult, settingsResult, transactionResult] = await Promise.all([
-      supabase.from("crm_projects").select("id,division_id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").in("division_id", visibleDivisions).order("created_at", { ascending: false }),
+      supabase.from("crm_projects").select("id,division_id,project_manager_id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").in("division_id", visibleDivisions).order("created_at", { ascending: false }),
       supabase.from("crm_customer_divisions").select("customer_id").in("division_id", visibleDivisions),
       supabase.from("crm_project_expenses").select("amount,category").in("division_id", visibleDivisions),
       supabase.from("crm_division_financial_settings").select("stale_stage_days").eq("division_id", division).maybeSingle(),
@@ -134,8 +137,15 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       const names: Record<string, string> = {};
       (c.data ?? []).forEach((x: any) => { names[x.id] = x.display_name; });
       setCustomerNames(names);
+      const managerIds = [...new Set((projectResult.data ?? []).map((project: any) => project.project_manager_id).filter(Boolean))] as string[];
+      if (managerIds.length) {
+        const { data: profiles } = await supabase.from("crm_profiles").select("user_id,display_name").in("user_id", managerIds);
+        const staff: Record<string,string> = {};
+        (profiles ?? []).forEach((profile: {user_id:string;display_name:string}) => { staff[profile.user_id] = profile.display_name; });
+        setStaffNames(staff);
+      } else setStaffNames({});
       if (!propertyId && p.data?.length) setPropertyId(p.data[0].id);
-    } else { setProperties([]); setCustomerNames({}); }
+    } else { setProperties([]); setCustomerNames({}); setStaffNames({}); }
     setBusy(false);
   }, [division, propertyId, visibleDivisions]);
 
@@ -463,6 +473,29 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   }
 
   const filtered = useMemo(() => projects.filter(p => filter === "all" || p.pipeline_type === filter), [projects, filter]);
+  const kanbanStages = useMemo(() => {
+    const base = filter === "retail" ? retailStages : filter === "insurance" ? insuranceStages : [...new Set([...retailStages, ...insuranceStages])];
+    return filtered.some(p => !p.pipeline_type) ? ["unassigned", ...base] : base;
+  }, [filter, filtered]);
+  const stageFor = (project: Project) => project.pipeline_type ? (project.workflow_stage || "new_lead") : "unassigned";
+  const daysInStage = (project: Project) => Math.max(0, Math.floor((Date.now() - new Date(stageLastChanged[project.id] || project.created_at).getTime()) / 86400000));
+  const addressFor = (id: string) => { const p = properties.find(x => x.id === id); return p ? [p.address_line1,p.city,p.state].filter(Boolean).join(", ") : "Property"; };
+  const renderProjectCard = (project: Project) => {
+    const stages = project.pipeline_type === "insurance" ? insuranceStages : retailStages;
+    return <article className="pipeline-card" key={project.id} draggable={scope !== "combined" && canWrite && !!project.pipeline_type} onDragStart={(event: DragEvent<HTMLElement>) => { setDraggedProjectId(project.id); event.dataTransfer.setData("text/project", project.id); event.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => setDraggedProjectId(null)}>
+      <button className="pipeline-card-main" onClick={()=>void openProject(project)}>
+        <span className="pipeline-card-type">{project.division_id} · {project.pipeline_type ? stageLabel(project.pipeline_type) : "Workflow not assigned"}</span>
+        <strong>{project.project_name}</strong><span className="muted">{addressFor(project.property_id)}</span>
+        <span className="pipeline-card-stage">{stageLabel(project.workflow_stage || project.status || "planning")}</span>
+        <span className="pipeline-card-value">{money(project.contract_amount || project.initial_approved_amount || project.original_estimate_amount)}</span>
+        <span className="muted">Manager: {project.project_manager_id ? staffNames[project.project_manager_id] || "Assigned" : "Unassigned"}</span>
+        <span className="muted">{daysInStage(project)} days in stage</span>
+        {project.next_action && <span className="muted">Next: {project.next_action}</span>}
+        {project.next_action_due_at && <span className={new Date(project.next_action_due_at).getTime()<Date.now()?"error-text":"muted"}>Due {new Date(project.next_action_due_at).toLocaleDateString()}</span>}
+      </button>
+      {scope !== "combined" && canWrite && <label className="stage-quick-edit">{project.pipeline_type ? "Move to" : "Assign workflow"}<select value={project.pipeline_type ? (project.workflow_stage || stages[0]) : ""} onChange={e=>project.pipeline_type ? void moveProject(project,e.target.value) : e.target.value && void assignWorkflow(project,e.target.value as "retail"|"insurance")} disabled={busy}><option value="" disabled>{project.pipeline_type ? "Select stage" : "Choose workflow"}</option>{!project.pipeline_type && <><option value="retail">Retail</option><option value="insurance">Insurance</option></>}{project.pipeline_type && stages.map(s=><option key={s} value={s}>{stageLabel(s)}</option>)}</select></label>}
+    </article>;
+  };
   const totalExpenses = expenses.reduce((sum, item) => sum + Math.round(Number(item.amount) * 100), 0) / 100;
   const directExpenses = expenses.filter(x => x.category !== "overhead" && x.category !== "sales_commission").reduce((sum, item) => sum + Math.round(Number(item.amount) * 100), 0) / 100;
   const contractValue = Number(selected?.contract_amount || selected?.initial_approved_amount || 0) + Number(selected?.supplements_approved_amount || 0);
@@ -500,20 +533,14 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       {message && <p className="inline-message">{message}</p>}
       {error && <p className="inline-message error-text">{error}</p>}
       {busy && <p className="muted">Working...</p>}
-      {busy && !projects.length ? <div className="empty-state">Loading projects...</div> : filtered.length ? <div className="pipeline-grid">{filtered.map(project => {
-        const stages = project.pipeline_type === "insurance" ? insuranceStages : retailStages;
-        return <article className="pipeline-card" key={project.id}>
-          <button className="pipeline-card-main" onClick={()=>void openProject(project)}>
-            <span className="pipeline-card-type">{project.division_id} · {project.pipeline_type ? stageLabel(project.pipeline_type) : "Workflow not assigned"}</span>
-            <strong>{project.project_name}</strong><span className="muted">{addressFor(project.property_id)}</span>
-            <span className="pipeline-card-stage">{stageLabel(project.workflow_stage || project.status || "planning")}</span>
-            <span className="pipeline-card-value">{money(project.contract_amount || project.original_estimate_amount)}</span>
-            {project.next_action && <span className="muted">Next: {project.next_action}</span>}
-            {project.next_action_due_at && <span className="muted">Due {new Date(project.next_action_due_at).toLocaleDateString()}</span>}
-          </button>
-          {scope !== "combined" && canWrite && <label className="stage-quick-edit">{project.pipeline_type ? "Move to" : "Assign workflow"}<select value={project.pipeline_type ? (project.workflow_stage || stages[0]) : ""} onChange={e=>project.pipeline_type ? void moveProject(project,e.target.value) : e.target.value && void assignWorkflow(project,e.target.value as "retail"|"insurance")} disabled={busy}><option value="" disabled>{project.pipeline_type ? "Select stage" : "Choose workflow"}</option>{!project.pipeline_type && <><option value="retail">Retail</option><option value="insurance">Insurance</option></>}{project.pipeline_type && stages.map(s=><option key={s} value={s}>{stageLabel(s)}</option>)}</select></label>}
-        </article>;
-      })}</div> : <div className="empty-state"><strong>No projects in this view</strong><span>Create a project using an existing customer property.</span></div>}
+      <div className="pipeline-toolbar pipeline-view-toolbar"><span className="muted">{scope === "combined" ? "Combined view is read only. Switch to TRD or CRD to make changes." : "Drag a project between stages to update its workflow."}</span><div className="segmented-filter"><button className={viewMode==="kanban"?"active":""} onClick={()=>setViewMode("kanban")}>Kanban</button><button className={viewMode==="list"?"active":""} onClick={()=>setViewMode("list")}>List</button></div></div>
+      {busy && !projects.length ? <div className="empty-state">Loading projects...</div> : filtered.length ? (viewMode === "kanban" ? <div className="kanban-board">{kanbanStages.map(stage=>{
+        const items = filtered.filter(project => stageFor(project) === stage);
+        return <section className="kanban-column" key={stage} onDragOver={event=>{if(scope!=="combined"&&canWrite)event.preventDefault();}} onDrop={event=>{event.preventDefault();const id=event.dataTransfer.getData("text/project")||draggedProjectId;const project=filtered.find(item=>item.id===id);if(project&&project.pipeline_type){const allowed=project.pipeline_type==="insurance"?insuranceStages:retailStages;if(allowed.includes(stage))void moveProject(project,stage);}setDraggedProjectId(null);}}>
+          <div className="kanban-column-header"><strong>{stage==="unassigned"?"Workflow not assigned":stageLabel(stage)}</strong><span>{items.length}</span></div>
+          <div className="kanban-column-cards">{items.map(renderProjectCard)}{!items.length&&<div className="kanban-drop-placeholder">Drop project here</div>}</div>
+        </section>;
+      })}</div> : <div className="table-wrap pipeline-list"><table><thead><tr><th>Project</th><th>Division</th><th>Workflow</th><th>Stage</th><th>Value</th><th>Manager</th><th>Next action</th><th>Days in stage</th></tr></thead><tbody>{filtered.map(project=><tr key={project.id}><td><button className="pipeline-list-link" onClick={()=>void openProject(project)}>{project.project_name}</button><small>{addressFor(project.property_id)}</small></td><td>{project.division_id}</td><td>{project.pipeline_type?stageLabel(project.pipeline_type):"Unassigned"}</td><td>{scope!=="combined"&&canWrite&&project.pipeline_type?<select value={project.workflow_stage||"new_lead"} onChange={e=>void moveProject(project,e.target.value)}>{(project.pipeline_type==="insurance"?insuranceStages:retailStages).map(stage=><option key={stage} value={stage}>{stageLabel(stage)}</option>)}</select>:stageLabel(project.workflow_stage||"unassigned")}</td><td>{money(project.contract_amount||project.initial_approved_amount||project.original_estimate_amount)}</td><td>{project.project_manager_id?staffNames[project.project_manager_id]||"Assigned":"Unassigned"}</td><td>{project.next_action||"—"}</td><td>{daysInStage(project)}</td></tr>)}</tbody></table></div>) : <div className="empty-state"><strong>No projects in this view</strong><span>Create a project using an existing customer property.</span></div>}
     </section>
 
     {selected && <section className="panel project-detail">
