@@ -192,7 +192,10 @@ Deno.serve(async (req: Request) => {
     if (Array.isArray(data.line_items) && data.line_items.length) sections.push({ heading: "Itemized pricing", body: data.line_items.map((item: any) => String(item.description) + " | Qty " + item.quantity + " | " + money(item.unit_price) + " each | " + money(item.amount)) });
     const pricingBreakdown = data.template_data?.pricing_breakdown || {};
     if (data.pricing_mode !== "lump_sum") sections.push({ heading: "Itemized total", body: [
-      "Line item subtotal " + money(pricingBreakdown.base_subtotal ?? data.subtotal),
+      "Line item subtotal " + money(pricingBreakdown.raw_item_subtotal ?? pricingBreakdown.base_subtotal ?? data.subtotal),
+      ...(Number(pricingBreakdown.complexity_amount || 0) > 0 ? ["Labor complexity adjustment (" + String(pricingBreakdown.complexity_rate_percent) + "%) " + money(pricingBreakdown.complexity_amount)] : []),
+      ...(Number(pricingBreakdown.pitch_amount || 0) > 0 ? ["Labor pitch adjustment (" + String(pricingBreakdown.pitch_rate_percent) + "%) " + money(pricingBreakdown.pitch_amount)] : []),
+      "Subtotal before overhead " + money(pricingBreakdown.base_subtotal ?? data.subtotal),
       ...(pricingBreakdown.overhead_enabled ? ["Overhead (" + String(pricingBreakdown.overhead_rate_percent ?? 10) + "%) " + money(pricingBreakdown.overhead_amount)] : []),
       ...(pricingBreakdown.profit_enabled ? ["Profit (" + String(pricingBreakdown.profit_rate_percent ?? 10) + "% of subtotal plus overhead) " + money(pricingBreakdown.profit_amount)] : []),
       "Subtotal before tax " + money(data.subtotal),
