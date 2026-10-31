@@ -109,7 +109,16 @@ async function makePdf(brand: string, title: string, sections: { heading: string
   });
   return await pdf.save();
 }
-function toBase64(bytes: Uint8Array): string {\n  let binary = \"\";\n  const chunkSize = 0x8000;\n  for (let offset = 0; offset < bytes.length; offset += chunkSize) {\n    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));\n  }\n  return btoa(binary);\n}\n\nDeno.serve(async (req: Request) => {
+function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
   const authorization = req.headers.get("Authorization") || "";
