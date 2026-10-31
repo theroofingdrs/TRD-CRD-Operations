@@ -229,9 +229,25 @@ async function makeProposalPdf(
     page.drawRectangle({ x: margin, y: y - 28, width: maxWidth, height: 40, color: navy });
     page.drawText("PROPOSAL TOTAL", { x: margin + 12, y: y - 3, size: 8, font: bold, color: rgb(1, 1, 1) });
     page.drawText(priceText, { x: 390, y: y - 8, size: 17, font: bold, color: rgb(1, 1, 1) });
-    y -= 49;
+    y -= 48;
     drawParagraph("Thank you for considering The ROOF Doctors. Please contact our office with any questions about this proposal.", 7.5, muted);
+  } else {
+    addPage();
+    page.drawText("PROPOSAL ACCEPTANCE", { x: margin, y: y - 4, size: 17, font: bold, color: navy });
+    y -= 40;
+    drawParagraph("The undersigned acknowledges the scope, pricing, exclusions, and terms described in this proposal and authorizes the work as presented, subject to the agreed written contract.", 10, ink);
   }
+  ensureSpace(82);
+  y -= 12;
+  page.drawLine({ start: { x: margin, y }, end: { x: 285, y }, thickness: 0.8, color: muted });
+  page.drawLine({ start: { x: 330, y }, end: { x: 570, y }, thickness: 0.8, color: muted });
+  page.drawText("CUSTOMER / AUTHORIZED SIGNATURE", { x: margin, y: y - 13, size: 6.5, font: bold, color: muted });
+  page.drawText("DATE", { x: 330, y: y - 13, size: 6.5, font: bold, color: muted });
+  y -= 48;
+  page.drawLine({ start: { x: margin, y }, end: { x: 285, y }, thickness: 0.8, color: muted });
+  page.drawLine({ start: { x: 330, y }, end: { x: 570, y }, thickness: 0.8, color: muted });
+  page.drawText("PRINTED NAME / TITLE", { x: margin, y: y - 13, size: 6.5, font: bold, color: muted });
+  page.drawText("COMPANY (IF APPLICABLE)", { x: 330, y: y - 13, size: 6.5, font: bold, color: muted });
   pages.forEach((currentPage, index) => {
     currentPage.drawText(brand + "  |  " + title, { x: margin, y: 24, size: 6.5, font: regular, color: muted, maxWidth: 390 });
     currentPage.drawText("Page " + (index + 1) + " of " + pages.length, { x: 492, y: 24, size: 6.5, font: regular, color: muted });
