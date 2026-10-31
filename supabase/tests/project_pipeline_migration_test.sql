@@ -210,6 +210,30 @@ BEGIN
 END $$;
 
 -- Exercise purchase order, completion date, supplement approval, balance-close, and audit gates.
+UPDATE public.crm_project_supplements SET approved_amount = 0 WHERE id = (SELECT supplement_id FROM pg_temp.test_ids);
+DO $body$
+BEGIN
+  BEGIN
+    PERFORM public.crm_move_project_stage((SELECT project_id FROM pg_temp.test_ids), 'supplement_approved');
+    RAISE EXCEPTION 'Supplement approval gate did not reject a missing approved amount';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = 'Supplement approval gate did not reject a missing approved amount' THEN RAISE; END IF;
+  END;
+END
+$body$;
+UPDATE public.crm_project_supplements SET approved_amount = 900 WHERE id = (SELECT supplement_id FROM pg_temp.test_ids);
+
+DO $body$
+BEGIN
+  BEGIN
+    PERFORM public.crm_move_project_stage((SELECT project_id FROM pg_temp.test_ids), 'work_completed');
+    RAISE EXCEPTION 'Work completed gate did not reject a missing completion date';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = 'Work completed gate did not reject a missing completion date' THEN RAISE; END IF;
+  END;
+END
+$body$;
+
 DO $body$
 BEGIN
   BEGIN
