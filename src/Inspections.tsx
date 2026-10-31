@@ -61,8 +61,9 @@ export default function Inspections({ division, userId, canWrite }: { division: 
   }
   async function viewReport(id: string) {
     if (!supabase) return;
+    const client = supabase;
     setLoadingReport(true); setMessage("");
-    const { data, error } = await supabase.from("crm_inspections")
+    const { data, error } = await client.from("crm_inspections")
       .select("id,division_id,inspection_type,status,inspected_at,weather_conditions,overall_condition,summary,recommendations,measurements,roof_sections,crm_customers(display_name),crm_properties(address_line1,city,state,postal_code)")
       .eq("id", id).single();
     if (error || !data) {
@@ -71,13 +72,13 @@ export default function Inspections({ division, userId, canWrite }: { division: 
       return;
     }
     const [itemResult, photoResult] = await Promise.all([
-      supabase.from("crm_inspection_items").select("id,category,location,observation,severity,recommendation").eq("inspection_id", id).order("created_at"),
-      supabase.from("crm_inspection_photos").select("photo_label,caption,roof_section,crm_files(bucket_id,object_path,content_type,original_filename)").eq("inspection_id", id).order("created_at")
+      client.from("crm_inspection_items").select("id,category,location,observation,severity,recommendation").eq("inspection_id", id).order("created_at"),
+      client.from("crm_inspection_photos").select("photo_label,caption,roof_section,crm_files(bucket_id,object_path,content_type,original_filename)").eq("inspection_id", id).order("created_at")
     ]);
     const photoRows = await Promise.all((photoResult.data || []).map(async (photo: any) => {
       const file = photo.crm_files;
       if (!file?.bucket_id || !file?.object_path) return { ...photo, signedUrl: "" };
-      const { data: signed } = await supabase.storage.from(file.bucket_id).createSignedUrl(file.object_path, 3600);
+      const { data: signed } = await client.storage.from(file.bucket_id).createSignedUrl(file.object_path, 3600);
       return { ...photo, signedUrl: signed?.signedUrl || "" };
     }));
     setViewingInspection(data);
