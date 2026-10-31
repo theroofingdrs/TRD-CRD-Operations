@@ -345,7 +345,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       const value = window.prompt("Enter the work completion date (YYYY-MM-DD). Leave blank only to request an authorized override:", new Date().toISOString().slice(0,10));
       if (value === null) return;
       completedDate = value.trim() || null;
-      if (completedDate && !/^\\d{4}-\\d{2}-\\d{2}$/.test(completedDate)) { setError("Enter the completion date as YYYY-MM-DD."); return; }
+      if (completedDate && !/^\d{4}-\d{2}-\d{2}$/.test(completedDate)) { setError("Enter the completion date as YYYY-MM-DD."); return; }
       if (!completedDate) {
         if (!canOverrideGates || !window.confirm("No completion date was entered. Use an authorized override and record the reason?")) return;
         override = true;
