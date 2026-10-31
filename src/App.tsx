@@ -156,6 +156,7 @@ function App() {
   const canWriteInspections = currentMembership ? ["owner","division_admin","office_manager","project_manager","field_inspector","production_manager"].includes(currentMembership.role) : false;
   const canWriteProjects = currentMembership ? ["owner","division_admin","office_manager","project_manager"].includes(currentMembership.role) : false;
   const canWriteFinancials = currentMembership ? ["owner","division_admin","office_manager","project_manager","accounting"].includes(currentMembership.role) : false;
+  const canManagePipelineSettings = currentMembership ? ["owner","division_admin","office_manager"].includes(currentMembership.role) : false;
   const canWriteTasks = currentMembership ? ["owner","division_admin","office_manager","sales_rep","project_manager","production_manager"].includes(currentMembership.role) : false;
 
   async function sendSignInLink(event: FormEvent) {
@@ -226,7 +227,7 @@ function App() {
       {view === "proposal_templates" && isOwner && <ProposalTemplates division={division} userId={session.user.id} />}
       {view === "warranties" && <Warranties division={division} userId={session.user.id} canWrite={canWriteProjects} />}
       {view === "deliveries" && <DocumentDeliveries division={division} />}
-      {view === "project_pipeline" && <ProjectPipeline division={division} userId={session.user.id} canWrite={canWriteProjects} canWriteFinancials={canWriteFinancials} availableDivisions={memberships.map(item => item.division_id)} />}
+      {view === "project_pipeline" && <ProjectPipeline division={division} userId={session.user.id} canWrite={canWriteProjects} canWriteFinancials={canWriteFinancials} availableDivisions={memberships.map(item => item.division_id)} canManageSettings={canManagePipelineSettings} />}
       {view === "completed_map" && isOwner && <CompletedProjectsMap />}
       {view === "tasks" && <DataList division={division} view="tasks" userId={session.user.id} canWrite={canWriteTasks} />}
       {view === "team" && isOwner && <Team division={division} />}
