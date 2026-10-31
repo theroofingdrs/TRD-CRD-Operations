@@ -104,6 +104,9 @@ CREATE POLICY crm_company_expense_history_insert ON public.crm_company_expense_h
     )
   );
 GRANT SELECT, INSERT ON public.crm_company_expense_history TO authenticated;
+CREATE TRIGGER crm_company_expense_history_guard_insert
+  BEFORE INSERT ON public.crm_company_expense_history
+  FOR EACH ROW EXECUTE FUNCTION app_private.require_audit_trigger_context();
 
 CREATE OR REPLACE FUNCTION app_private.log_company_expense_change()
 RETURNS trigger
