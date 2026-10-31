@@ -150,7 +150,7 @@ function App() {
       {view === "inspections" && <DataList division={division} view="inspections" userId={session.user.id} canWrite={canWriteInspections} />}
       {view === "projects" && <DataList division={division} view="projects" userId={session.user.id} canWrite={canWriteProjects} />}
       {view === "tasks" && <DataList division={division} view="tasks" userId={session.user.id} canWrite={canWriteTasks} />}
-      {view === "team" && isOwner && <Team />}
+      {view === "team" && isOwner && <Team division={division} />}
     </main>
   </div>;
 }
@@ -533,28 +533,63 @@ function formatValue(field: string, value: string | number | null | undefined) {
   return String(value).replaceAll("_"," ");
 }
 
-function Team() {
+function Team({ division }: { division: DivisionId }) {
   const [rows, setRows] = useState<{ user_id: string; division_id: string; role: string; active: boolean }[]>([]);
-  const [profiles, setProfiles] = useState<Record<string, string>>({});
+  const [profiles, setProfiles] = useState<Record<string, { name: string; email: string }>>({});
   const [error, setError] = useState("");
-  useEffect(() => {
-    async function load() {
-      if (!supabase) return;
-      const { data, error: queryError } = await supabase.from("crm_memberships").select("user_id,division_id,role,active").order("division_id");
-      if (queryError) setError(queryError.message);
-      const membershipRows = data ?? [];
-      setRows(membershipRows);
-      const ids = [...new Set(membershipRows.map((item) => item.user_id))];
-      if (ids.length) {
-        const { data: profileRows } = await supabase.from("crm_profiles").select("user_id,display_name,email").in("user_id", ids);
-        const map: Record<string,string> = {};
-        (profileRows ?? []).forEach((item) => { map[item.user_id] = item.display_name || item.email || item.user_id; });
-        setProfiles(map);
-      }
-    }
-    void load();
-  }, []);
-  return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">ACCESS CONTROL</p><h2>Employee memberships</h2><p className="muted">Employee accounts are invitation only. Division roles control what each employee can read and change.</p></div></div>{error && <p className="inline-message">{error}</p>}<div className="table-wrap"><table><thead><tr><th>Employee</th><th>Division</th><th>Role</th><th>Status</th></tr></thead><tbody>{rows.map((row) => <tr key={row.user_id + row.division_id}><td><strong>{profiles[row.user_id] || row.user_id}</strong></td><td>{row.division_id}</td><td>{row.role.replaceAll("_"," ")}</td><td><span className={row.active ? "pill active" : "pill inactive"}>{row.active ? "Active" : "Inactive"}</span></td></tr>)}</tbody></table></div><p className="fine-print">Employee invitations and role changes are reserved for a later admin workflow. No one can self assign a role.</p></section></div>;
-}
+  const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [inviteDivision, setInviteDivision] = useState<DivisionId>(division);
+  const [role, setRole] = useState("sales_rep");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [showForm, setShowForm] = useState(false);
 
+  const load = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error: queryError } = await supabase.from("crm_memberships").select("user_id,division_id,role,active").order("division_id");
+    if (queryError) setError(queryError.message);
+    const membershipRows = data ?? [];
+    setRows(membershipRows);
+    const ids = [...new Set(membershipRows.map((item) => item.user_id))];
+    if (ids.length) {
+      const { data: profileRows } = await supabase.from("crm_profiles").select("user_id,display_name,email").in("user_id", ids);
+      const map: Record<string,{name:string;email:string}> = {};
+      (profileRows ?? []).forEach((item) => { map[item.user_id] = { name: item.display_name || item.email || item.user_id, email: item.email || "" }; });
+      setProfiles(map);
+    }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setInviteDivision(division); }, [division]);
+
+  async function saveEmployee(event: FormEvent) {
+    event.preventDefault();
+    if (!supabase) return;
+    setSaving(true);
+    setMessage("");
+    setError("");
+    const { data, error: invokeError } = await supabase.functions.invoke("crm-invite-employee", {
+      body: { email: email.trim(), display_name: displayName.trim(), division_id: inviteDivision, role },
+    });
+    if (invokeError) {
+      setError(invokeError.message);
+    } else if (data?.error) {
+      setError(data.error);
+    } else {
+      setMessage(data?.message || "Employee access updated.");
+      setEmail("");
+      setDisplayName("");
+      setShowForm(false);
+      await load();
+    }
+    setSaving(false);
+  }
+
+  return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">ACCESS CONTROL</p><h2>Employee memberships</h2><p className="muted">Invite new employees or assign an existing account to a division and role.</p></div><button className="primary-button compact" onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "+ Add employee"}</button></div>
+    {showForm && <form className="inline-form" onSubmit={saveEmployee}><div className="form-grid"><label>Employee name<input value={displayName} onChange={event => setDisplayName(event.target.value)} placeholder="Full name"/></label><label>Work email<input required type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="employee@company.com"/></label><label>Division<select value={inviteDivision} onChange={event => setInviteDivision(event.target.value as DivisionId)}><option value="TRD">The ROOF Doctors</option><option value="CRD">Commercial ROOF Doctors</option></select></label><label>Role<select value={role} onChange={event => setRole(event.target.value)}><option value="division_admin">Division Admin</option><option value="office_manager">Office Manager</option><option value="sales_rep">Sales Rep</option><option value="project_manager">Project Manager</option><option value="field_inspector">Field Inspector</option><option value="production_manager">Production Manager</option><option value="accounting">Accounting</option><option value="read_only">Read Only</option></select></label></div><button className="primary-button" disabled={saving}>{saving ? "Saving access..." : "Send invitation or assign access"}</button><p className="fine-print">New accounts receive a Supabase invitation. Existing accounts are assigned the selected division role. Owner access is not assignable here.</p></form>}
+    {message && <p className="inline-message">{message}</p>}
+    {error && <p className="inline-message">{error}</p>}
+    <div className="table-wrap"><table><thead><tr><th>Employee</th><th>Email</th><th>Division</th><th>Role</th><th>Status</th></tr></thead><tbody>{rows.map((row) => <tr key={row.user_id + row.division_id}><td><strong>{profiles[row.user_id]?.name || row.user_id}</strong></td><td>{profiles[row.user_id]?.email || "—"}</td><td>{row.division_id}</td><td>{row.role.replaceAll("_"," ")}</td><td><span className={row.active ? "pill active" : "pill inactive"}>{row.active ? "Active" : "Inactive"}</span></td></tr>)}</tbody></table></div>
+  </section></div>;
+}
 export default App;
