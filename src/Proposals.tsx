@@ -7,7 +7,7 @@ type Customer = { id: string; display_name: string; email: string | null };
 type Property = { id: string; customer_id: string; address_line1: string; city: string; state: string };
 type LineItem = { description: string; quantity: string; unit: string; unit_price: string };
 type RoofrMeasurement = { label: string; value: number; unit: string };
-type RoofrReport = { id: string; original_filename: string; created_at: string; metadata: { extraction_status?: string; extracted_measurements?: RoofrMeasurement[] } | null };
+type RoofrReport = { id: string; original_filename: string; created_at: string; metadata: { document_type?: string; extraction_status?: string; extracted_measurements?: RoofrMeasurement[] } | null };
 type Proposal = { id: string; title: string; status: string; pricing_mode: string; total_amount: number; lump_sum_amount: number | null; created_at: string; customer_id: string; property_id: string };
 
 export default function Proposals({ division, userId, canWrite }: { division: DivisionId; userId: string; canWrite: boolean }) {
