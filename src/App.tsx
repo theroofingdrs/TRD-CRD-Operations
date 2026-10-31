@@ -96,6 +96,7 @@ function App() {
   const isOwner = memberships.some((item) => item.role === "owner");
   const canWriteLeads = currentMembership ? ["owner","division_admin","office_manager","sales_rep"].includes(currentMembership.role) : false;
   const canWriteCustomers = currentMembership ? ["owner","division_admin","office_manager","sales_rep","project_manager"].includes(currentMembership.role) : false;
+  const canShareCustomerAcrossDivisions = (["TRD","CRD"] as DivisionId[]).every((id) => { const m = memberships.find((item) => item.division_id === id); return !!m && ["owner","division_admin","office_manager","sales_rep","project_manager"].includes(m.role); });
   const canWriteContacts = canWriteCustomers;
   const canWriteRoofs = currentMembership ? ["owner","division_admin","office_manager","project_manager","production_manager"].includes(currentMembership.role) : false;
   const canWriteClaims = currentMembership ? ["owner","division_admin","office_manager","sales_rep","project_manager","production_manager"].includes(currentMembership.role) : false;
@@ -161,7 +162,7 @@ function App() {
       {workspaceError && <div className="error-banner">{workspaceError}</div>}
       {view === "overview" && <Overview division={division} onNavigate={setView} />}
       {view === "leads" && <Leads division={division} userId={session.user.id} canWrite={canWriteLeads} canImport={currentMembership?.role === "owner"} />}
-      {view === "customers" && <Customers division={division} userId={session.user.id} canWrite={canWriteCustomers} />}
+      {view === "customers" && <Customers division={division} userId={session.user.id} canWrite={canWriteCustomers} canShareBoth={canShareCustomerAcrossDivisions} />}
       {view === "contacts" && <Contacts division={division} canWrite={canWriteContacts} />}
       {view === "properties" && <Properties division={division} canWrite={canWriteCustomers} />}
       {view === "claims" && <Claims division={division} userId={session.user.id} canWrite={canWriteClaims} />}
@@ -272,7 +273,7 @@ function Leads({ division, userId, canWrite, canImport }: { division: DivisionId
   </section></div>;
 }
 
-function Customers({ division, userId, canWrite }: { division: DivisionId; userId: string; canWrite: boolean }) {
+function Customers({ division, userId, canWrite, canShareBoth }: { division: DivisionId; userId: string; canWrite: boolean; canShareBoth: boolean }) {
   const [rows, setRows] = useState<Customer[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
@@ -283,6 +284,7 @@ function Customers({ division, userId, canWrite }: { division: DivisionId; userI
   const [billingCity, setBillingCity] = useState("");
   const [billingState, setBillingState] = useState("TX");
   const [billingPostal, setBillingPostal] = useState("");
+  const [shareWithBoth, setShareWithBoth] = useState(false);
   const [selectedId, setSelectedId] = useState("");
   const [properties, setProperties] = useState<GenericRow[]>([]);
   const [contacts, setContacts] = useState<GenericRow[]>([]);
@@ -375,10 +377,11 @@ function Customers({ division, userId, canWrite }: { division: DivisionId; userI
     }).select("id").single();
     if (error) setMessage(error.message);
     else {
-      const { error: linkError } = await supabase.from("crm_customer_divisions").insert({ customer_id: data.id, division_id: division });
+      const divisionLinks = shareWithBoth ? [{ customer_id: data.id, division_id: "TRD" }, { customer_id: data.id, division_id: "CRD" }] : [{ customer_id: data.id, division_id: division }];
+      const { error: linkError } = await supabase.from("crm_customer_divisions").insert(divisionLinks);
       if (linkError) setMessage("Customer was created, but division linking failed: " + linkError.message);
       else {
-        setName(""); setEmail(""); setPhone(""); setBillingAddress(""); setBillingCity(""); setBillingPostal("");
+        setName(""); setEmail(""); setPhone(""); setBillingAddress(""); setBillingCity(""); setBillingPostal(""); setShareWithBoth(false);
         setShowForm(false); setMessage("Customer created.");
       }
       await load();
@@ -405,6 +408,7 @@ function Customers({ division, userId, canWrite }: { division: DivisionId; userI
         <label>City<input value={billingCity} onChange={(event) => setBillingCity(event.target.value)} /></label>
         <label>State<input value={billingState} onChange={(event) => setBillingState(event.target.value)} maxLength={2} /></label>
         <label>ZIP code<input value={billingPostal} onChange={(event) => setBillingPostal(event.target.value)} /></label>
+        {canShareBoth && <label className="check-field"><span><input type="checkbox" checked={shareWithBoth} onChange={(event) => setShareWithBoth(event.target.checked)} /> Share this customer across both TRD and CRD</span></label>}
       </div><button className="primary-button" disabled={saving}>{saving ? "Saving..." : "Save customer"}</button></form>}
       {message && <p className="inline-message">{message}</p>}
       {loading ? <div className="empty-state">Loading customers...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Customer / organization</th><th>Type</th><th>Email</th><th>Phone</th><th>Billing address</th><th>Added</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><button className="text-button" onClick={() => void loadCustomerDetails(row.id)}><strong>{row.display_name}</strong></button></td><td>{row.customer_type.replaceAll("_"," ")}</td><td>{row.email || "—"}</td><td>{row.phone || "—"}</td><td>{[row.billing_address_line1,row.billing_city,row.billing_state,row.billing_postal_code].filter(Boolean).join(", ") || "—"}</td><td>{new Date(row.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No customer records yet</strong><span>Add a customer to start building the shared customer and property history.</span>{canWrite && <button className="secondary-button" onClick={() => setShowForm(true)}>Add first customer</button>}</div>}
