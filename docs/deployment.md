@@ -39,7 +39,7 @@ Suggested service name: `trd-crd-operations`.
 8. Verify private Storage upload and signed download using TRD and CRD folder prefixes, including a rejected oversized or unsupported file.
 9. Confirm no secret keys are present in the browser bundle.
 10. Confirm website lead intake remains unchanged and that the CRM import does not modify source submissions.
-11. Review Supabase security and performance advisors.
+11. Review Supabase security and performance advisors, including the verified removal of non RLS table privileges from anonymous and authenticated roles.
 12. Reconcile `supabase/baselines/20261030_live_crm_schema_snapshot.sql` with the live schema using the Supabase CLI, then validate the resulting baseline against a disposable project. The checked in snapshot is reference only and must not be applied to production. Do not reset or recreate the existing database.
 
 ## Explicit hold points
