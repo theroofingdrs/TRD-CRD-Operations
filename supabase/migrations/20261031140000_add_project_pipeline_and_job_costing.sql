@@ -218,6 +218,13 @@ CREATE POLICY crm_project_expenses_update ON public.crm_project_expenses
   WITH CHECK (
     app_private.has_division_financial_access(division_id, true)
     AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = crm_project_expenses.project_id AND p.division_id = crm_project_expenses.division_id)
+    AND (receipt_file_id IS NULL OR EXISTS (
+      SELECT 1 FROM public.crm_files f
+      WHERE f.id = crm_project_expenses.receipt_file_id
+        AND f.division_id = crm_project_expenses.division_id
+        AND f.related_type = 'project'
+        AND f.related_id = crm_project_expenses.project_id
+    ))
   );
 GRANT SELECT, INSERT, UPDATE ON public.crm_project_expenses TO authenticated;
 
@@ -315,6 +322,11 @@ CREATE POLICY crm_project_financial_history_insert ON public.crm_project_financi
   WITH CHECK (
     app_private.has_division_financial_access(division_id, true)
     AND (changed_by IS NULL OR changed_by = (SELECT auth.uid()))
+    AND EXISTS (
+      SELECT 1 FROM public.crm_projects p
+      WHERE p.id = crm_project_financial_history.project_id
+        AND p.division_id = crm_project_financial_history.division_id
+    )
   );
 GRANT SELECT, INSERT ON public.crm_project_financial_history TO authenticated;
 
@@ -418,7 +430,7 @@ CREATE POLICY crm_project_transactions_update ON public.crm_project_transactions
   USING (app_private.has_division_financial_access(division_id, true))
   WITH CHECK (
     app_private.has_division_financial_access(division_id, true)
-    AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = crm_project_cost_estimates.project_id AND p.division_id = crm_project_cost_estimates.division_id)
+    AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = crm_project_transactions.project_id AND p.division_id = crm_project_transactions.division_id)
   );
 GRANT SELECT, INSERT, UPDATE ON public.crm_project_transactions TO authenticated;
 
@@ -563,7 +575,15 @@ ALTER TABLE public.crm_project_expense_history ENABLE ROW LEVEL SECURITY;
 CREATE POLICY crm_project_expense_history_read ON public.crm_project_expense_history
   FOR SELECT TO authenticated USING (app_private.has_division_financial_access(division_id, false));
 CREATE POLICY crm_project_expense_history_insert ON public.crm_project_expense_history
-  FOR INSERT TO authenticated WITH CHECK (app_private.has_division_financial_access(division_id, true));
+  FOR INSERT TO authenticated WITH CHECK (
+    app_private.has_division_financial_access(division_id, true)
+    AND EXISTS (
+      SELECT 1 FROM public.crm_project_expenses e
+      WHERE e.id = crm_project_expense_history.expense_id
+        AND e.project_id = crm_project_expense_history.project_id
+        AND e.division_id = crm_project_expense_history.division_id
+    )
+  );
 GRANT SELECT, INSERT ON public.crm_project_expense_history TO authenticated;
 
 CREATE OR REPLACE FUNCTION app_private.log_project_expense_change()
@@ -595,7 +615,15 @@ ALTER TABLE public.crm_project_supplement_history ENABLE ROW LEVEL SECURITY;
 CREATE POLICY crm_project_supplement_history_read ON public.crm_project_supplement_history
   FOR SELECT TO authenticated USING (app_private.has_division_resource_access(division_id, 'projects', false));
 CREATE POLICY crm_project_supplement_history_insert ON public.crm_project_supplement_history
-  FOR INSERT TO authenticated WITH CHECK (app_private.has_division_resource_access(division_id, 'projects', true));
+  FOR INSERT TO authenticated WITH CHECK (
+    app_private.has_division_resource_access(division_id, 'projects', true)
+    AND EXISTS (
+      SELECT 1 FROM public.crm_project_supplements s
+      WHERE s.id = crm_project_supplement_history.supplement_id
+        AND s.project_id = crm_project_supplement_history.project_id
+        AND s.division_id = crm_project_supplement_history.division_id
+    )
+  );
 GRANT SELECT, INSERT ON public.crm_project_supplement_history TO authenticated;
 
 CREATE OR REPLACE FUNCTION app_private.log_project_supplement_change()
