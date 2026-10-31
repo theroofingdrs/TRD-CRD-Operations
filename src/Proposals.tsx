@@ -17,6 +17,7 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
   const [customerId, setCustomerId] = useState("");
   const [propertyId, setPropertyId] = useState("");
   const [roofrReports, setRoofrReports] = useState<RoofrReport[]>([]);
+  const [selectedRoofrReportId, setSelectedRoofrReportId] = useState("");
   const [title, setTitle] = useState("");
   const [pricingMode, setPricingMode] = useState("both");
   const [lumpSum, setLumpSum] = useState("");
@@ -85,6 +86,7 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
   }
   function importRoofrMeasurements(report: RoofrReport) {
     const measurements = report.metadata?.extracted_measurements || [];
+    setSelectedRoofrReportId(report.id);
     if (!measurements.length) return;
     setLineItems(current => {
       const existing = new Set(current.map(item => item.description.trim().toLowerCase()));
@@ -126,12 +128,12 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
       subtotal, tax_amount: taxAmount, total_amount: total, scope_of_work: scope || null,
       existing_conditions: conditions || null, exclusions: exclusions || null, payment_terms: paymentTerms || null,
       valid_until: validUntil || null, warranty_summary: warrantySummary || null, created_by: userId,
-      template_data: { template: division === "TRD" ? "residential_standard_v1" : "commercial_standard_v1", tax_rate_percent: Number(taxRate || 0) }
+      template_data: { template: division === "TRD" ? "residential_standard_v1" : "commercial_standard_v1", tax_rate_percent: Number(taxRate || 0), roofr_report_id: selectedRoofrReportId || null }
     });
     if (error) setMessage(error.message);
     else {
       setMessage("Proposal draft saved to this customer and property.");
-      setShowForm(false); setTitle(""); setScope(""); setConditions(""); setExclusions(""); setLumpSum("");
+      setShowForm(false); setTitle(""); setScope(""); setConditions(""); setExclusions(""); setLumpSum(""); setSelectedRoofrReportId("");
       setLineItems([{ description: "", quantity: "1", unit: "EA", unit_price: "" }]); setTaxRate("0"); setValidUntil("");
       await load();
     }
@@ -142,7 +144,7 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
     {showForm && <form className="inline-form" onSubmit={saveProposal}><div className="form-grid">
       <label className="wide">Customer<select required value={customerId} onChange={e => { setCustomerId(e.target.value); setPropertyId(""); }}><option value="">Select customer</option>{customers.map(c => <option key={c.id} value={c.id}>{c.display_name}</option>)}</select></label>
       <label className="wide">Property<select required value={propertyId} onChange={e => setPropertyId(e.target.value)}><option value="">Select property</option>{customerProperties.map(p => <option key={p.id} value={p.id}>{p.address_line1}, {p.city}, {p.state}</option>)}</select></label>
-      {propertyId && <div className="wide"><h3>Roofr measurement import</h3>{roofrReports.length ? roofrReports.map(report => <div className="button-row" key={report.id}><span>{report.original_filename} · {new Date(report.created_at).toLocaleDateString()}</span><button type="button" className="secondary-button" onClick={() => importRoofrMeasurements(report)}>Add reviewed measurements to estimate</button></div>) : <p className="muted">No reviewed Roofr measurements are saved for this property yet. Upload and review a report in the customer record first.</p>}</div>}
+      {propertyId && <div className="wide"><h3>Roofr measurement import</h3>{roofrReports.length ? roofrReports.map(report => <div className="button-row" key={report.id}><span>{report.original_filename} · {new Date(report.created_at).toLocaleDateString()}</span><button type="button" className="secondary-button" onClick={() => importRoofrMeasurements(report)}>{selectedRoofrReportId === report.id ? "Selected for estimate" : "Add report and measurements to estimate"}</button></div>) : <p className="muted">No reviewed Roofr measurements are saved for this property yet. Upload and review a report in the customer record first.</p>}</div>}
       <label className="wide">Proposal title<input required value={title} onChange={e => setTitle(e.target.value)} placeholder={division === "TRD" ? "Residential roof replacement proposal" : "Commercial roof restoration proposal"} /></label>
       <label className="wide">Pricing format<select value={pricingMode} onChange={e => setPricingMode(e.target.value)}><option value="both">Show itemized and lump sum options</option><option value="itemized">Itemized only</option><option value="lump_sum">Lump sum only</option></select></label>
       {pricingMode !== "lump_sum" && <div className="wide"><h3>Itemized pricing</h3><div className="form-grid"><label>Catalog category<select value={catalogCategory} onChange={e => { setCatalogCategory(e.target.value); setCatalogSelection(""); }}>{estimateCatalogCategories.map(category => <option key={category} value={category}>{category}</option>)}</select></label><label>Search catalog<input value={catalogSearch} onChange={e => { setCatalogSearch(e.target.value); setCatalogSelection(""); }} placeholder="Search roof, tarp, magnet, hand load..." /></label><label className="wide">Catalog item<select value={catalogSelection} onChange={e => setCatalogSelection(e.target.value)}><option value="">Choose a standard estimate item</option>{catalogMatches.map(item => <option key={item.description} value={item.description}>{item.description} ({item.unit})</option>)}</select></label><button type="button" className="secondary-button" disabled={!catalogSelection} onClick={addCatalogItem}>+ Add catalog item</button></div><p className="muted">Starter reference catalog only. Descriptions and units are editable. Enter pricing from your current estimate or authorized price list. No Xactimate codes or prices are represented as official.</p>{lineItems.map((item,index) => <div className="form-grid" key={index}><label className="wide">Description<input required value={item.description} onChange={e => updateLine(index,{description:e.target.value})} placeholder="Labor, materials, tear off, decking..." /></label><label>Quantity<input type="number" min="0" step="0.01" value={item.quantity} onChange={e => updateLine(index,{quantity:e.target.value})} /></label><label>Unit<select value={item.unit} onChange={e => updateLine(index,{unit:e.target.value})}><option>EA</option><option>SF</option><option>LF</option><option>SQ</option><option>HR</option><option>DAY</option><option>WK</option><option>MO</option><option>LS</option></select></label><label>Unit price ($)<input type="number" min="0" step="0.01" value={item.unit_price} onChange={e => updateLine(index,{unit_price:e.target.value})} /></label><p className="muted">Line total: {(Number(item.quantity || 0)*Number(item.unit_price || 0)).toLocaleString("en-US",{style:"currency",currency:"USD"})}</p></div>)}<button type="button" className="secondary-button" onClick={() => setLineItems(current => [...current,{description:"",quantity:"1",unit:"EA",unit_price:""}])}>+ Add line item</button></div>}
