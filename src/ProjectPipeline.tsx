@@ -907,6 +907,21 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
   }
 
+  function exportCompanyExpensesCsv() {
+    const headers = ["Date","Division","Category","Vendor / Payee","Description","Notes","Amount","Paid","Remaining","Payment Status","Last Updated"];
+    const cell = (value: unknown) => '"' + String(value ?? "").replace(/"/g,'""') + '"';
+    const rows = companyExpenses.map(item => [
+      item.expense_date,item.division_id,item.category,item.vendor_payee||"",item.description||"",item.notes||"",
+      item.amount,item.paid_amount,Math.max(0,Number(item.amount)-Number(item.paid_amount)),item.payment_status,item.updated_at
+    ].map(cell).join(","));
+    const csv = [headers.map(cell).join(","),...rows].join("\\r\\n");
+    const blob = new Blob([csv],{type:"text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url; link.download = "company-expenses-" + (scope === "combined" ? "combined" : division.toLowerCase()) + ".csv";
+    document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+  }
+
   const renderProjectCard = (project: Project) => {
     const stages = project.pipeline_type === "insurance" ? sortedStages("insurance") : sortedStages("retail");
     return <article className="pipeline-card" key={project.id} draggable={scope !== "combined" && canWrite && !!project.pipeline_type} onDragStart={(event: DragEvent<HTMLElement>) => { setDraggedProjectId(project.id); event.dataTransfer.setData("text/project", project.id); event.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => setDraggedProjectId(null)}>
@@ -985,7 +1000,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       {attention.length ? <div className="attention-list">{attention.slice(0,10).map(p=><button key={p.id} className="attention-item" onClick={()=>void openProject(p)}><strong>{p.project_name}</strong><span>{p.next_action_due_at && new Date(p.next_action_due_at).getTime()<Date.now() ? "Overdue next action" : "Stale project"} · {workflowLabel(p.workflow_stage || "unassigned", p.pipeline_type)}</span><small>{p.next_action || "Review project and set a next action"}</small></button>)}</div> : <p className="muted">No projects currently need attention.</p>}
       <section className="panel company-expense-panel">
         <div className="panel-heading subheading"><div><h3>Company expenses</h3><p className="muted">Actual division-level operating expenses and receipts. These remain separate from project overhead allocations to prevent double counting.</p></div>
-          {scope !== "combined" && canWriteFinancials && <button className="secondary-button compact" onClick={()=>setShowCompanyExpense(v=>!v)}>{showCompanyExpense?"Close":"Add company expense"}</button>}
+          <div className="panel-actions"><button className="secondary-button compact" onClick={exportCompanyExpensesCsv}>Export CSV</button>{scope !== "combined" && canWriteFinancials && <button className="secondary-button compact" onClick={()=>setShowCompanyExpense(v=>!v)}>{showCompanyExpense?"Close":"Add company expense"}</button>}</div>
         </div>
         {scope !== "combined" && canWriteFinancials && showCompanyExpense && <form className="inline-form" onSubmit={addCompanyExpense}>
           <div className="form-grid">
