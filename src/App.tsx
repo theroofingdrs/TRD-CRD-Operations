@@ -7,12 +7,13 @@ import Warranties from "./Warranties";
 import DocumentDeliveries from "./DocumentDeliveries";
 import RoofrMeasurements from "./RoofrMeasurements";
 import ProposalTemplates from "./ProposalTemplates";
+import ProjectPipeline from "./ProjectPipeline";
 import { AddressAutocomplete, CompletedProjectsMap } from "./GoogleMaps";
 
 type DivisionId = "TRD" | "CRD";
 type Role = "owner" | "division_admin" | "office_manager" | "sales_rep" | "project_manager" | "field_inspector" | "production_manager" | "accounting" | "read_only";
 type Membership = { division_id: DivisionId; role: Role };
-type View = "overview" | "leads" | "customers" | "contacts" | "properties" | "claims" | "roofs" | "documents" | "appointments" | "proposals" | "proposal_templates" | "warranties" | "deliveries" | "inspections" | "projects" | "tasks" | "team" | "completed_map";
+type View = "overview" | "leads" | "customers" | "contacts" | "properties" | "claims" | "roofs" | "documents" | "appointments" | "proposals" | "proposal_templates" | "warranties" | "deliveries" | "inspections" | "projects" | "project_pipeline" | "tasks" | "team" | "completed_map";
 type Lead = { id: string; service_interest: string | null; status: string; priority: string; source: string | null; description: string | null; created_at: string };
 type Customer = { id: string; display_name: string; customer_type: string; email: string | null; phone: string | null; billing_address_line1?: string | null; billing_city?: string | null; billing_state?: string | null; billing_postal_code?: string | null; created_at: string };
 type GenericRow = Record<string, string | number | null>;
@@ -32,7 +33,7 @@ const navigation: { id: View; label: string; icon: string }[] = [
   { id: "proposal_templates", label: "Proposal templates", icon: "⚙" },
   { id: "warranties", label: "Warranties", icon: "▤" },
   { id: "deliveries", label: "Delivery history", icon: "✉" },
-  { id: "projects", label: "Projects", icon: "▤" },
+  { id: "project_pipeline", label: "Project Pipeline", icon: "▤" },
   { id: "completed_map", label: "Completed Projects Map", icon: "⌖" },
   { id: "tasks", label: "Tasks", icon: "☷" },
   { id: "team", label: "Team access", icon: "♧" }
@@ -224,7 +225,7 @@ function App() {
       {view === "proposal_templates" && isOwner && <ProposalTemplates division={division} userId={session.user.id} />}
       {view === "warranties" && <Warranties division={division} userId={session.user.id} canWrite={canWriteProjects} />}
       {view === "deliveries" && <DocumentDeliveries division={division} />}
-      {view === "projects" && <DataList division={division} view="projects" userId={session.user.id} canWrite={canWriteProjects} />}
+      {view === "project_pipeline" && <ProjectPipeline division={division} userId={session.user.id} canWrite={canWriteProjects} />}
       {view === "completed_map" && isOwner && <CompletedProjectsMap />}
       {view === "tasks" && <DataList division={division} view="tasks" userId={session.user.id} canWrite={canWriteTasks} />}
       {view === "team" && isOwner && <Team division={division} />}
