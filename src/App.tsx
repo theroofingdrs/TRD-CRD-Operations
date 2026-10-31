@@ -4,11 +4,12 @@ import { supabase } from "./lib/supabase";
 import Proposals from "./Proposals";
 import Inspections from "./Inspections";
 import Warranties from "./Warranties";
+import DocumentDeliveries from "./DocumentDeliveries";
 
 type DivisionId = "TRD" | "CRD";
 type Role = "owner" | "division_admin" | "office_manager" | "sales_rep" | "project_manager" | "field_inspector" | "production_manager" | "accounting" | "read_only";
 type Membership = { division_id: DivisionId; role: Role };
-type View = "overview" | "leads" | "customers" | "contacts" | "properties" | "claims" | "roofs" | "documents" | "appointments" | "proposals" | "warranties" | "inspections" | "projects" | "tasks" | "team";
+type View = "overview" | "leads" | "customers" | "contacts" | "properties" | "claims" | "roofs" | "documents" | "appointments" | "proposals" | "warranties" | "deliveries" | "inspections" | "projects" | "tasks" | "team";
 type Lead = { id: string; service_interest: string | null; status: string; priority: string; source: string | null; description: string | null; created_at: string };
 type Customer = { id: string; display_name: string; customer_type: string; email: string | null; phone: string | null; billing_address_line1?: string | null; billing_city?: string | null; billing_state?: string | null; billing_postal_code?: string | null; created_at: string };
 type GenericRow = Record<string, string | number | null>;
@@ -26,6 +27,7 @@ const navigation: { id: View; label: string; icon: string }[] = [
   { id: "inspections", label: "Inspections", icon: "⌕" },
   { id: "proposals", label: "Proposals", icon: "▧" },
   { id: "warranties", label: "Warranties", icon: "▤" },
+  { id: "deliveries", label: "Delivery history", icon: "✉" },
   { id: "projects", label: "Projects", icon: "▤" },
   { id: "tasks", label: "Tasks", icon: "☷" },
   { id: "team", label: "Team access", icon: "♧" }
@@ -183,6 +185,7 @@ function App() {
       {view === "inspections" && <Inspections division={division} userId={session.user.id} canWrite={canWriteInspections} />}
       {view === "proposals" && <Proposals division={division} userId={session.user.id} canWrite={canWriteLeads} />}
       {view === "warranties" && <Warranties division={division} userId={session.user.id} canWrite={canWriteProjects} />}
+      {view === "deliveries" && <DocumentDeliveries division={division} />}
       {view === "projects" && <DataList division={division} view="projects" userId={session.user.id} canWrite={canWriteProjects} />}
       {view === "tasks" && <DataList division={division} view="tasks" userId={session.user.id} canWrite={canWriteTasks} />}
       {view === "team" && isOwner && <Team division={division} />}
