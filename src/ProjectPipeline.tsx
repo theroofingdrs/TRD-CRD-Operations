@@ -122,8 +122,19 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
     setBusy(false);
   }
 
+  async function assignWorkflow(project: Project, value: "retail" | "insurance") {
+    if (!supabase || !canWrite) return;
+    setBusy(true); setError("");
+    const { error: updateError } = await supabase.from("crm_projects").update({
+      pipeline_type: value, workflow_stage: "new_lead", updated_at: new Date().toISOString()
+    }).eq("id", project.id).eq("division_id", division);
+    if (updateError) setError(updateError.message);
+    else { setMessage("Project workflow assigned."); await load(); }
+    setBusy(false);
+  }
+
   async function moveProject(project: Project, nextStage: string) {
-    if (!supabase || !canWrite || nextStage === (project.workflow_stage || "new_lead")) return;
+    if (!supabase || !canWrite || !project.pipeline_type || nextStage === (project.workflow_stage || "new_lead")) return;
     setBusy(true); setError("");
     const { error: updateError } = await supabase.from("crm_projects").update({ workflow_stage: nextStage, updated_at: new Date().toISOString() }).eq("id", project.id).eq("division_id", division);
     if (updateError) setError(updateError.message);
@@ -194,7 +205,7 @@ export default function ProjectPipeline({ division, userId, canWrite }: { divisi
             {project.next_action && <span className="muted">Next: {project.next_action}</span>}
             {project.next_action_due_at && <span className="muted">Due {new Date(project.next_action_due_at).toLocaleDateString()}</span>}
           </button>
-          {canWrite && <label className="stage-quick-edit">Move to<select value={project.workflow_stage || stages[0]} onChange={e=>void moveProject(project,e.target.value)} disabled={busy}>{stages.map(s=><option key={s} value={s}>{stageLabel(s)}</option>)}</select></label>}
+          {canWrite && <label className="stage-quick-edit">{project.pipeline_type ? "Move to" : "Assign workflow"}<select value={project.pipeline_type ? (project.workflow_stage || stages[0]) : ""} onChange={e=>project.pipeline_type ? void moveProject(project,e.target.value) : e.target.value && void assignWorkflow(project,e.target.value as "retail"|"insurance")} disabled={busy}><option value="" disabled>{project.pipeline_type ? "Select stage" : "Choose workflow"}</option>{!project.pipeline_type && <><option value="retail">Retail</option><option value="insurance">Insurance</option></>}{project.pipeline_type && stages.map(s=><option key={s} value={s}>{stageLabel(s)}</option>)}</select></label>}
         </article>;
       })}</div> : <div className="empty-state"><strong>No projects in this view</strong><span>Create a project using an existing customer property.</span></div>}
     </section>
