@@ -1,10 +1,11 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { supabase } from "./lib/supabase";
+import { estimateCatalog, estimateCatalogCategories } from "./estimateCatalog";
 
 type DivisionId = "TRD" | "CRD";
 type Customer = { id: string; display_name: string; email: string | null };
 type Property = { id: string; customer_id: string; address_line1: string; city: string; state: string };
-type LineItem = { description: string; quantity: string; unit_price: string };
+type LineItem = { description: string; quantity: string; unit: string; unit_price: string };
 type Proposal = { id: string; title: string; status: string; pricing_mode: string; total_amount: number; lump_sum_amount: number | null; created_at: string; customer_id: string; property_id: string };
 
 export default function Proposals({ division, userId, canWrite }: { division: DivisionId; userId: string; canWrite: boolean }) {
@@ -16,8 +17,10 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
   const [title, setTitle] = useState("");
   const [pricingMode, setPricingMode] = useState("both");
   const [lumpSum, setLumpSum] = useState("");
-  const [lineItems, setLineItems] = useState<LineItem[]>([{ description: "", quantity: "1", unit_price: "" }]);
+  const [lineItems, setLineItems] = useState<LineItem[]>([{ description: "", quantity: "1", unit: "EA", unit_price: "" }]);
   const [taxRate, setTaxRate] = useState("0");
+  const [catalogCategory, setCatalogCategory] = useState(estimateCatalogCategories[0] || "Roofing systems and accessories");
+  const [catalogSelection, setCatalogSelection] = useState("");
   const [scope, setScope] = useState("");
   const [conditions, setConditions] = useState("");
   const [exclusions, setExclusions] = useState("");
@@ -52,6 +55,12 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
   function updateLine(index: number, patch: Partial<LineItem>) {
     setLineItems(current => current.map((item, i) => i === index ? { ...item, ...patch } : item));
   }
+  function addCatalogItem() {
+    const selected = estimateCatalog.find(item => item.description === catalogSelection && item.category === catalogCategory);
+    if (!selected) return;
+    setLineItems(current => [...current, { description: selected.description, quantity: "1", unit: selected.unit, unit_price: "" }]);
+    setCatalogSelection("");
+  }
   async function sendPdf(id: string) {
     if (!supabase) return;
     setSendingId(id); setMessage("");
@@ -70,7 +79,7 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
     }
     setBusy(true); setMessage("");
     const savedItems = pricingMode === "lump_sum" ? [] : lineItems.filter(item => item.description.trim()).map(item => ({
-      description: item.description.trim(), quantity: Number(item.quantity || 1), unit_price: Number(item.unit_price || 0),
+      description: item.description.trim(), quantity: Number(item.quantity || 1), unit: item.unit || "EA", unit_price: Number(item.unit_price || 0),
       amount: Number(item.quantity || 1) * Number(item.unit_price || 0)
     }));
     const { error } = await supabase.from("crm_proposals").insert({
@@ -85,7 +94,7 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
     else {
       setMessage("Proposal draft saved to this customer and property.");
       setShowForm(false); setTitle(""); setScope(""); setConditions(""); setExclusions(""); setLumpSum("");
-      setLineItems([{ description: "", quantity: "1", unit_price: "" }]); setTaxRate("0"); setValidUntil("");
+      setLineItems([{ description: "", quantity: "1", unit: "EA", unit_price: "" }]); setTaxRate("0"); setValidUntil("");
       await load();
     }
     setBusy(false);
@@ -97,7 +106,7 @@ export default function Proposals({ division, userId, canWrite }: { division: Di
       <label className="wide">Property<select required value={propertyId} onChange={e => setPropertyId(e.target.value)}><option value="">Select property</option>{customerProperties.map(p => <option key={p.id} value={p.id}>{p.address_line1}, {p.city}, {p.state}</option>)}</select></label>
       <label className="wide">Proposal title<input required value={title} onChange={e => setTitle(e.target.value)} placeholder={division === "TRD" ? "Residential roof replacement proposal" : "Commercial roof restoration proposal"} /></label>
       <label className="wide">Pricing format<select value={pricingMode} onChange={e => setPricingMode(e.target.value)}><option value="both">Show itemized and lump sum options</option><option value="itemized">Itemized only</option><option value="lump_sum">Lump sum only</option></select></label>
-      {pricingMode !== "lump_sum" && <div className="wide"><h3>Itemized pricing</h3>{lineItems.map((item,index) => <div className="form-grid" key={index}><label className="wide">Description<input required value={item.description} onChange={e => updateLine(index,{description:e.target.value})} placeholder="Labor, materials, tear off, decking..." /></label><label>Quantity<input type="number" min="0" step="0.01" value={item.quantity} onChange={e => updateLine(index,{quantity:e.target.value})} /></label><label>Unit price ($)<input type="number" min="0" step="0.01" value={item.unit_price} onChange={e => updateLine(index,{unit_price:e.target.value})} /></label><p className="muted">Line total: {(Number(item.quantity || 0)*Number(item.unit_price || 0)).toLocaleString("en-US",{style:"currency",currency:"USD"})}</p></div>)}<button type="button" className="secondary-button" onClick={() => setLineItems(current => [...current,{description:"",quantity:"1",unit_price:""}])}>+ Add line item</button></div>}
+      {pricingMode !== "lump_sum" && <div className="wide"><h3>Itemized pricing</h3><div className="form-grid"><label>Catalog category<select value={catalogCategory} onChange={e => { setCatalogCategory(e.target.value); setCatalogSelection(""); }}>{estimateCatalogCategories.map(category => <option key={category} value={category}>{category}</option>)}</select></label><label className="wide">Catalog item<select value={catalogSelection} onChange={e => setCatalogSelection(e.target.value)}><option value="">Choose a standard estimate item</option>{estimateCatalog.filter(item => item.category === catalogCategory).map(item => <option key={item.description} value={item.description}>{item.description} ({item.unit})</option>)}</select></label><button type="button" className="secondary-button" disabled={!catalogSelection} onClick={addCatalogItem}>+ Add catalog item</button></div><p className="muted">Starter reference catalog only. Descriptions and units are editable. Enter pricing from your current estimate or authorized price list. No Xactimate codes or prices are represented as official.</p>{lineItems.map((item,index) => <div className="form-grid" key={index}><label className="wide">Description<input required value={item.description} onChange={e => updateLine(index,{description:e.target.value})} placeholder="Labor, materials, tear off, decking..." /></label><label>Quantity<input type="number" min="0" step="0.01" value={item.quantity} onChange={e => updateLine(index,{quantity:e.target.value})} /></label><label>Unit<select value={item.unit} onChange={e => updateLine(index,{unit:e.target.value})}><option>EA</option><option>SF</option><option>LF</option><option>SQ</option><option>HR</option><option>DAY</option><option>WK</option><option>MO</option><option>LS</option></select></label><label>Unit price ($)<input type="number" min="0" step="0.01" value={item.unit_price} onChange={e => updateLine(index,{unit_price:e.target.value})} /></label><p className="muted">Line total: {(Number(item.quantity || 0)*Number(item.unit_price || 0)).toLocaleString("en-US",{style:"currency",currency:"USD"})}</p></div>)}<button type="button" className="secondary-button" onClick={() => setLineItems(current => [...current,{description:"",quantity:"1",unit:"EA",unit_price:""}])}>+ Add line item</button></div>}
       {pricingMode !== "itemized" && <label>Lump sum amount ($)<input required type="number" min="0.01" step="0.01" value={lumpSum} onChange={e => setLumpSum(e.target.value)} /></label>}
       <label>Tax rate (%)<input type="number" min="0" step="0.01" value={taxRate} onChange={e => setTaxRate(e.target.value)} /></label>
       <label>Valid through<input type="date" value={validUntil} onChange={e => setValidUntil(e.target.value)} /></label>
