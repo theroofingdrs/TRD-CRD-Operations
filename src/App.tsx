@@ -88,7 +88,8 @@ function App() {
 
   const currentMembership = memberships.find((item) => item.division_id === division);
   const isOwner = memberships.some((item) => item.role === "owner");
-  const canWrite = currentMembership ? currentMembership.role !== "read_only" && currentMembership.role !== "accounting" : false;
+  const canWriteLeads = currentMembership ? ["owner","division_admin","office_manager","sales_rep"].includes(currentMembership.role) : false;
+  const canWriteCustomers = currentMembership ? ["owner","division_admin","office_manager","sales_rep","project_manager"].includes(currentMembership.role) : false;
 
   async function sendSignInLink(event: FormEvent) {
     event.preventDefault();
@@ -132,8 +133,8 @@ function App() {
       <header className="topbar"><div><p className="eyebrow">{division} DIVISION</p><h1>{view === "overview" ? "Operations overview" : navigation.find((item) => item.id === view)?.label}</h1></div><div className="user-menu"><div className="avatar">{(profileName || "U").slice(0,1).toUpperCase()}</div><div><strong>{profileName || "Employee"}</strong><span>{currentMembership?.role?.replaceAll("_"," ")}</span></div></div></header>
       {workspaceError && <div className="error-banner">{workspaceError}</div>}
       {view === "overview" && <Overview division={division} onNavigate={setView} />}
-      {view === "leads" && <Leads division={division} userId={session.user.id} canWrite={canWrite} />}
-      {view === "customers" && <Customers division={division} userId={session.user.id} canWrite={canWrite} />}
+      {view === "leads" && <Leads division={division} userId={session.user.id} canWrite={canWriteLeads} />}
+      {view === "customers" && <Customers division={division} userId={session.user.id} canWrite={canWriteCustomers} />}
       {view === "properties" && <DataList division={division} view="properties" />}
       {view === "appointments" && <DataList division={division} view="appointments" />}
       {view === "inspections" && <DataList division={division} view="inspections" />}
