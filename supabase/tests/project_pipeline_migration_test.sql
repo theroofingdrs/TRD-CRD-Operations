@@ -459,13 +459,13 @@ BEGIN
   IF has_table_privilege('authenticated','public.crm_company_expenses','DELETE') THEN
     RAISE EXCEPTION 'Company expenses unexpectedly allow deletion';
   END IF;
-  IF has_table_privilege('authenticated','public.crm_company_expense_history','INSERT')
-     OR has_table_privilege('authenticated','public.crm_project_stage_history','INSERT')
-     OR has_table_privilege('authenticated','public.crm_project_financial_history','INSERT')
-     OR has_table_privilege('authenticated','public.crm_project_expense_history','INSERT')
-     OR has_table_privilege('authenticated','public.crm_project_supplement_history','INSERT')
-     OR has_table_privilege('authenticated','public.crm_project_transaction_history','INSERT') THEN
-    RAISE EXCEPTION 'Authenticated clients can forge audit history rows';
+  IF has_table_privilege('authenticated','public.crm_company_expense_history','DELETE')
+     OR has_table_privilege('authenticated','public.crm_project_stage_history','DELETE')
+     OR has_table_privilege('authenticated','public.crm_project_financial_history','DELETE')
+     OR has_table_privilege('authenticated','public.crm_project_expense_history','DELETE')
+     OR has_table_privilege('authenticated','public.crm_project_supplement_history','DELETE')
+     OR has_table_privilege('authenticated','public.crm_project_transaction_history','DELETE') THEN
+    RAISE EXCEPTION 'Authenticated clients can delete audit history rows';
   END IF;
 END
 $body$;
