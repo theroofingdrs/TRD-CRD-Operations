@@ -28,6 +28,17 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Type check and production build
         run: npm run build
+      - name: Test project pipeline migration in disposable PostgreSQL
+        run: |
+          docker run --detach --rm --name project-pipeline-test-db --publish 5433:5432 --env POSTGRES_PASSWORD=ci-test postgres:17
+          trap 'docker stop project-pipeline-test-db >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            if docker exec project-pipeline-test-db pg_isready --username postgres --dbname postgres; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec --interactive project-pipeline-test-db psql --username postgres --dbname postgres < supabase/tests/project_pipeline_migration_test.sql
       - name: Set up Deno
         uses: denoland/setup-deno@v2
       - name: Type check Supabase Edge Functions
