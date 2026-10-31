@@ -6,6 +6,8 @@ type Customer = { id: string; display_name: string };
 type Property = { id: string; customer_id: string; address_line1: string; city: string; state: string };
 type CheckItem = { category: string; location: string; issue: boolean; observation: string; severity: string; recommendation: string };
 type PhotoDraft = { file: File; label: string; caption: string; roofSection: string };
+type RoofrMeasurement = { label: string; value: number; unit: string; source_label?: string };
+type RoofrReport = { id: string; original_filename: string; created_at: string; metadata: { extraction_status?: string; extracted_measurements?: RoofrMeasurement[] } | null };
 const residential = ["Shingles or roofing material","Hail or wind damage","Granule loss or surface wear","Ridge cap and hip","Flashing and valleys","Pipe boots and penetrations","Ventilation","Decking condition","Gutters and drainage","Interior water intrusion"];
 const commercial = ["Roof membrane or surface","Seams and welds","Punctures, tears or surface damage","Ponding water","Perimeter flashing and coping","Penetrations and equipment curbs","Drains and scuppers","Insulation or deck concerns","HVAC and rooftop equipment","Previous repairs or coatings"];
 const freshItems = (division: DivisionId): CheckItem[] => (division === "TRD" ? residential : commercial).map(category => ({ category, location: "", issue: false, observation: "", severity: "none", recommendation: "" }));
@@ -30,6 +32,8 @@ export default function Inspections({ division, userId, canWrite }: { division: 
   const [roofArea, setRoofArea] = useState("");
   const [squares, setSquares] = useState("");
   const [pitch, setPitch] = useState("");
+  const [roofrReports, setRoofrReports] = useState<RoofrReport[]>([]);
+  const [roofrReportId, setRoofrReportId] = useState("");
   const [sections, setSections] = useState("");
   const [photos, setPhotos] = useState<PhotoDraft[]>([]);
   const [busy, setBusy] = useState(false);
@@ -54,7 +58,33 @@ export default function Inspections({ division, userId, canWrite }: { division: 
     setInspections(inspectionResult.data ?? []);
   }, [division]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { setItems(freshItems(division)); setCustomerId(""); setPropertyId(""); }, [division]);
+  useEffect(() => { setItems(freshItems(division)); setCustomerId(""); setPropertyId(""); setRoofrReportId(""); setRoofrReports([]); }, [division]);
+  useEffect(() => {
+    let active = true;
+    async function loadRoofrReports() {
+      if (!supabase || !propertyId) { setRoofrReports([]); setRoofrReportId(""); return; }
+      const { data, error } = await supabase.from("crm_files")
+        .select("id,original_filename,created_at,metadata")
+        .eq("division_id", division).eq("related_type", "property").eq("related_id", propertyId)
+        .order("created_at", { ascending: false });
+      if (!active) return;
+      if (error) { setMessage("Roofr reports could not be loaded: " + error.message); setRoofrReports([]); return; }
+      setRoofrReports(((data || []) as RoofrReport[]).filter(row => row.metadata?.document_type === "roofr_measurement_report" && row.metadata?.extraction_status === "reviewed"));
+    }
+    void loadRoofrReports();
+    return () => { active = false; };
+  }, [division, propertyId]);
+  function applyRoofrReport(reportId: string) {
+    setRoofrReportId(reportId);
+    const report = roofrReports.find(row => row.id === reportId);
+    if (!report) return;
+    const values = report.metadata?.extracted_measurements || [];
+    const area = values.find(item => item.label.toLowerCase().includes("roof area"));
+    const squaresValue = values.find(item => item.label.toLowerCase().includes("squares"));
+    if (area) setRoofArea(String(area.value));
+    if (squaresValue) setSquares(String(squaresValue.value));
+    setMessage("Reviewed Roofr measurements applied to this inspection. Verify the values before saving.");
+  }
   const customerProperties = properties.filter(p => p.customer_id === customerId);
   function updateItem(index: number, patch: Partial<CheckItem>) {
     setItems(current => current.map((item, i) => i === index ? { ...item, ...patch } : item));
@@ -111,7 +141,12 @@ export default function Inspections({ division, userId, canWrite }: { division: 
       status: "draft", inspected_at: new Date().toISOString(), inspection_type: division === "TRD" ? "residential" : "commercial",
       weather_conditions: weather || null, overall_condition: overall, summary: summary || null, recommendations: recommendations || null,
       claim_information: { carrier: carrier || null, policy_number: policyNumber || null, claim_number: claimNumber || null, adjuster_name: adjuster || null, adjuster_phone: adjusterPhone || null, adjuster_email: adjusterEmail || null },
-      measurements: { roof_area_sq_ft: roofArea ? Number(roofArea) : null, roof_squares: squares ? Number(squares) : null, pitch: pitch || null },
+      measurements: {
+        roof_area_sq_ft: roofArea ? Number(roofArea) : null, roof_squares: squares ? Number(squares) : null, pitch: pitch || null,
+        roofr_report_id: roofrReportId || null,
+        roofr_report_name: roofrReports.find(report => report.id === roofrReportId)?.original_filename || null,
+        roofr_measurements: roofrReports.find(report => report.id === roofrReportId)?.metadata?.extracted_measurements || []
+      },
       roof_sections: sectionList.map(name => ({ name }))
     }).select("id").single();
     if (error || !inspection) { setMessage(error?.message || "Inspection could not be saved."); setBusy(false); return; }
@@ -143,7 +178,7 @@ export default function Inspections({ division, userId, canWrite }: { division: 
       if (photoError) setMessage("Photo uploaded but photo details were not saved: " + photoError.message);
     }
     setMessage(itemError ? "Inspection saved with checklist errors. " + itemError.message : "Inspection and selected photos saved to the customer and property.");
-    setCustomerId(""); setPropertyId(""); setItems(freshItems(division)); setSummary(""); setRecommendations(""); setWeather(""); setCarrier(""); setPolicyNumber(""); setClaimNumber(""); setAdjuster(""); setAdjusterPhone(""); setAdjusterEmail(""); setRoofArea(""); setSquares(""); setPitch(""); setSections(""); setPhotos([]);
+    setCustomerId(""); setPropertyId(""); setItems(freshItems(division)); setSummary(""); setRecommendations(""); setWeather(""); setCarrier(""); setPolicyNumber(""); setClaimNumber(""); setAdjuster(""); setAdjusterPhone(""); setAdjusterEmail(""); setRoofArea(""); setSquares(""); setPitch(""); setSections(""); setRoofrReportId(""); setPhotos([]);
     await load(); setBusy(false);
   }
   return <div className="content-stack"><section className="panel">
@@ -160,6 +195,7 @@ export default function Inspections({ division, userId, canWrite }: { division: 
       <label>Adjuster name<input value={adjuster} onChange={e => setAdjuster(e.target.value)} /></label>
       <label>Adjuster phone<input type="tel" value={adjusterPhone} onChange={e => setAdjusterPhone(e.target.value)} /></label>
       <label>Adjuster email<input type="email" value={adjusterEmail} onChange={e => setAdjusterEmail(e.target.value)} /></label>
+      {propertyId && <div className="wide"><h3>Roofr measurement report</h3>{roofrReports.length ? <><label>Use reviewed Roofr report<select value={roofrReportId} onChange={e => applyRoofrReport(e.target.value)}><option value="">Do not import a Roofr report</option>{roofrReports.map(report => <option key={report.id} value={report.id}>{report.original_filename} · {new Date(report.created_at).toLocaleDateString()}</option>)}</select></label><p className="fine-print">Selecting a report fills matching roof area and squares fields. The source report and extracted measurements will be recorded in this inspection.</p></> : <p className="muted">No reviewed Roofr report is saved for this property. Upload and review one in the customer record first.</p>}</div>}
       <label>Roof area (sq ft)<input type="number" min="0" value={roofArea} onChange={e => setRoofArea(e.target.value)} /></label>
       <label>Roof squares<input type="number" min="0" step="0.01" value={squares} onChange={e => setSquares(e.target.value)} /></label>
       <label>Pitch / slope<input value={pitch} onChange={e => setPitch(e.target.value)} placeholder="6:12, low slope..." /></label>
@@ -191,6 +227,8 @@ export default function Inspections({ division, userId, canWrite }: { division: 
       <div><strong>Roof area</strong><p>{viewingInspection.measurements?.roof_area_sq_ft ?? "Not recorded"} sq ft</p></div>
       <div><strong>Roof squares</strong><p>{viewingInspection.measurements?.roof_squares ?? "Not recorded"}</p></div>
       <div><strong>Pitch / slope</strong><p>{viewingInspection.measurements?.pitch || "Not recorded"}</p></div>
+      {viewingInspection.measurements?.roofr_report_name && <div className="wide"><strong>Roofr source report</strong><p>{viewingInspection.measurements.roofr_report_name}</p><p className="muted">Imported from reviewed property measurements. Source report ID: {viewingInspection.measurements.roofr_report_id}</p></div>}
+      {viewingInspection.measurements?.roofr_measurements?.length > 0 && <div className="wide"><strong>Roofr extracted measurements</strong><ul>{viewingInspection.measurements.roofr_measurements.map((item: RoofrMeasurement, index: number) => <li key={index}>{item.label}: {item.value} {item.unit}</li>)}</ul></div>}
     </div>
     {viewingInspection.roof_sections?.length > 0 && <><h3>Roof sections</h3><ul>{viewingInspection.roof_sections.map((section: any, index: number) => <li key={index}>{section.name || "Section"}</li>)}</ul></>}
     {viewingInspection.summary && <><h3>Inspection summary</h3><p>{viewingInspection.summary}</p></>}
