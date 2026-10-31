@@ -12,6 +12,7 @@ type Project = {
 };
 type Expense = { id: string; category: string; amount: number; paid_amount: number; payment_status: string; expense_date: string; vendor_payee: string | null; description: string | null; receipt_file_id: string | null };
 type AuditEvent = { id: string; kind: string; changed_at: string; before_values: Record<string, unknown>; after_values: Record<string, unknown> };
+type TeamMember = { user_id: string; display_name: string; role: string };
 type Attachment = { id: string; related_id: string; bucket_id: string; object_path: string; original_filename: string };
 type Transaction = { id: string; transaction_type: "invoice" | "payment"; amount: number; transaction_date: string; reference_number: string | null; payment_method: string | null; notes: string | null; status: string };
 type Supplement = { id: string; supplement_number: number; status: string; requested_amount: number; approved_amount: number; submitted_at: string | null; response_at: string | null; carrier_response: string | null; notes: string | null };
@@ -36,6 +37,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [properties, setProperties] = useState<Property[]>([]);
   const [customerNames, setCustomerNames] = useState<Record<string, string>>({});
   const [staffNames, setStaffNames] = useState<Record<string, string>>({});
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [selected, setSelected] = useState<Project | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [supplements, setSupplements] = useState<Supplement[]>([]);
@@ -58,6 +60,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [defaultOverheadFixed, setDefaultOverheadFixed] = useState("");
   const [stageLastChanged, setStageLastChanged] = useState<Record<string, string>>({});
   const [projectName, setProjectName] = useState("");
+  const [projectManagerId, setProjectManagerId] = useState("");
   const [projectType, setProjectType] = useState("roof_replacement");
   const [pipelineType, setPipelineType] = useState<"retail" | "insurance">("retail");
   const [propertyId, setPropertyId] = useState("");
@@ -112,7 +115,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const load = useCallback(async () => {
     if (!supabase) return;
     setError(""); setBusy(true);
-    const [projectResult, linkResult, expenseResult, settingsResult, transactionResult] = await Promise.all([
+    const [projectResult, linkResult, expenseResult, settingsResult, transactionResult, memberResult] = await Promise.all([
       supabase.from("crm_projects").select("id,division_id,project_manager_id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").in("division_id", visibleDivisions).order("created_at", { ascending: false }),
       supabase.from("crm_customer_divisions").select("customer_id").in("division_id", visibleDivisions),
       supabase.from("crm_project_expenses").select("amount,category").in("division_id", visibleDivisions),
@@ -125,6 +128,13 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     setDivisionExpenseTotal((expenseResult.data ?? []).reduce((sum: number, item: { amount: number }) => sum + Math.round(Number(item.amount || 0) * 100), 0) / 100);
     setMonthlyCollected((transactionResult.data ?? []).reduce((sum: number, item: { amount: number }) => sum + Math.round(Number(item.amount || 0) * 100), 0) / 100);
     if (settingsResult.data?.stale_stage_days) setStaleDays(settingsResult.data.stale_stage_days);
+    const memberIds = [...new Set((memberResult.data ?? []).map((item: {user_id:string}) => item.user_id))];
+    if (memberIds.length) {
+      const { data: profiles } = await supabase.from("crm_profiles").select("user_id,display_name").in("user_id", memberIds);
+      const profileMap: Record<string,string> = {};
+      (profiles ?? []).forEach((profile: {user_id:string;display_name:string}) => { profileMap[profile.user_id] = profile.display_name; });
+      setTeamMembers((memberResult.data ?? []).map((item: {user_id:string;role:string}) => ({ user_id:item.user_id, display_name:profileMap[item.user_id] || "Team member", role:item.role })));
+    } else setTeamMembers([]);
     if (settingsResult.data) {
       setDefaultCommissionMethod(settingsResult.data.default_commission_method || "manual");
       setDefaultCommissionRate(String(settingsResult.data.default_commission_rate ?? ""));
@@ -234,7 +244,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       created_by: userId
     });
     if (insertError) setError(insertError.message);
-    else { setShowCreate(false); setProjectName(""); setContract(""); setNextAction(""); setNextDue(""); setMessage("Project created."); await load(); }
+    else { setShowCreate(false); setProjectName(""); setProjectManagerId(""); setContract(""); setNextAction(""); setNextDue(""); setMessage("Project created."); await load(); }
     setBusy(false);
   }
 
@@ -246,6 +256,15 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     }).eq("id", project.id).eq("division_id", project.division_id);
     if (updateError) setError(updateError.message);
     else { setMessage("Project workflow assigned."); await load(); }
+    setBusy(false);
+  }
+
+  async function assignProjectManager(project: Project, managerId: string) {
+    if (!supabase || !canWrite || scope === "combined") return;
+    setBusy(true); setError("");
+    const { error: updateError } = await supabase.from("crm_projects").update({ project_manager_id: managerId || null, updated_at: new Date().toISOString() }).eq("id", project.id).eq("division_id", project.division_id);
+    if (updateError) setError(updateError.message);
+    else { setMessage("Project manager updated."); await load(); }
     setBusy(false);
   }
 
@@ -511,12 +530,13 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         <strong>{project.project_name}</strong><span className="muted">{addressFor(project.property_id)}</span>
         <span className="pipeline-card-stage">{stageLabel(project.workflow_stage || project.status || "planning")}</span>
         <span className="pipeline-card-value">{money(project.contract_amount || project.initial_approved_amount || project.original_estimate_amount)}</span>
-        <span className="muted">Manager: {project.project_manager_id ? staffNames[project.project_manager_id] || "Assigned" : "Unassigned"}</span>
+        <span className="muted">Manager: {project.project_manager_id ? staffNames[project.project_manager_id] || teamMembers.find(m=>m.user_id===project.project_manager_id)?.display_name || "Assigned" : "Unassigned"}</span>
         <span className="muted">{daysInStage(project)} days in stage</span>
         {project.next_action && <span className="muted">Next: {project.next_action}</span>}
         {project.next_action_due_at && <span className={new Date(project.next_action_due_at).getTime()<Date.now()?"error-text":"muted"}>Due {new Date(project.next_action_due_at).toLocaleDateString()}</span>}
       </button>
       {scope !== "combined" && canWrite && <label className="stage-quick-edit">{project.pipeline_type ? "Move to" : "Assign workflow"}<select value={project.pipeline_type ? (project.workflow_stage || stages[0]) : ""} onChange={e=>project.pipeline_type ? void moveProject(project,e.target.value) : e.target.value && void assignWorkflow(project,e.target.value as "retail"|"insurance")} disabled={busy}><option value="" disabled>{project.pipeline_type ? "Select stage" : "Choose workflow"}</option>{!project.pipeline_type && <><option value="retail">Retail</option><option value="insurance">Insurance</option></>}{project.pipeline_type && stages.map(s=><option key={s} value={s}>{stageLabel(s)}</option>)}</select></label>}
+      {scope !== "combined" && canWrite && <label className="stage-quick-edit">Manager<select value={project.project_manager_id || ""} onChange={e=>void assignProjectManager(project,e.target.value)} disabled={busy}><option value="">Unassigned</option>{teamMembers.map(member=><option key={member.user_id} value={member.user_id}>{member.display_name}</option>)}</select></label>}
     </article>;
   };
   const totalExpenses = expenses.reduce((sum, item) => sum + Math.round(Number(item.amount) * 100), 0) / 100;
@@ -553,6 +573,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         <label>Project category<select value={projectType} onChange={e=>setProjectType(e.target.value)}><option value="roof_replacement">Roof replacement</option><option value="repair">Repair</option><option value="restoration">Restoration</option><option value="coating">Roof coating</option><option value="maintenance">Maintenance</option><option value="other">Other</option></select></label>
         <label>Workflow<select value={pipelineType} onChange={e=>{const v=e.target.value as "retail"|"insurance";setPipelineType(v);setStage("new_lead");}}><option value="retail">Retail</option><option value="insurance">Insurance</option></select></label>
         <label>Starting stage<select value={stage} onChange={e=>setStage(e.target.value)}>{(pipelineType==="retail"?retailStages:insuranceStages).map(x=><option key={x} value={x}>{stageLabel(x)}</option>)}</select></label>
+        <label className="wide">Project manager<select value={projectManagerId} onChange={e=>setProjectManagerId(e.target.value)}><option value="">Unassigned</option>{teamMembers.map(member=><option key={member.user_id} value={member.user_id}>{member.display_name} · {stageLabel(member.role)}</option>)}</select></label>
         <label className="wide">Property<select required value={propertyId} onChange={e=>setPropertyId(e.target.value)}><option value="">Select property</option>{properties.map(p=><option key={p.id} value={p.id}>{p.address_line1}, {p.city}, {p.state} · {customerNames[p.customer_id] || "Customer"}</option>)}</select></label>
         <label>Initial estimate ($)<input type="number" min="0" step="0.01" value={contract} onChange={e=>setContract(e.target.value)} /></label>
         <label>Next action<input value={nextAction} onChange={e=>setNextAction(e.target.value)} placeholder="Call customer, order materials..." /></label>
