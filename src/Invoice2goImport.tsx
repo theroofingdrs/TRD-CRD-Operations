@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "./lib/supabase";
 
 type DivisionId = "TRD" | "CRD";
@@ -71,7 +71,7 @@ function pick(row: Record<string, string>, aliases: string[]) {
   return "";
 }
 function clientFrom(row: Record<string, string>, index: number): ClientRow | null {
-  let name = pick(row, ["client name", "customer name", "name", "company name", "business name", "display name"]);
+  let name = pick(row, ["client name", "customer name", "client", "name", "company name", "business name", "display name"]);
   if (!name) {
     const first = pick(row, ["first name", "firstname", "given name"]);
     const last = pick(row, ["last name", "lastname", "surname"]);
@@ -84,7 +84,7 @@ function clientFrom(row: Record<string, string>, index: number): ClientRow | nul
   const city = pick(row, ["city", "town"]);
   const state = pick(row, ["state", "province", "region"]);
   const postal = pick(row, ["zip", "zip code", "postal code", "postcode"]);
-  const business = pick(row, ["company name", "business name", "business", "organization"]);
+  const business = pick(row, ["company name", "business name", "business", "company", "organization"]);
   return {
     sourceRow: index + 2, name, customerType: business ? "business" : "individual", email, phone,
     alternatePhone: pick(row, ["alternate phone", "secondary phone", "work phone"]),
@@ -174,7 +174,7 @@ export default function ImportCenter({ division, userId, canShareBoth }: { divis
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(false);\n  const [historyRows, setHistoryRows] = useState<Record<string, unknown>[]>([]);\n  const [historyCustomers, setHistoryCustomers] = useState<Record<string, string>>({});
 
   const preview = useMemo(() => clients.map((client) => {
     const match = existing.find((row) =>
@@ -185,7 +185,7 @@ export default function ImportCenter({ division, userId, canShareBoth }: { divis
     return { ...client, matched: match || null };
   }), [clients, existing]);
 
-  async function loadExisting() {
+  async function loadHistory() {\n    if (!supabase) return;\n    const { data, error } = await supabase.from("crm_historical_documents").select("id,customer_id,document_type,document_number,document_date,due_date,status,total_amount,original_filename,storage_file_id,created_at").eq("division_id", division).order("document_date", { ascending: false }).limit(100);\n    if (error) { setMessage(error.message); return; }\n    const rows = (data || []) as Record<string, unknown>[];\n    setHistoryRows(rows);\n    const ids = Array.from(new Set(rows.map((r) => String(r.customer_id || "")).filter(Boolean)));\n    if (ids.length) {\n      const { data: customers } = await supabase.from("crm_customers").select("id,display_name").in("id", ids);\n      setHistoryCustomers(Object.fromEntries((customers || []).map((r: {id:string;display_name:string}) => [r.id, r.display_name])));\n    } else setHistoryCustomers({});\n  }\n\n  useEffect(() => { void loadHistory(); }, [division]);\n\n  async function openHistoricalFile(fileId: string) {\n    if (!supabase) return;\n    const { data: fileRow, error } = await supabase.from("crm_files").select("bucket_id,object_path").eq("id", fileId).maybeSingle();\n    if (error || !fileRow) { setMessage(error?.message || "File record not found."); return; }\n    const { data, error: signedError } = await supabase.storage.from(fileRow.bucket_id).createSignedUrl(fileRow.object_path, 60);\n    if (signedError) setMessage(signedError.message);\n    else if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener,noreferrer");\n  }\n\n  async function loadExisting() {
     if (!supabase) return;
     const { data: links, error: linkError } = await supabase.from("crm_customer_divisions").select("customer_id").eq("division_id", division);
     if (linkError) throw linkError;
