@@ -189,7 +189,18 @@ Deno.serve(async (req: Request) => {
     title = "Roof inspection report"; brand = division === "TRD" ? "The ROOF Doctors" : "Commercial ROOF Doctors";
     sections.push({ heading: "Customer and property", body: [customerName, address, "Inspection type: " + data.inspection_type, "Inspected: " + (data.inspected_at || "Not recorded"), "Overall condition: " + (data.overall_condition || "Not recorded"), "Weather: " + (data.weather_conditions || "Not recorded")] });
     const measurements = data.measurements || {};
-    sections.push({ heading: "Measurements", body: ["Roof area: " + (measurements.roof_area_sq_ft ?? "Not recorded") + " sq ft", "Roof squares: " + (measurements.roof_squares ?? "Not recorded"), "Pitch / slope: " + (measurements.pitch ?? "Not recorded")] });
+    const measurementLines = [
+      "Roof area: " + (measurements.roof_area_sq_ft ?? "Not recorded") + " sq ft",
+      "Roof squares: " + (measurements.roof_squares ?? "Not recorded"),
+      "Pitch / slope: " + (measurements.pitch ?? "Not recorded")
+    ];
+    if (measurements.roofr_report_name) measurementLines.push("Source Roofr report: " + measurements.roofr_report_name);
+    if (Array.isArray(measurements.roofr_measurements) && measurements.roofr_measurements.length) {
+      for (const item of measurements.roofr_measurements) {
+        measurementLines.push("Roofr " + clean(item.label) + ": " + String(item.value) + " " + clean(item.unit));
+      }
+    }
+    sections.push({ heading: "Measurements", body: measurementLines });
     const claim = data.claim_information || {};
     const claimLines = [
       ["Insurance carrier", claim.carrier], ["Policy number", claim.policy_number],
