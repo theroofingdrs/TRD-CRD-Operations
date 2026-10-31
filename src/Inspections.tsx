@@ -7,7 +7,7 @@ type Property = { id: string; customer_id: string; address_line1: string; city: 
 type CheckItem = { category: string; location: string; issue: boolean; observation: string; severity: string; recommendation: string };
 type PhotoDraft = { file: File; label: string; caption: string; roofSection: string };
 type RoofrMeasurement = { label: string; value: number; unit: string; source_label?: string };
-type RoofrReport = { id: string; original_filename: string; created_at: string; metadata: { extraction_status?: string; extracted_measurements?: RoofrMeasurement[] } | null };
+type RoofrReport = { id: string; original_filename: string; created_at: string; metadata: { document_type?: string; extraction_status?: string; extracted_measurements?: RoofrMeasurement[] } | null };
 const residential = ["Shingles or roofing material","Hail or wind damage","Granule loss or surface wear","Ridge cap and hip","Flashing and valleys","Pipe boots and penetrations","Ventilation","Decking condition","Gutters and drainage","Interior water intrusion"];
 const commercial = ["Roof membrane or surface","Seams and welds","Punctures, tears or surface damage","Ponding water","Perimeter flashing and coping","Penetrations and equipment curbs","Drains and scuppers","Insulation or deck concerns","HVAC and rooftop equipment","Previous repairs or coatings"];
 const freshItems = (division: DivisionId): CheckItem[] => (division === "TRD" ? residential : commercial).map(category => ({ category, location: "", issue: false, observation: "", severity: "none", recommendation: "" }));
