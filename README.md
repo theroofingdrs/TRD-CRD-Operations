@@ -35,6 +35,7 @@ Supabase project: `gubvelngdohrfvqeeabu` in the TRDCRD organization.
 - Property and roof records
 - Leads, appointments, inspections, inspection observations, projects, tasks, activity history, and file metadata
 - Dashboard, lead pipeline with status updates, customer directory, contact management, property creation, roof system records, appointment, inspection, project, and task workflows
+- Invoice2go Import Center for CSV, TSV, JSON, and ZIP exports, including customer matching, property association, historical invoice and estimate archiving, and private PDF/photo attachment storage
 - Private property file and photo upload with signed file access
 - Owner only employee invitations and division role assignment through a JWT protected Supabase Edge Function
 - Owner controlled website lead import for TRD and CRD, using the original website record IDs to skip records already imported
