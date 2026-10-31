@@ -751,8 +751,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       const cell = (value: unknown) => '"' + String(value ?? "").replace(/"/g,'""') + '"';
       return [project.project_name,project.division_id,customerNames[project.customer_id]||"",addressFor(project.property_id),project.pipeline_type||"",project.workflow_stage||"",project.original_estimate_amount||"",value,project.invoiced_amount||0,project.collected_amount||0,Math.max(0,Number(project.invoiced_amount||0)-Number(project.collected_amount||0)),direct,project.commission_earned_amount||0,project.overhead_allocated_amount||0,project.next_action||"",project.next_action_due_at||"",project.project_manager_id?staffNames[project.project_manager_id]||"Assigned":"Unassigned"].map(cell).join(",");
     });
-    const csv = [headers.map(h=>'"'+h.replace(/"/g,'""')+'"').join(","),...rows].join("\r
-");
+    const csv = [headers.map(h=>'"'+h.replace(/"/g,'""')+'"').join(","),...rows].join("\r\n");
     const blob = new Blob([csv],{type:"text/csv;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
