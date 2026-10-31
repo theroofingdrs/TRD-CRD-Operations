@@ -59,14 +59,14 @@ Never put a Supabase secret or service role key in a Vite environment variable. 
 
 ## Data protection and boundaries
 
-- Existing website submissions in the legacy tables are preserved and have not been copied, deleted, or modified.
+- Two existing website submissions in the legacy table are preserved and have not been imported, deleted, or modified. An owner only import action is implemented but has not yet been run.
 - No demo customer or property data was inserted.
 - No public website code was changed.
 - No production deployment has occurred.
 - Stripe is deliberately on hold. No payment processing is configured or enabled.
 - Private Storage policies are enabled for the existing private bucket. Object paths must begin with TRD or CRD, and access is division scoped.
 - Supabase leaked password protection is a Pro plan feature and is not enabled on the current project plan.
-- The new database foundation was applied additively to the existing project. A checked in migration baseline still needs to be generated and reconciled before future schema changes.
+- The new database foundation was applied additively to the existing project. A live CRM schema snapshot is checked in under `supabase/baselines/` for reference. It is not an executable migration or a reconciled Supabase CLI baseline. Reconcile and validate it before any further schema changes.
 
 ## Reference application
 
