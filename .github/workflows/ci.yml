@@ -19,7 +19,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - name: Verify committed lockfile
         run: test -f package-lock.json
       - name: Install locked dependencies
@@ -32,3 +32,9 @@ jobs:
         run: |
           deno check supabase/functions/crm-invite-employee/index.ts
           deno check supabase/functions/crm-import-website-intake/index.ts
+      - name: Build Cloud Run container
+        run: |
+          docker build \
+            --build-arg VITE_SUPABASE_URL=https://example.supabase.co \
+            --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=ci-placeholder \
+            --tag trd-crd-operations:ci .
