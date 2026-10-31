@@ -504,7 +504,6 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const attention = filtered.filter(p => p.workflow_stage !== "closed" && ((p.next_action_due_at && new Date(p.next_action_due_at).getTime() < Date.now()) || Math.floor((Date.now() - new Date(stageLastChanged[p.id] || p.created_at).getTime()) / 86400000) >= staleDays));
   const activeContractValue = filtered.filter(p => p.workflow_stage !== "closed").reduce((sum,p)=>sum+Number(p.contract_amount || p.initial_approved_amount || 0)+Number(p.supplements_approved_amount || 0),0);
   const collectedTotal = filtered.reduce((sum,p)=>sum+Number(p.collected_amount || 0),0);
-  const addressFor = (id: string) => { const p = properties.find(x => x.id === id); return p ? [p.address_line1,p.city,p.state].filter(Boolean).join(", ") : "Property"; };
 
   return <div className="content-stack project-pipeline">
     <section className="panel">
