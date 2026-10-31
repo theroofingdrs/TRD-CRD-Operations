@@ -38,6 +38,11 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [customerNames, setCustomerNames] = useState<Record<string, string>>({});
   const [staffNames, setStaffNames] = useState<Record<string, string>>({});
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [workflowStageSettings, setWorkflowStageSettings] = useState<Record<string,{display_label:string;sort_order:number}>>({});
+  const [workflowEditType, setWorkflowEditType] = useState<"retail"|"insurance">("retail");
+  const [workflowEditStage, setWorkflowEditStage] = useState("new_lead");
+  const [workflowEditLabel, setWorkflowEditLabel] = useState("New Lead");
+  const [workflowEditOrder, setWorkflowEditOrder] = useState("0");
   const [selected, setSelected] = useState<Project | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [supplements, setSupplements] = useState<Supplement[]>([]);
@@ -115,13 +120,14 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const load = useCallback(async () => {
     if (!supabase) return;
     setError(""); setBusy(true);
-    const [projectResult, linkResult, expenseResult, settingsResult, transactionResult, memberResult] = await Promise.all([
+    const [projectResult, linkResult, expenseResult, settingsResult, transactionResult, memberResult, workflowSettingsResult] = await Promise.all([
       supabase.from("crm_projects").select("id,division_id,project_manager_id,project_name,project_type,pipeline_type,workflow_stage,status,property_id,customer_id,contract_amount,original_estimate_amount,initial_approved_amount,supplements_approved_amount,invoiced_amount,collected_amount,next_action,next_action_due_at,commission_method,commission_rate,commission_fixed_amount,commission_earned_amount,commission_paid_amount,commission_salesperson_name,overhead_method,overhead_rate,overhead_fixed_amount,overhead_allocated_amount,created_at,updated_at").in("division_id", visibleDivisions).order("created_at", { ascending: false }),
       supabase.from("crm_customer_divisions").select("customer_id").in("division_id", visibleDivisions),
       supabase.from("crm_project_expenses").select("amount,category").in("division_id", visibleDivisions),
       supabase.from("crm_division_financial_settings").select("stale_stage_days,default_commission_method,default_commission_rate,default_commission_fixed_amount,default_overhead_method,default_overhead_rate,default_overhead_fixed_amount").eq("division_id", division).maybeSingle(),
       supabase.from("crm_project_transactions").select("amount,transaction_date").in("division_id", visibleDivisions).eq("transaction_type", "payment").eq("status", "recorded").gte("transaction_date", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0,10)),
-      supabase.from("crm_memberships").select("user_id,role").in("division_id", visibleDivisions).eq("active", true)
+      supabase.from("crm_memberships").select("user_id,role").in("division_id", visibleDivisions).eq("active", true),
+      supabase.from("crm_workflow_stage_settings").select("pipeline_type,stage_key,display_label,sort_order").eq("division_id", division)
     ]);
     if (projectResult.error) setError(projectResult.error.message);
     setProjects((projectResult.data ?? []) as Project[]);
@@ -496,6 +502,33 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     setBusy(false);
   }
 
+  async function saveWorkflowStageSetting(event: FormEvent) {
+    event.preventDefault();
+    if (!supabase || !canManageSettings || scope === "combined") return;
+    const label = workflowEditLabel.trim();
+    if (!label) { setError("Enter a stage label."); return; }
+    setBusy(true); setError("");
+    const { error: saveError } = await supabase.from("crm_workflow_stage_settings").upsert({
+      division_id: division, pipeline_type: workflowEditType, stage_key: workflowEditStage,
+      display_label: label, sort_order: Math.max(0, Number(workflowEditOrder)||0),
+      updated_by: userId, updated_at: new Date().toISOString()
+    }, { onConflict: "division_id,pipeline_type,stage_key" });
+    if (saveError) setError(saveError.message);
+    else {
+      setWorkflowStageSettings(current=>({...current,[workflowEditType+":"+workflowEditStage]:{display_label:label,sort_order:Math.max(0,Number(workflowEditOrder)||0)}}));
+      setMessage("Workflow stage setting saved.");
+    }
+    setBusy(false);
+  }
+
+  function selectWorkflowStage(type: "retail"|"insurance", stage: string) {
+    setWorkflowEditType(type); setWorkflowEditStage(stage);
+    const setting = workflowStageSettings[type+":"+stage];
+    const base = type === "retail" ? retailStages : insuranceStages;
+    setWorkflowEditLabel(setting?.display_label || stageLabel(stage));
+    setWorkflowEditOrder(String(setting?.sort_order ?? base.indexOf(stage)));
+  }
+
   async function saveSettings(event: FormEvent) {
     event.preventDefault();
     if (!supabase || !canWrite) return;
@@ -516,27 +549,38 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   }
 
   const filtered = useMemo(() => projects.filter(p => filter === "all" || p.pipeline_type === filter), [projects, filter]);
+  const workflowLabel = (stage: string, type?: string | null) => scope === "combined" ? stageLabel(stage) : workflowStageSettings[(type || "retail") + ":" + stage]?.display_label || workflowStageSettings["insurance:" + stage]?.display_label || stageLabel(stage);
+  const sortedStages = (type: "retail"|"insurance") => {
+    const base = type === "retail" ? retailStages : insuranceStages;
+    return [...base].sort((a,b)=>(workflowStageSettings[type+":"+a]?.sort_order ?? base.indexOf(a))-(workflowStageSettings[type+":"+b]?.sort_order ?? base.indexOf(b)));
+  };
   const kanbanStages = useMemo(() => {
-    const base = filter === "retail" ? retailStages : filter === "insurance" ? insuranceStages : [...new Set([...retailStages, ...insuranceStages])];
+    const base = filter === "retail" ? sortedStages("retail") : filter === "insurance" ? sortedStages("insurance") : [...new Set([...retailStages, ...insuranceStages])].sort((a,b)=>{
+      const aOrders = [workflowStageSettings["retail:"+a]?.sort_order,workflowStageSettings["insurance:"+a]?.sort_order].filter((v):v is number=>v!==undefined);
+      const bOrders = [workflowStageSettings["retail:"+b]?.sort_order,workflowStageSettings["insurance:"+b]?.sort_order].filter((v):v is number=>v!==undefined);
+      const aDefault = Math.min(retailStages.indexOf(a)<0?999:retailStages.indexOf(a),insuranceStages.indexOf(a)<0?999:insuranceStages.indexOf(a)+retailStages.length);
+      const bDefault = Math.min(retailStages.indexOf(b)<0?999:retailStages.indexOf(b),insuranceStages.indexOf(b)<0?999:insuranceStages.indexOf(b)+retailStages.length);
+      return (aOrders.length?Math.min(...aOrders):aDefault)-(bOrders.length?Math.min(...bOrders):bDefault);
+    });
     return filtered.some(p => !p.pipeline_type) ? ["unassigned", ...base] : base;
-  }, [filter, filtered]);
+  }, [filter, filtered, workflowStageSettings, scope]);
   const stageFor = (project: Project) => project.pipeline_type ? (project.workflow_stage || "new_lead") : "unassigned";
   const daysInStage = (project: Project) => Math.max(0, Math.floor((Date.now() - new Date(stageLastChanged[project.id] || project.created_at).getTime()) / 86400000));
   const addressFor = (id: string) => { const p = properties.find(x => x.id === id); return p ? [p.address_line1,p.city,p.state].filter(Boolean).join(", ") : "Property"; };
   const renderProjectCard = (project: Project) => {
-    const stages = project.pipeline_type === "insurance" ? insuranceStages : retailStages;
+    const stages = project.pipeline_type === "insurance" ? sortedStages("insurance") : sortedStages("retail");
     return <article className="pipeline-card" key={project.id} draggable={scope !== "combined" && canWrite && !!project.pipeline_type} onDragStart={(event: DragEvent<HTMLElement>) => { setDraggedProjectId(project.id); event.dataTransfer.setData("text/project", project.id); event.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => setDraggedProjectId(null)}>
       <button className="pipeline-card-main" onClick={()=>void openProject(project)}>
         <span className="pipeline-card-type">{project.division_id} · {project.pipeline_type ? stageLabel(project.pipeline_type) : "Workflow not assigned"}</span>
         <strong>{project.project_name}</strong><span className="muted">{addressFor(project.property_id)}</span>
-        <span className="pipeline-card-stage">{stageLabel(project.workflow_stage || project.status || "planning")}</span>
+        <span className="pipeline-card-stage">{workflowLabel(project.workflow_stage || project.status || "planning", project.pipeline_type)}</span>
         <span className="pipeline-card-value">{money(project.contract_amount || project.initial_approved_amount || project.original_estimate_amount)}</span>
         <span className="muted">Manager: {project.project_manager_id ? staffNames[project.project_manager_id] || teamMembers.find(m=>m.user_id===project.project_manager_id)?.display_name || "Assigned" : "Unassigned"}</span>
         <span className="muted">{daysInStage(project)} days in stage</span>
         {project.next_action && <span className="muted">Next: {project.next_action}</span>}
         {project.next_action_due_at && <span className={new Date(project.next_action_due_at).getTime()<Date.now()?"error-text":"muted"}>Due {new Date(project.next_action_due_at).toLocaleDateString()}</span>}
       </button>
-      {scope !== "combined" && canWrite && <label className="stage-quick-edit">{project.pipeline_type ? "Move to" : "Assign workflow"}<select value={project.pipeline_type ? (project.workflow_stage || stages[0]) : ""} onChange={e=>project.pipeline_type ? void moveProject(project,e.target.value) : e.target.value && void assignWorkflow(project,e.target.value as "retail"|"insurance")} disabled={busy}><option value="" disabled>{project.pipeline_type ? "Select stage" : "Choose workflow"}</option>{!project.pipeline_type && <><option value="retail">Retail</option><option value="insurance">Insurance</option></>}{project.pipeline_type && stages.map(s=><option key={s} value={s}>{stageLabel(s)}</option>)}</select></label>}
+      {scope !== "combined" && canWrite && <label className="stage-quick-edit">{project.pipeline_type ? "Move to" : "Assign workflow"}<select value={project.pipeline_type ? (project.workflow_stage || stages[0]) : ""} onChange={e=>project.pipeline_type ? void moveProject(project,e.target.value) : e.target.value && void assignWorkflow(project,e.target.value as "retail"|"insurance")} disabled={busy}><option value="" disabled>{project.pipeline_type ? "Select stage" : "Choose workflow"}</option>{!project.pipeline_type && <><option value="retail">Retail</option><option value="insurance">Insurance</option></>}{project.pipeline_type && stages.map(s=><option key={s} value={s}>{workflowLabel(s, project.pipeline_type)}</option>)}</select></label>}
       {scope !== "combined" && canWrite && <label className="stage-quick-edit">Manager<select value={project.project_manager_id || ""} onChange={e=>void assignProjectManager(project,e.target.value)} disabled={busy}><option value="">Unassigned</option>{teamMembers.map(member=><option key={member.user_id} value={member.user_id}>{member.display_name}</option>)}</select></label>}
     </article>;
   };
@@ -560,20 +604,26 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         <div><span>Needs attention</span><strong>{attention.length}</strong></div>
       </div>
       <div className="panel-heading subheading"><div><h3>Needs attention</h3><p className="muted">Overdue next actions and projects unchanged for {staleDays} days or more.</p></div>{scope !== "combined" && canManageSettings && <button className="secondary-button compact" onClick={()=>setSettingsOpen(v=>!v)}>Pipeline settings</button>}</div>
-      {scope !== "combined" && canManageSettings && settingsOpen && <form className="inline-form" onSubmit={saveSettings}><div className="form-grid"><label>Stale stage threshold (days)<input type="number" min="1" max="365" value={staleDays} onChange={e=>setStaleDays(Math.max(1,Math.min(365,Number(e.target.value)||1)))} /></label>
+      {scope !== "combined" && canManageSettings && settingsOpen && <><form className="inline-form" onSubmit={saveSettings}><div className="form-grid"><label>Stale stage threshold (days)<input type="number" min="1" max="365" value={staleDays} onChange={e=>setStaleDays(Math.max(1,Math.min(365,Number(e.target.value)||1)))} /></label>
         <label>Default commission method<select value={defaultCommissionMethod} onChange={e=>setDefaultCommissionMethod(e.target.value)}><option value="fixed">Fixed amount</option><option value="contract_percent">Percent of contract</option><option value="collected_percent">Percent of collected revenue</option><option value="gross_profit_percent">Percent of gross profit</option><option value="manual">Manual</option></select></label>
         <label>Default commission rate (%)<input type="number" min="0" step="0.01" value={defaultCommissionRate} onChange={e=>setDefaultCommissionRate(e.target.value)} /></label>
         <label>Default fixed commission ($)<input type="number" min="0" step="0.01" value={defaultCommissionFixed} onChange={e=>setDefaultCommissionFixed(e.target.value)} /></label>
         <label>Default overhead method<select value={defaultOverheadMethod} onChange={e=>setDefaultOverheadMethod(e.target.value)}><option value="flat">Flat amount</option><option value="contract_percent">Percent of contract</option><option value="direct_cost_percent">Percent of direct costs</option><option value="manual">Manual</option></select></label>
         <label>Default overhead rate (%)<input type="number" min="0" step="0.01" value={defaultOverheadRate} onChange={e=>setDefaultOverheadRate(e.target.value)} /></label>
-        <label>Default overhead amount ($)<input type="number" min="0" step="0.01" value={defaultOverheadFixed} onChange={e=>setDefaultOverheadFixed(e.target.value)} /></label></div><button className="primary-button" disabled={busy}>Save settings</button></form>}
+        <label>Default overhead amount ($)<input type="number" min="0" step="0.01" value={defaultOverheadFixed} onChange={e=>setDefaultOverheadFixed(e.target.value)} /></label></div><button className="primary-button" disabled={busy}>Save settings</button></form>
+        <form className="inline-form" onSubmit={saveWorkflowStageSetting}><div className="form-grid">
+          <label>Workflow<select value={workflowEditType} onChange={e=>selectWorkflowStage(e.target.value as "retail"|"insurance",e.target.value==="retail"?retailStages[0]:insuranceStages[0])}><option value="retail">Retail</option><option value="insurance">Insurance</option></select></label>
+          <label>Core stage<select value={workflowEditStage} onChange={e=>selectWorkflowStage(workflowEditType,e.target.value)}>{(workflowEditType==="retail"?retailStages:insuranceStages).map(stage=><option key={stage} value={stage}>{stageLabel(stage)}</option>)}</select></label>
+          <label>Display label<input maxLength={80} value={workflowEditLabel} onChange={e=>setWorkflowEditLabel(e.target.value)} /></label>
+          <label>Stage order<input type="number" min="0" value={workflowEditOrder} onChange={e=>setWorkflowEditOrder(e.target.value)} /></label>
+        </div><p className="muted">Core stages and dependencies stay in place. Administrators can rename stages and adjust their order, but cannot delete required stages.</p><button className="primary-button" disabled={busy}>Save workflow stage</button></form></>}
       {attention.length ? <div className="attention-list">{attention.slice(0,10).map(p=><button key={p.id} className="attention-item" onClick={()=>void openProject(p)}><strong>{p.project_name}</strong><span>{p.next_action_due_at && new Date(p.next_action_due_at).getTime()<Date.now() ? "Overdue next action" : "Stale project"} · {stageLabel(p.workflow_stage || "unassigned")}</span><small>{p.next_action || "Review project and set a next action"}</small></button>)}</div> : <p className="muted">No projects currently need attention.</p>}
       <div className="pipeline-toolbar"><div className="segmented-filter">{availableDivisions.length > 1 && <><button className={scope==="division"?"active":""} onClick={()=>setScope("division")}>Current division</button><button className={scope==="combined"?"active":""} onClick={()=>{setScope("combined");setSelected(null);setShowCreate(false);setShowExpense(false);setShowSupplement(false);setSettingsOpen(false);}}>Combined TRD + CRD</button></>}</div><div className="segmented-filter"><button className={filter==="all"?"active":""} onClick={()=>setFilter("all")}>All</button><button className={filter==="retail"?"active":""} onClick={()=>setFilter("retail")}>Retail</button><button className={filter==="insurance"?"active":""} onClick={()=>setFilter("insurance")}>Insurance</button></div></div>
       {scope !== "combined" && showCreate && <form className="inline-form" onSubmit={createProject}><div className="form-grid">
         <label>Project name<input required value={projectName} onChange={e=>setProjectName(e.target.value)} placeholder="Customer or property project name" /></label>
         <label>Project category<select value={projectType} onChange={e=>setProjectType(e.target.value)}><option value="roof_replacement">Roof replacement</option><option value="repair">Repair</option><option value="restoration">Restoration</option><option value="coating">Roof coating</option><option value="maintenance">Maintenance</option><option value="other">Other</option></select></label>
         <label>Workflow<select value={pipelineType} onChange={e=>{const v=e.target.value as "retail"|"insurance";setPipelineType(v);setStage("new_lead");}}><option value="retail">Retail</option><option value="insurance">Insurance</option></select></label>
-        <label>Starting stage<select value={stage} onChange={e=>setStage(e.target.value)}>{(pipelineType==="retail"?retailStages:insuranceStages).map(x=><option key={x} value={x}>{stageLabel(x)}</option>)}</select></label>
+        <label>Starting stage<select value={stage} onChange={e=>setStage(e.target.value)}>{(pipelineType==="retail"?retailStages:insuranceStages).map(x=><option key={x} value={x}>{workflowLabel(x,pipelineType)}</option>)}</select></label>
         <label className="wide">Project manager<select value={projectManagerId} onChange={e=>setProjectManagerId(e.target.value)}><option value="">Unassigned</option>{teamMembers.map(member=><option key={member.user_id} value={member.user_id}>{member.display_name} · {stageLabel(member.role)}</option>)}</select></label>
         <label className="wide">Property<select required value={propertyId} onChange={e=>setPropertyId(e.target.value)}><option value="">Select property</option>{properties.map(p=><option key={p.id} value={p.id}>{p.address_line1}, {p.city}, {p.state} · {customerNames[p.customer_id] || "Customer"}</option>)}</select></label>
         <label>Initial estimate ($)<input type="number" min="0" step="0.01" value={contract} onChange={e=>setContract(e.target.value)} /></label>
@@ -587,7 +637,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       {busy && !projects.length ? <div className="empty-state">Loading projects...</div> : filtered.length ? (viewMode === "kanban" ? <div className="kanban-board">{kanbanStages.map(stage=>{
         const items = filtered.filter(project => stageFor(project) === stage);
         return <section className="kanban-column" key={stage} onDragOver={event=>{if(scope!=="combined"&&canWrite)event.preventDefault();}} onDrop={event=>{event.preventDefault();const id=event.dataTransfer.getData("text/project")||draggedProjectId;const project=filtered.find(item=>item.id===id);if(project&&project.pipeline_type){const allowed=project.pipeline_type==="insurance"?insuranceStages:retailStages;if(allowed.includes(stage))void moveProject(project,stage);}setDraggedProjectId(null);}}>
-          <div className="kanban-column-header"><strong>{stage==="unassigned"?"Workflow not assigned":stageLabel(stage)}</strong><span>{items.length}</span></div>
+          <div className="kanban-column-header"><strong>{stage==="unassigned"?"Workflow not assigned":workflowLabel(stage,filter==="insurance"?"insurance":"retail")}</strong><span>{items.length}</span></div>
           <div className="kanban-column-cards">{items.map(renderProjectCard)}{!items.length&&<div className="kanban-drop-placeholder">Drop project here</div>}</div>
         </section>;
       })}</div> : <div className="table-wrap pipeline-list"><table><thead><tr><th>Project</th><th>Division</th><th>Workflow</th><th>Stage</th><th>Value</th><th>Manager</th><th>Next action</th><th>Days in stage</th></tr></thead><tbody>{filtered.map(project=><tr key={project.id}><td><button className="pipeline-list-link" onClick={()=>void openProject(project)}>{project.project_name}</button><small>{addressFor(project.property_id)}</small></td><td>{project.division_id}</td><td>{project.pipeline_type?stageLabel(project.pipeline_type):"Unassigned"}</td><td>{scope!=="combined"&&canWrite&&project.pipeline_type?<select value={project.workflow_stage||"new_lead"} onChange={e=>void moveProject(project,e.target.value)}>{(project.pipeline_type==="insurance"?insuranceStages:retailStages).map(stage=><option key={stage} value={stage}>{stageLabel(stage)}</option>)}</select>:stageLabel(project.workflow_stage||"unassigned")}</td><td>{money(project.contract_amount||project.initial_approved_amount||project.original_estimate_amount)}</td><td>{project.project_manager_id?staffNames[project.project_manager_id]||"Assigned":"Unassigned"}</td><td>{project.next_action||"—"}</td><td>{daysInStage(project)}</td></tr>)}</tbody></table></div>) : <div className="empty-state"><strong>No projects in this view</strong><span>Create a project using an existing customer property.</span></div>}
