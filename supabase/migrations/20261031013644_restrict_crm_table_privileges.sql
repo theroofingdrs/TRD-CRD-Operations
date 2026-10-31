@@ -1,3 +1,8 @@
+-- Migration recorded in Supabase production history as 20261031013644.
+-- Remove non row-level privileges from the CRM API roles. TRUNCATE bypasses
+-- row level security, so neither anonymous nor authenticated API roles should
+-- hold it. Authenticated CRUD remains governed by the existing CRM RLS policies.
+
 DO $$
 DECLARE item record;
 BEGIN
