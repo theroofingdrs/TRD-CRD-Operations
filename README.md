@@ -34,7 +34,7 @@ Supabase project: `gubvelngdohrfvqeeabu` in the TRDCRD organization.
 - Shared customer and contact foundation
 - Property and roof records
 - Leads, appointments, inspections, inspection observations, projects, tasks, activity history, and file metadata
-- Initial dashboard, lead pipeline, customer directory, and operational record lists
+- Initial dashboard, lead pipeline with status updates, customer directory, property creation, and appointment, inspection, project, and task entry workflows
 - AI generated inspection observations are explicitly marked unverified until a human verifies them
 
 ## Employee roles
