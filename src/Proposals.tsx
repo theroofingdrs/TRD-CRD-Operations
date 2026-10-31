@@ -155,7 +155,8 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
     const selected = allCatalogItems.find(item => item.description === catalogSelection && item.category === catalogCategory);
     if (!selected) return;
     const savedPrice = priceBookRows.find(row=>row.category===selected.category&&row.description===selected.description&&row.unit===selected.unit)?.unit_price;
-    const labor = selected.category.toLowerCase().includes("labor") || selected.description.toLowerCase().includes("labor") || selected.category.toLowerCase().includes("access and material handling");
+    const categoryKey = selected.category.toLowerCase();
+    const labor = selected.description.toLowerCase().includes("labor") || categoryKey === "residential roofing labor" || categoryKey === "commercial roofing labor" || categoryKey === "access and material handling";
     const quantity = roofrQuantityForItem(selected.description,selected.unit);
     const applyWaste = !labor && (selected.unit === "SQ" || selected.unit === "SF");
     setLineItems(current => [...current, { description: selected.description, quantity, unit: selected.unit, unit_price: savedPrice == null ? "" : String(savedPrice), category:selected.category, line_type:labor?"labor":"material", apply_waste:applyWaste }]);
