@@ -346,6 +346,7 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
   const [showAddProperty, setShowAddProperty] = useState(false);
   const [propertyDraft, setPropertyDraft] = useState(emptyProperty());
   const [shareWithBoth, setShareWithBoth] = useState(false);
+  const [customerDivisionIds, setCustomerDivisionIds] = useState<DivisionId[]>([]);
   const [editingId, setEditingId] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [properties, setProperties] = useState<GenericRow[]>([]);
@@ -402,6 +403,9 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
     setSelectedId(customerId);
     setDetailLoading(true);
     setMessage("");
+    const { data: divisionRows, error: divisionError } = await supabase.from("crm_customer_divisions").select("division_id").eq("customer_id", customerId);
+    if (divisionError) setMessage("Customer division links could not be loaded: " + divisionError.message);
+    setCustomerDivisionIds((divisionRows ?? []).map((item: { division_id: DivisionId }) => item.division_id));
     const [propertyResult, contactResult, projectResult, claimResult, leadResult, appointmentResult, inspectionResult, maintenanceResult] = await Promise.all([
       supabase.from("crm_properties").select("id,address_line1,city,state,postal_code,property_type,county,parcel_number,building_name").eq("customer_id", customerId).order("created_at", { ascending: false }),
       supabase.from("crm_contacts").select("id,full_name,title,email,phone,is_primary").eq("customer_id", customerId).order("is_primary", { ascending: false }),
@@ -496,6 +500,7 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
     setBillingCity(selected.billing_city || "");
     setBillingState(selected.billing_state || "TX");
     setBillingPostal(selected.billing_postal_code || "");
+    setShareWithBoth(customerDivisionIds.includes("TRD") && customerDivisionIds.includes("CRD"));
     setShowForm(true);
   }
 
@@ -577,12 +582,30 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
       if (error) setMessage(error.message);
       else {
         const id = editingId;
+        if (shareWithBoth) {
+          const { error: linkError } = await supabase.from("crm_customer_divisions").upsert(
+            [{ customer_id: id, division_id: "TRD" }, { customer_id: id, division_id: "CRD" }],
+            { onConflict: "customer_id,division_id", ignoreDuplicates: true }
+          );
+          if (linkError) {
+            setMessage("Customer updated, but sharing across TRD and CRD failed: " + linkError.message);
+            setSaving(false);
+            return;
+          }
+          const { data: savedLinks, error: verifyError } = await supabase.from("crm_customer_divisions").select("division_id").eq("customer_id", id);
+          const savedDivisions = new Set((savedLinks ?? []).map((item: { division_id: DivisionId }) => item.division_id));
+          if (verifyError || !savedDivisions.has("TRD") || !savedDivisions.has("CRD")) {
+            setMessage("Customer updated, but sharing could not be confirmed for both divisions. " + (verifyError?.message || "Please retry."));
+            setSaving(false);
+            return;
+          }
+        }
         if (primaryContactName.trim()) {
           const { data: existingPrimary } = await supabase.from("crm_contacts").select("id").eq("customer_id", id).eq("is_primary", true).limit(1).maybeSingle();
           if (existingPrimary?.id) await supabase.from("crm_contacts").update({ full_name: primaryContactName.trim() }).eq("id", existingPrimary.id);
           else await supabase.from("crm_contacts").insert({ customer_id: id, full_name: primaryContactName.trim(), is_primary: true });
         }
-        setEditingId(""); setShowForm(false); setMessage("Customer record updated.");
+        setEditingId(""); setShowForm(false); setMessage(shareWithBoth ? "Customer record updated and shared across both TRD and CRD." : "Customer record updated.");
         await load();
         await loadCustomerDetails(id);
       }
