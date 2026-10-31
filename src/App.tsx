@@ -7,11 +7,12 @@ import Warranties from "./Warranties";
 import DocumentDeliveries from "./DocumentDeliveries";
 import RoofrMeasurements from "./RoofrMeasurements";
 import ProposalTemplates from "./ProposalTemplates";
+import { AddressAutocomplete, CompletedProjectsMap } from "./GoogleMaps";
 
 type DivisionId = "TRD" | "CRD";
 type Role = "owner" | "division_admin" | "office_manager" | "sales_rep" | "project_manager" | "field_inspector" | "production_manager" | "accounting" | "read_only";
 type Membership = { division_id: DivisionId; role: Role };
-type View = "overview" | "leads" | "customers" | "contacts" | "properties" | "claims" | "roofs" | "documents" | "appointments" | "proposals" | "proposal_templates" | "warranties" | "deliveries" | "inspections" | "projects" | "tasks" | "team";
+type View = "overview" | "leads" | "customers" | "contacts" | "properties" | "claims" | "roofs" | "documents" | "appointments" | "proposals" | "proposal_templates" | "warranties" | "deliveries" | "inspections" | "projects" | "tasks" | "team" | "completed_map";
 type Lead = { id: string; service_interest: string | null; status: string; priority: string; source: string | null; description: string | null; created_at: string };
 type Customer = { id: string; display_name: string; customer_type: string; email: string | null; phone: string | null; billing_address_line1?: string | null; billing_city?: string | null; billing_state?: string | null; billing_postal_code?: string | null; created_at: string };
 type GenericRow = Record<string, string | number | null>;
@@ -32,6 +33,7 @@ const navigation: { id: View; label: string; icon: string }[] = [
   { id: "warranties", label: "Warranties", icon: "▤" },
   { id: "deliveries", label: "Delivery history", icon: "✉" },
   { id: "projects", label: "Projects", icon: "▤" },
+  { id: "completed_map", label: "Completed Projects Map", icon: "⌖" },
   { id: "tasks", label: "Tasks", icon: "☷" },
   { id: "team", label: "Team access", icon: "♧" }
 ];
@@ -170,7 +172,7 @@ function App() {
     <aside className="sidebar">
       <div className="sidebar-brand"><div className="brand-mark small">RD</div><div><strong>ROOF DOCTORS</strong><span>OPERATIONS</span></div></div>
       <div className="division-picker"><label htmlFor="division">WORKSPACE</label><select id="division" value={division} onChange={(event) => { setDivision(event.target.value as DivisionId); setView("overview"); }}><option value="TRD" disabled={!memberships.some((item) => item.division_id === "TRD")}>Residential · TRD</option><option value="CRD" disabled={!memberships.some((item) => item.division_id === "CRD")}>Commercial · CRD</option></select></div>
-      <nav className="main-nav">{navigation.filter((item) => (item.id !== "team" && item.id !== "proposal_templates") || isOwner).map((item) => <button key={item.id} className={view === item.id ? "nav-item active" : "nav-item"} onClick={() => setView(item.id)}><span className="nav-icon">{item.icon}</span>{item.label}</button>)}</nav>
+      <nav className="main-nav">{navigation.filter((item) => (item.id !== "team" && item.id !== "proposal_templates" && item.id !== "completed_map") || isOwner).map((item) => <button key={item.id} className={view === item.id ? "nav-item active" : "nav-item"} onClick={() => setView(item.id)}><span className="nav-icon">{item.icon}</span>{item.label}</button>)}</nav>
       <div className="sidebar-bottom"><div className="secure-note"><span className="status-dot"></span> Secure employee access</div><button className="signout-button" onClick={signOut}>Sign out</button></div>
     </aside>
     <main className="main-area">
@@ -191,6 +193,7 @@ function App() {
       {view === "warranties" && <Warranties division={division} userId={session.user.id} canWrite={canWriteProjects} />}
       {view === "deliveries" && <DocumentDeliveries division={division} />}
       {view === "projects" && <DataList division={division} view="projects" userId={session.user.id} canWrite={canWriteProjects} />}
+      {view === "completed_map" && isOwner && <CompletedProjectsMap />}
       {view === "tasks" && <DataList division={division} view="tasks" userId={session.user.id} canWrite={canWriteTasks} />}
       {view === "team" && isOwner && <Team division={division} />}
     </main>
@@ -306,7 +309,7 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
   const [billingState, setBillingState] = useState("TX");
   const [billingPostal, setBillingPostal] = useState("");
   const [billingSameAsProperty, setBillingSameAsProperty] = useState(false);
-  const emptyProperty = () => ({ property_name: "", address_line1: "", address_line2: "", city: "", state: "TX", postal_code: "", county: "", property_type: "residential", year_built: "", square_footage: "", parcel_number: "", building_name: "", occupancy_type: "", property_notes: "" });
+  const emptyProperty = () => ({ property_name: "", address_line1: "", address_line2: "", city: "", state: "TX", postal_code: "", latitude: null as number | null, longitude: null as number | null, county: "", property_type: "residential", year_built: "", square_footage: "", parcel_number: "", building_name: "", occupancy_type: "", property_notes: "" });
   const [newProperties, setNewProperties] = useState([emptyProperty()]);
   const [showAddProperty, setShowAddProperty] = useState(false);
   const [propertyDraft, setPropertyDraft] = useState(emptyProperty());
@@ -494,6 +497,8 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
       customer_id: customerId,
       property_name: item.property_name.trim() || null,
       address_line1: item.address_line1.trim(),
+      latitude: item.latitude ?? null,
+      longitude: item.longitude ?? null,
       address_line2: item.address_line2.trim() || null,
       city: item.city.trim(),
       state: item.state.trim().toUpperCase() || "TX",
@@ -602,7 +607,7 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
           {newProperties.map((property, index) => <div className="form-grid" key={index}>
             <label>Property name<input value={property.property_name} onChange={e => updateNewProperty(index,{property_name:e.target.value})} placeholder="Primary residence, Building A..." /></label>
             <label>Property type<select value={property.property_type} onChange={e => updateNewProperty(index,{property_type:e.target.value})}><option value="residential">Residential</option><option value="commercial">Commercial</option><option value="multifamily">Multifamily</option><option value="church">Church</option><option value="school">School</option><option value="nursing_home">Nursing home</option><option value="hospital">Hospital</option><option value="retail_space">Retail space</option><option value="condo">Condo</option><option value="townhome">Townhome</option><option value="apartments">Apartments</option><option value="industrial">Industrial</option><option value="institutional">Institutional</option><option value="historic_building">Historic building</option><option value="other">Other</option></select></label>
-            <label className="wide">Street address<input value={property.address_line1} onChange={e => updateNewProperty(index,{address_line1:e.target.value})} /></label>
+            <label className="wide">Street address<AddressAutocomplete value={property.address_line1} onChange={value => updateNewProperty(index,{address_line1:value,latitude:null,longitude:null})} onPlaceSelected={place => updateNewProperty(index,{address_line1:place.address,city:place.city || property.city,state:place.state || property.state,postal_code:place.postalCode || property.postal_code,latitude:place.latitude,longitude:place.longitude})} /></label>
             <label>Address line 2<input value={property.address_line2} onChange={e => updateNewProperty(index,{address_line2:e.target.value})} /></label>
             <label>City<input value={property.city} onChange={e => updateNewProperty(index,{city:e.target.value})} /></label>
             <label>State<input maxLength={2} value={property.state} onChange={e => updateNewProperty(index,{state:e.target.value})} /></label>
@@ -631,7 +636,7 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
           {showAddProperty && <form className="inline-form" onSubmit={addPropertyToSelected}><div className="form-grid">
             <label>Property name<input value={propertyDraft.property_name} onChange={e=>setPropertyDraft(current=>({...current,property_name:e.target.value}))} placeholder="Primary residence, Building A..." /></label>
             <label>Property type<select value={propertyDraft.property_type} onChange={e=>setPropertyDraft(current=>({...current,property_type:e.target.value}))}><option value="residential">Residential</option><option value="commercial">Commercial</option><option value="multifamily">Multifamily</option><option value="church">Church</option><option value="school">School</option><option value="nursing_home">Nursing home</option><option value="hospital">Hospital</option><option value="retail_space">Retail space</option><option value="condo">Condo</option><option value="townhome">Townhome</option><option value="apartments">Apartments</option><option value="industrial">Industrial</option><option value="institutional">Institutional</option><option value="historic_building">Historic building</option><option value="other">Other</option></select></label>
-            <label className="wide">Street address<input required value={propertyDraft.address_line1} onChange={e=>setPropertyDraft(current=>({...current,address_line1:e.target.value}))} /></label>
+            <label className="wide">Street address<AddressAutocomplete value={propertyDraft.address_line1} onChange={value=>setPropertyDraft(current=>({...current,address_line1:value,latitude:null,longitude:null}))} onPlaceSelected={place=>setPropertyDraft(current=>({...current,address_line1:place.address,city:place.city||current.city,state:place.state||current.state,postal_code:place.postalCode||current.postal_code,latitude:place.latitude,longitude:place.longitude}))} /></label>
             <label>Address line 2<input value={propertyDraft.address_line2} onChange={e=>setPropertyDraft(current=>({...current,address_line2:e.target.value}))} /></label>
             <label>City<input required value={propertyDraft.city} onChange={e=>setPropertyDraft(current=>({...current,city:e.target.value}))} /></label>
             <label>State<input required maxLength={2} value={propertyDraft.state} onChange={e=>setPropertyDraft(current=>({...current,state:e.target.value}))} /></label>
@@ -901,6 +906,7 @@ function Properties({ division, canWrite }: { division: DivisionId; canWrite: bo
   const [city, setCity] = useState("");
   const [state, setState] = useState("TX");
   const [postal, setPostal] = useState("");
+  const [coordinates, setCoordinates] = useState<{latitude:number;longitude:number}|null>(null);
   const [propertyType, setPropertyType] = useState("residential");
   const [county, setCounty] = useState("");
   const [parcelNumber, setParcelNumber] = useState("");
@@ -949,13 +955,13 @@ function Properties({ division, canWrite }: { division: DivisionId; canWrite: bo
     });
     if (error) setMessage(error.message);
     else {
-      setAddress(""); setCity(""); setPostal(""); setCounty(""); setParcelNumber(""); setBuildingName(""); setShowForm(false); setMessage("Property created.");
+      setAddress(""); setCity(""); setPostal(""); setCoordinates(null); setCounty(""); setParcelNumber(""); setBuildingName(""); setShowForm(false); setMessage("Property created.");
       await load();
     }
     setSaving(false);
   }
   return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">PROPERTY RECORDS</p><h2>Properties and locations</h2><p className="muted">Each property is linked to a customer account and can hold multiple roof records.</p></div>{canWrite && customers.length > 0 && <button className="primary-button compact" onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "+ Add property"}</button>}</div>
-    {showForm && <form className="inline-form" onSubmit={createProperty}><div className="form-grid"><label>Customer account<select required value={customerId} onChange={(event) => setCustomerId(event.target.value)}>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.display_name}</option>)}</select></label><label>Property type<select value={propertyType} onChange={(event) => setPropertyType(event.target.value)}><option value="residential">Residential</option><option value="commercial">Commercial</option><option value="multifamily">Multifamily</option><option value="industrial">Industrial</option><option value="institutional">Church / School / Institutional</option><option value="historic_building">Historic building</option></select></label><label className="wide">Street address<input required value={address} onChange={(event) => setAddress(event.target.value)} /></label><label>City<input required value={city} onChange={(event) => setCity(event.target.value)} /></label><label>State<input required value={state} onChange={(event) => setState(event.target.value)} maxLength={2} /></label><label>ZIP code<input value={postal} onChange={(event) => setPostal(event.target.value)} /></label><label>County<input value={county} onChange={(event) => setCounty(event.target.value)} /></label><label>Parcel / account number<input value={parcelNumber} onChange={(event) => setParcelNumber(event.target.value)} /></label><label className="wide">Building or property name<input value={buildingName} onChange={(event) => setBuildingName(event.target.value)} placeholder="Building, campus, or property name" /></label></div><button className="primary-button" disabled={saving || !customerId}>{saving ? "Saving..." : "Save property"}</button></form>}
+    {showForm && <form className="inline-form" onSubmit={createProperty}><div className="form-grid"><label>Customer account<select required value={customerId} onChange={(event) => setCustomerId(event.target.value)}>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.display_name}</option>)}</select></label><label>Property type<select value={propertyType} onChange={(event) => setPropertyType(event.target.value)}><option value="residential">Residential</option><option value="commercial">Commercial</option><option value="multifamily">Multifamily</option><option value="industrial">Industrial</option><option value="institutional">Church / School / Institutional</option><option value="historic_building">Historic building</option></select></label><label className="wide">Street address<AddressAutocomplete value={address} onChange={setAddress} onPlaceSelected={place=>{setAddress(place.address);setCity(place.city||"");setState(place.state||"TX");setPostal(place.postalCode||"");setCoordinates({latitude:place.latitude,longitude:place.longitude});}} /></label><label>City<input required value={city} onChange={(event) => setCity(event.target.value)} /></label><label>State<input required value={state} onChange={(event) => setState(event.target.value)} maxLength={2} /></label><label>ZIP code<input value={postal} onChange={(event) => setPostal(event.target.value)} /></label><label>County<input value={county} onChange={(event) => setCounty(event.target.value)} /></label><label>Parcel / account number<input value={parcelNumber} onChange={(event) => setParcelNumber(event.target.value)} /></label><label className="wide">Building or property name<input value={buildingName} onChange={(event) => setBuildingName(event.target.value)} placeholder="Building, campus, or property name" /></label></div><button className="primary-button" disabled={saving || !customerId}>{saving ? "Saving..." : "Save property"}</button></form>}
     {message && <p className="inline-message">{message}</p>}
     {loading ? <div className="empty-state">Loading properties...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Street address</th><th>City</th><th>State</th><th>ZIP</th><th>Type</th><th>County</th><th>Parcel / building</th><th>Added</th></tr></thead><tbody>{rows.map((row) => <tr key={String(row.id)}><td><strong>{String(row.address_line1 || "Property")}</strong></td><td>{String(row.city || "—")}</td><td>{String(row.state || "—")}</td><td>{String(row.postal_code || "—")}</td><td>{String(row.property_type || "—")}</td><td>{String(row.county || "—")}</td><td>{[row.parcel_number,row.building_name].filter(Boolean).join(" · ") || "—"}</td><td>{formatValue("created_at",row.created_at)}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No properties yet</strong><span>Add a customer first, then create the property record here.</span>{canWrite && customers.length > 0 && <button className="secondary-button" onClick={() => setShowForm(true)}>Add first property</button>}</div>}
   </section></div>;
