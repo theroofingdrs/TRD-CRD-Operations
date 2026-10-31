@@ -93,6 +93,10 @@ input:focus,select:focus,textarea:focus{border-color:#e8895c;box-shadow:0 0 0 3p
 .login-card .muted,.setup-card p{font-size:12px;line-height:1.6;color:#818792;margin:0 0 24px}
 .login-card form{display:grid;gap:10px;margin-top:24px}
 .login-card .primary-button{margin-top:7px;padding:13px}
+.login-methods{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}
+.login-method{border:1px solid #dfe2e6;border-radius:8px;background:#fff;color:#555;padding:12px 8px;font-size:12px;font-weight:700;cursor:pointer}
+.login-method.active{border-color:#ed6b2b;background:#fff3ed;color:#b95120}
+.login-method:focus-visible{outline:3px solid #ed6b2b55;outline-offset:2px}
 .auth-message{font-size:11px;color:#458262;margin-top:16px}
 .fine-print{font-size:10px;color:#9a9fa7;line-height:1.6;margin-top:18px}
 .setup-card code{display:block;background:#f4f5f6;border-radius:5px;padding:8px;font-size:10px;margin-top:8px;color:#555}
