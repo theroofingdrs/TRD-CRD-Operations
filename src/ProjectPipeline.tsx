@@ -11,6 +11,7 @@ type Project = {
   next_action: string | null; next_action_due_at: string | null; updated_at: string; commission_method: string | null; commission_rate: number | null; commission_fixed_amount: number | null; commission_earned_amount: number; commission_paid_amount: number; commission_salesperson_name: string | null; overhead_method: string | null; overhead_rate: number | null; overhead_fixed_amount: number | null; overhead_allocated_amount: number; created_at: string;
 };
 type Expense = { id: string; category: string; amount: number; paid_amount: number; payment_status: string; expense_date: string; vendor_payee: string | null; description: string | null; receipt_file_id: string | null };
+type Attachment = { id: string; related_id: string; bucket_id: string; object_path: string; original_filename: string };
 type Transaction = { id: string; transaction_type: "invoice" | "payment"; amount: number; transaction_date: string; reference_number: string | null; payment_method: string | null; notes: string | null; status: string };
 type Supplement = { id: string; supplement_number: number; status: string; requested_amount: number; approved_amount: number; submitted_at: string | null; response_at: string | null; carrier_response: string | null; notes: string | null };
 
@@ -37,6 +38,8 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [supplements, setSupplements] = useState<Supplement[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [supplementAttachments, setSupplementAttachments] = useState<Record<string, Attachment[]>>({});
+  const [costEstimates, setCostEstimates] = useState<Record<string, number>>({});
   const [history, setHistory] = useState<any[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [showExpense, setShowExpense] = useState(false);
@@ -59,6 +62,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   const [vendor, setVendor] = useState("");
   const [expenseDescription, setExpenseDescription] = useState("");
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [supplementFile, setSupplementFile] = useState<File | null>(null);
   const [supplementEditing, setSupplementEditing] = useState<string | null>(null);
   const [supplementApproved, setSupplementApproved] = useState("");
   const [supplementResponse, setSupplementResponse] = useState("");
@@ -131,8 +135,6 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     setSelected(project); setMessage(""); setError("");
     setFinanceContract(String(project.contract_amount ?? ""));
     setFinanceApproved(String(project.initial_approved_amount ?? ""));
-    setFinanceInvoiced(String(project.invoiced_amount ?? ""));
-    setFinanceCollected(String(project.collected_amount ?? ""));
     setCommissionMethod(project.commission_method || "manual");
     setCommissionRate(String(project.commission_rate ?? ""));
     setCommissionFixed(String(project.commission_fixed_amount ?? ""));
@@ -146,14 +148,30 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     const [e, s, h, t] = await Promise.all([
       supabase.from("crm_project_expenses").select("id,category,amount,paid_amount,payment_status,expense_date,vendor_payee,description,receipt_file_id").eq("project_id", project.id).order("expense_date", { ascending: false }),
       supabase.from("crm_project_supplements").select("id,supplement_number,status,requested_amount,approved_amount,submitted_at,response_at,carrier_response,notes").eq("project_id", project.id).order("supplement_number"),
-      supabase.from("crm_project_stage_history").select("id,from_stage,to_stage,changed_at,note").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(30)
+      supabase.from("crm_project_stage_history").select("id,from_stage,to_stage,changed_at,note").eq("project_id", project.id).order("changed_at", { ascending: false }).limit(30),
+      supabase.from("crm_project_transactions").select("id,transaction_type,amount,transaction_date,reference_number,payment_method,notes,status").eq("project_id", project.id).order("transaction_date", { ascending: false })
     ]);
     if (e.error) setError(e.error.message);
     if (s.error) setError(s.error.message);
     if (h.error) setError(h.error.message);
+    if (t.error) setError(t.error.message);
     setExpenses((e.data ?? []) as Expense[]);
     setSupplements((s.data ?? []) as Supplement[]);
+    setTransactions((t.data ?? []) as Transaction[]);
     setHistory(h.data ?? []);
+    const supplementIds = (s.data ?? []).map((item: Supplement) => item.id);
+    if (supplementIds.length) {
+      const { data: files, error: fileError } = await supabase.from("crm_files").select("id,related_id,bucket_id,object_path,original_filename").eq("division_id", division).eq("related_type", "supplement").in("related_id", supplementIds);
+      if (fileError) setError(fileError.message);
+      const grouped: Record<string, Attachment[]> = {};
+      (files ?? []).forEach((file: Attachment) => { (grouped[file.related_id] ||= []).push(file); });
+      setSupplementAttachments(grouped);
+    } else setSupplementAttachments({});
+    const { data: budgets, error: budgetError } = await supabase.from("crm_project_cost_estimates").select("category,estimated_amount").eq("project_id", project.id);
+    if (budgetError) setError(budgetError.message);
+    const budgetMap: Record<string, number> = {};
+    (budgets ?? []).forEach((item: {category:string;estimated_amount:number}) => { budgetMap[item.category] = Number(item.estimated_amount || 0); });
+    setCostEstimates(budgetMap);
   }
 
   async function createProject(event: FormEvent) {
