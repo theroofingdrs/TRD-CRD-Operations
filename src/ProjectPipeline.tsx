@@ -1099,7 +1099,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       </form>}
       <div className="panel-heading subheading"><div><h3>Estimated versus actual costs</h3><p className="muted">Set a budget for each cost category and compare it with recorded costs.</p></div></div>
       <div className="table-wrap"><table><thead><tr><th>Category</th><th>Estimated ($)</th><th>Actual ($)</th><th>Variance ($)</th><th></th></tr></thead><tbody>{["materials","labor","equipment","permits","sales_commission","overhead","other"].map(category=>{
-        const actual = category==="sales_commission" ? Number(selected.commission_earned_amount||0) : category==="overhead" ? Number(selected.overhead_allocated_amount||0) : expenses.filter(x=>x.category===category).reduce((sum,x)=>sum+Number(x.amount||0),0);
+        const actual = category==="sales_commission" ? Number(selected.commission_earned_amount||0) : category==="overhead" ? Number(selected.overhead_allocated_amount||0) : fromCents(expenses.filter(x=>x.payment_status!=="void"&&x.category===category).reduce((sum,x)=>sum+toCents(x.amount),0));
         const estimated = Number(costEstimates[category]||0);
         return <tr key={category}><td>{stageLabel(category)}</td><td>{scope !== "combined" && canWriteFinancials ? <input type="number" min="0" step="0.01" defaultValue={estimated} onBlur={e=>{const v=cents(e.target.value);if(v!==estimated)void saveCostEstimate(category,e.target.value);}} /> : money(estimated)}</td><td>{money(actual)}</td><td>{money(actual-estimated)}</td><td>{actual>estimated && estimated>0 ? <span className="error-text">Over budget</span> : "—"}</td></tr>;
       })}</tbody></table></div>
