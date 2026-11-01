@@ -819,7 +819,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       setMessage("Project financials saved.");
       await load();
       const { data: fresh } = await supabase.from("crm_projects").select("*").eq("id", selected.id).single();
-      await openProject((fresh || { ...selected, contract_amount: contractAmount || null, initial_approved_amount: approved || null, commission_method: commissionMethod, commission_rate: rate, commission_fixed_amount: fixed, commission_earned_amount: earned, commission_paid_amount: cents(commissionPaid), commission_salesperson_name: commissionSalesperson, overhead_method: overheadMethod, overhead_rate: overheadRateValue, overhead_fixed_amount: overheadFixedValue, overhead_allocated_amount: overheadAllocated }) as Project);
+      await openProject((fresh || { ...selected, contract_amount: contractAmount || null, initial_approved_amount: approved || null, commission_method: commissionMethod, commission_rate: rate, commission_fixed_amount: fixed, commission_earned_amount: fromCents(earnedCents), commission_paid_amount: cents(commissionPaid), commission_salesperson_name: commissionSalesperson, overhead_method: overheadMethod, overhead_rate: overheadRateValue, overhead_fixed_amount: overheadFixedValue, overhead_allocated_amount: fromCents(overheadCents) }) as Project);
     }
     setBusy(false);
   }
