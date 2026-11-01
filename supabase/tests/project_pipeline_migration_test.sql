@@ -388,7 +388,7 @@ BEGIN
   IF (SELECT collected_amount FROM public.crm_projects WHERE id = (SELECT project_id FROM pg_temp.test_ids)) <> 0 THEN
     RAISE EXCEPTION 'Voided payment was not removed from collected total';
   END IF;
-END $;
+END $$;
 
 -- Percentage-based commissions and overhead must follow payments, approved revenue, and actual expenses.
 SELECT public.crm_update_project_financials(
