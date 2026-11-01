@@ -303,7 +303,7 @@ async function makeProposalPdf(
       }
       sectionHeading(section.heading === "Itemized total" ? "Estimate summary" : section.heading);
       for (const line of section.body) {
-        const isTotal = section.heading === "Itemized total" && /^Total\\b/i.test(line);
+        const isTotal = section.heading === "Itemized total" && /^Total\b/i.test(line);
         paragraph(line, isTotal ? 10 : 8.8, isTotal ? navy : ink, 0, isTotal);
       }
       y -= 7;
