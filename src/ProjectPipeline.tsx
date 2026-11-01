@@ -38,7 +38,10 @@ const insuranceStages = [
 ];
 const stageLabel = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, c => c.toUpperCase());
 const money = (value: number | null | undefined) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
-const cents = (value: string) => Math.round((Number(value) || 0) * 100) / 100;\nconst toCents = (value: number | string | null | undefined) => Math.round((Number(value) || 0) * 100);\nconst fromCents = (value: number) => value / 100;\nconst percentOfCents = (baseCents: number, percent: number) => Math.round(baseCents * Math.round(percent * 100) / 10000);
+const cents = (value: string) => Math.round((Number(value) || 0) * 100) / 100;
+const toCents = (value: number | string | null | undefined) => Math.round((Number(value) || 0) * 100);
+const fromCents = (value: number) => value / 100;
+const percentOfCents = (baseCents: number, percent: number) => Math.round(baseCents * Math.round(percent * 100) / 10000);
 const localDateString = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 
 export default function ProjectPipeline({ division, userId, canWrite, canWriteFinancials, availableDivisions, canManageSettings, canOverrideGates }: { division: Division; userId: string; canWrite: boolean; canWriteFinancials: boolean; availableDivisions: Division[]; canManageSettings: boolean; canOverrideGates: boolean }) {
@@ -900,7 +903,8 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       const cell = (value: unknown) => '"' + String(value ?? "").replace(/"/g,'""') + '"';
       return [project.project_name,project.division_id,customerNames[project.customer_id]||"",addressFor(project.property_id),leadFor(project.lead_id)?.service_interest||"",claimFor(project.claim_id)?.claim_number||"",claimFor(project.claim_id)?.insurance_carrier||"",project.pipeline_type||"",project.workflow_stage||"",project.original_estimate_amount||"",value,project.invoiced_amount||0,project.collected_amount||0,Math.max(0,Number(project.invoiced_amount||0)-Number(project.collected_amount||0)),direct,project.commission_earned_amount||0,project.overhead_allocated_amount||0,project.next_action||"",project.next_action_due_at||"",project.project_manager_id?staffNames[project.project_manager_id]||"Assigned":"Unassigned"].map(cell).join(",");
     });
-    const csv = [headers.map(h=>'"'+h.replace(/"/g,'""')+'"').join(","),...rows].join("\r\n");
+    const csv = [headers.map(h=>'"'+h.replace(/"/g,'""')+'"').join(","),...rows].join("\r
+");
     const blob = new Blob([csv],{type:"text/csv;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -915,7 +919,8 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       item.expense_date,item.division_id,item.category,item.vendor_payee||"",item.description||"",item.notes||"",
       item.amount,item.paid_amount,Math.max(0,Number(item.amount)-Number(item.paid_amount)),item.payment_status,item.updated_at
     ].map(cell).join(","));
-    const csv = [headers.map(cell).join(","),...rows].join("\r\n");
+    const csv = [headers.map(cell).join(","),...rows].join("\r
+");
     const blob = new Blob([csv],{type:"text/csv;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
