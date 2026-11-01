@@ -625,7 +625,7 @@ CREATE OR REPLACE FUNCTION public.crm_update_project_financials(
 )
 RETURNS void
 LANGUAGE plpgsql
-SECURITY DEFINER
+SECURITY INVOKER
 SET search_path TO ''
 AS $function$
 DECLARE
