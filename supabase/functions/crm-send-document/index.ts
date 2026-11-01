@@ -216,65 +216,56 @@ async function makeProposalPdf(
     page.drawText("CLAIM NO: " + (claimNumber || "N/A"), { x: 330, y: y + 2, size: 7.5, font: bold, color: navy });
     y -= 32;
 
-    const pricing = sections.find(s => s.heading === "Itemized pricing");
-    const excluded = new Set(["Customer and property", "Itemized pricing", "Itemized total"]);
     for (const section of sections) {
-      if (excluded.has(section.heading)) continue;
+      if (section.heading === "Customer and property") continue;
       if (section.heading === "Introduction") {
         paragraph(section.body.join(" "), 8.2, muted);
         y -= 4;
-      } else {
-        sectionHeading(section.heading);
-        for (const line of section.body) paragraph(line, 8.2);
-        y -= 4;
+        continue;
       }
-    }
-    if (pricing?.body.length) {
-      sectionHeading("Description and pricing");
-      const col = { desc: margin + 7, qty: 350, rate: 414, amount: 500 };
-      page.drawText("DESCRIPTION", { x: col.desc, y, size: 6.5, font: bold, color: muted });
-      page.drawText("QTY", { x: col.qty, y, size: 6.5, font: bold, color: muted });
-      page.drawText("RATE", { x: col.rate, y, size: 6.5, font: bold, color: muted });
-      page.drawText("AMOUNT", { x: col.amount, y, size: 6.5, font: bold, color: muted });
-      y -= 12;
-      const rows: { description: string; quantity: string; rate: string; amount: string }[] = [];
-      for (let i = 0; i < pricing.body.length; i += 4) {
-        const description = pricing.body[i] || "";
-        const unitPrice = pricing.body[i + 1] || "";
-        const quantity = pricing.body[i + 2] || "";
-        const lineTotal = pricing.body[i + 3] || "";
-        const qtyMatch = quantity.match(/(?:Billable quantity:\s*)?([\d,.]+(?:\s+\w+)?)/i);
-        const rateMatch = unitPrice.match(/\$[\d,.]+/);
-        const amountMatch = lineTotal.match(/\$[\d,.]+/);
-        rows.push({
-          description,
-          quantity: qtyMatch?.[1] || "",
-          rate: rateMatch?.[0] || "",
-          amount: amountMatch?.[0] || ""
-        });
+      if (section.heading === "Itemized pricing") {
+        if (!section.body.length) continue;
+        sectionHeading("Description and pricing");
+        const col = { desc: margin + 7, qty: 350, rate: 414, amount: 500 };
+        page.drawText("DESCRIPTION", { x: col.desc, y, size: 6.5, font: bold, color: muted });
+        page.drawText("QTY", { x: col.qty, y, size: 6.5, font: bold, color: muted });
+        page.drawText("RATE", { x: col.rate, y, size: 6.5, font: bold, color: muted });
+        page.drawText("AMOUNT", { x: col.amount, y, size: 6.5, font: bold, color: muted });
+        y -= 12;
+        for (let i = 0; i < section.body.length; i += 4) {
+          const description = section.body[i] || "";
+          const unitPrice = section.body[i + 1] || "";
+          const quantity = section.body[i + 2] || "";
+          const lineTotal = section.body[i + 3] || "";
+          const qtyMatch = quantity.match(/(?:Billable quantity:\s*)?([\d,.]+(?:\s+\w+)?)/i);
+          const rateMatch = unitPrice.match(/\$[\d,.]+/);
+          const amountMatch = lineTotal.match(/\$[\d,.]+/);
+          const lines = wrapLines(description, regular, 7.5, 285);
+          const rowHeight = Math.max(17, lines.length * 9 + 6);
+          ensure(rowHeight + 2);
+          page.drawLine({ start: { x: margin + 5, y: y - 4 }, end: { x: 612 - margin - 5, y: y - 4 }, thickness: 0.35, color: rgb(0.88, 0.89, 0.90) });
+          lines.forEach((line, index) => page.drawText(line, { x: col.desc, y: y - index * 9, size: 7.5, font: regular, color: ink, maxWidth: 285 }));
+          page.drawText(qtyMatch?.[1] || "", { x: col.qty, y, size: 7.5, font: regular, color: ink, maxWidth: 55 });
+          page.drawText(rateMatch?.[0] || "", { x: col.rate, y, size: 7.5, font: regular, color: ink, maxWidth: 70 });
+          page.drawText(amountMatch?.[0] || "", { x: col.amount, y, size: 7.5, font: regular, color: ink, maxWidth: 65 });
+          y -= rowHeight;
+        }
+        y -= 7;
+        continue;
       }
-      for (const row of rows) {
-        const lines = wrapLines(row.description, regular, 7.5, 285);
-        const rowHeight = Math.max(17, lines.length * 9 + 6);
-        ensure(rowHeight + 2);
-        page.drawLine({ start: { x: margin + 5, y: y - 4 }, end: { x: 612 - margin - 5, y: y - 4 }, thickness: 0.35, color: rgb(0.88, 0.89, 0.90) });
-        lines.forEach((line, i) => page.drawText(line, { x: col.desc, y: y - i * 9, size: 7.5, font: regular, color: ink, maxWidth: 285 }));
-        page.drawText(row.quantity, { x: col.qty, y, size: 7.5, font: regular, color: ink, maxWidth: 55 });
-        page.drawText(row.rate, { x: col.rate, y, size: 7.5, font: regular, color: ink, maxWidth: 70 });
-        page.drawText(row.amount, { x: col.amount, y, size: 7.5, font: regular, color: ink, maxWidth: 65 });
-        y -= rowHeight;
+      if (section.heading === "Itemized total") {
+        sectionHeading("Estimate summary");
+        for (const line of section.body) {
+          const isTotal = /^Total\b/i.test(line);
+          ensure(16);
+          page.drawText(line, { x: isTotal ? margin + 8 : margin + 14, y, size: isTotal ? 10 : 8, font: isTotal ? bold : regular, color: isTotal ? navy : ink, maxWidth: width - 20 });
+          y -= isTotal ? 16 : 12;
+        }
+        continue;
       }
-      y -= 7;
-    }
-    const totals = sections.find(s => s.heading === "Itemized total");
-    if (totals?.body.length) {
-      sectionHeading("Estimate summary");
-      for (const line of totals.body) {
-        const isTotal = /^Total\b/i.test(line);
-        ensure(16);
-        page.drawText(line, { x: isTotal ? margin + 8 : margin + 14, y, size: isTotal ? 10 : 8, font: isTotal ? bold : regular, color: isTotal ? navy : ink, maxWidth: width - 20 });
-        y -= isTotal ? 16 : 12;
-      }
+      sectionHeading(section.heading);
+      for (const line of section.body) paragraph(line, 8.2);
+      y -= 4;
     }
     if (totalAmount != null) {
       ensure(42);
