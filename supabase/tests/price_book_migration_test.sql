@@ -48,7 +48,7 @@ BEGIN
   IF NOT EXISTS(SELECT 1 FROM public.crm_price_book WHERE division_id='TRD' AND unit='SQ' AND unit_price IS NULL) THEN
     RAISE EXCEPTION 'Blank unit price was not preserved';
   END IF;
-  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='TRD' AND unit='SHEET') <> 38.75 THEN
+  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='TRD' AND category='Decking' AND description='7/16 inch OSB roof decking sheet' AND unit='SHEET') <> 38.75 THEN
     RAISE EXCEPTION 'Entered unit price was not saved precisely';
   END IF;
 END $body$;
