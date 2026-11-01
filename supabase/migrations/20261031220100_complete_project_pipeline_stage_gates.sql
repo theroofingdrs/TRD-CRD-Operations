@@ -67,7 +67,7 @@ CREATE OR REPLACE FUNCTION public.crm_move_project_stage(
 )
 RETURNS void
 LANGUAGE plpgsql
-SECURITY DEFINER
+SECURITY INVOKER
 SET search_path TO ''
 AS $function$
 DECLARE
