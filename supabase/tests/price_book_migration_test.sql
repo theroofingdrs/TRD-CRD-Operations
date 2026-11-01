@@ -29,6 +29,8 @@ INSERT INTO public.crm_memberships(user_id,division_id,role) VALUES
  ('00000000-0000-0000-0000-000000000001','TRD','owner'),
  ('00000000-0000-0000-0000-000000000002','CRD','read_only');
 \ir ../migrations/20261031190000_add_editable_price_book.sql
+\ir ../migrations/20261031210000_split_material_and_labor_price_book.sql
+\ir ../migrations/20261031230000_seed_all_in_roofing_prices.sql
 SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
 SET ROLE authenticated;
 INSERT INTO public.crm_price_book(division_id,category,description,unit,unit_price,updated_by)
@@ -36,6 +38,12 @@ VALUES ('TRD','Roofing materials','Architectural shingles material only','SQ',NU
        ('TRD','Decking','7/16 inch OSB roof decking sheet','SHEET',38.75,auth.uid());
 DO $body$
 BEGIN
+  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='TRD' AND category='Residential Roofing' AND description='Architectural shingles' AND unit='SQ') <> 295.00 THEN
+    RAISE EXCEPTION 'TRD all-in architectural shingle rate was not seeded';
+  END IF;
+  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='CRD' AND category='Commercial Roofing' AND description='TPO roofing system' AND unit='SQ') <> 870.00 THEN
+    RAISE EXCEPTION 'CRD all-in TPO rate was not seeded';
+  END IF;
   IF NOT EXISTS(SELECT 1 FROM public.crm_price_book WHERE division_id='TRD' AND unit='SQ' AND unit_price IS NULL) THEN
     RAISE EXCEPTION 'Blank unit price was not preserved';
   END IF;
