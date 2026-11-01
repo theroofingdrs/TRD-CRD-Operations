@@ -38,7 +38,7 @@ const insuranceStages = [
 ];
 const stageLabel = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, c => c.toUpperCase());
 const money = (value: number | null | undefined) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
-const cents = (value: string) => Math.round((Number(value) || 0) * 100) / 100;
+const cents = (value: string) => Math.round((Number(value) || 0) * 100) / 100;\nconst toCents = (value: number | string | null | undefined) => Math.round((Number(value) || 0) * 100);\nconst fromCents = (value: number) => value / 100;\nconst percentOfCents = (baseCents: number, percent: number) => Math.round(baseCents * Math.round(percent * 100) / 10000);
 const localDateString = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 
 export default function ProjectPipeline({ division, userId, canWrite, canWriteFinancials, availableDivisions, canManageSettings, canOverrideGates }: { division: Division; userId: string; canWrite: boolean; canWriteFinancials: boolean; availableDivisions: Division[]; canManageSettings: boolean; canOverrideGates: boolean }) {
@@ -776,26 +776,26 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   async function saveFinancials(event: FormEvent) {
     event.preventDefault();
     if (!supabase || !selected || !canWriteFinancials) return;
-    const direct = expenses.filter(x => x.category !== "overhead" && x.category !== "sales_commission").reduce((sum, x) => sum + Math.round(Number(x.amount) * 100), 0) / 100;
+    const directCents = expenses.filter(x => x.category !== "overhead" && x.category !== "sales_commission").reduce((sum, x) => sum + toCents(x.amount), 0);
     const approved = cents(financeApproved);
     const contractAmount = cents(financeContract);
-    const collected = Number(selected.collected_amount || 0);
-    const contractValueNow = (contractAmount || approved) + Number(selected.supplements_approved_amount || 0);
-    const grossNow = Math.max(0, contractValueNow - direct);
+    const collectedCents = toCents(selected.collected_amount);
+    const contractValueCents = (toCents(contractAmount) || toCents(approved)) + toCents(selected.supplements_approved_amount);
+    const grossCents = Math.max(0, contractValueCents - directCents);
     const rate = cents(commissionRate);
     const fixed = cents(commissionFixed);
-    const earned = commissionMethod === "fixed" ? fixed
-      : commissionMethod === "contract_percent" ? contractValueNow * rate / 100
-      : commissionMethod === "collected_percent" ? collected * rate / 100
-      : commissionMethod === "gross_profit_percent" ? grossNow * rate / 100
-      : cents(commissionEarned);
+    const earnedCents = commissionMethod === "fixed" ? toCents(fixed)
+      : commissionMethod === "contract_percent" ? percentOfCents(contractValueCents, rate)
+      : commissionMethod === "collected_percent" ? percentOfCents(collectedCents, rate)
+      : commissionMethod === "gross_profit_percent" ? percentOfCents(grossCents, rate)
+      : toCents(commissionEarned);
     const overheadRateValue = cents(overheadRate);
     const overheadFixedValue = cents(overheadFixed);
-    const overheadAllocated = overheadMethod === "flat" ? overheadFixedValue
-      : overheadMethod === "contract_percent" ? contractValueNow * overheadRateValue / 100
-      : overheadMethod === "direct_cost_percent" ? direct * overheadRateValue / 100
-      : overheadFixedValue;
-    if (cents(commissionPaid) > earned) { setError("Commission paid cannot exceed commission earned."); return; }
+    const overheadCents = overheadMethod === "flat" ? toCents(overheadFixedValue)
+      : overheadMethod === "contract_percent" ? percentOfCents(contractValueCents, overheadRateValue)
+      : overheadMethod === "direct_cost_percent" ? percentOfCents(directCents, overheadRateValue)
+      : toCents(overheadFixedValue);
+    if (toCents(commissionPaid) > earnedCents) { setError("Commission paid cannot exceed commission earned."); return; }
     
     setBusy(true); setError("");
     const { error: updateError } = await supabase.rpc("crm_update_project_financials", {
@@ -806,13 +806,13 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       p_commission_rate: rate || null,
       p_commission_fixed_amount: fixed || null,
       p_commission_salesperson_name: commissionSalesperson.trim() || null,
-      p_commission_earned_amount: Math.round(earned * 100) / 100,
+      p_commission_earned_amount: fromCents(earnedCents),
       p_commission_paid_amount: cents(commissionPaid),
       p_commission_paid_at: commissionPaidAt || null,
       p_overhead_method: overheadMethod,
       p_overhead_rate: overheadRateValue || null,
       p_overhead_fixed_amount: overheadFixedValue || null,
-      p_overhead_allocated_amount: Math.round(overheadAllocated * 100) / 100
+      p_overhead_allocated_amount: fromCents(overheadCents)
     });
     if (updateError) setError(updateError.message);
     else {
