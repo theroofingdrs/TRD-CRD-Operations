@@ -1,0 +1,1 @@
+ALTER TABLE public.crm_inspections ADD COLUMN IF NOT EXISTS claim_information jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(claim_information) = 'object');
