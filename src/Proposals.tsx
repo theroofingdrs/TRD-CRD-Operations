@@ -149,7 +149,7 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
     setSelectedRoofrReportId(report.id);
     if (!measurements.length) return;
     setLineItems(current => {
-      const imported = measurements.filter(item => typeof item.value === "number" && Number.isFinite(item.value)).map(item => ({ description: item.label + " from Roofr", quantity: String(item.value), unit: item.unit === "FACETS" ? "EA" : item.unit, unit_price: "", line_type: "other" as const, apply_waste: false }));
+      const imported = measurements.filter(item => typeof item.value === "number" && Number.isFinite(item.value)).map(item => ({ description: item.label + " from Roofr", quantity: String(item.value), unit: item.unit === "FACETS" ? "EA" : item.unit, material_unit_price: "", labor_unit_price: "", apply_waste: false }));
       return [...current.filter(item => item.description.trim() && !item.description.toLowerCase().endsWith(" from roofr")), ...imported];
     });
     setMessage("Reviewed Roofr quantities added as new estimate lines. Existing line items were left unchanged.");
