@@ -613,7 +613,7 @@ CREATE TRIGGER crm_project_transactions_sync_totals
   FOR EACH ROW EXECUTE FUNCTION app_private.sync_project_transaction_totals();
 
 -- Accounting can update only the financial fields through this narrowly scoped RPC.
-CREATE OR REPLACE FUNCTION public.crm_update_project_financials(
+CREATE OR REPLACE FUNCTION app_private.crm_update_project_financials(
   p_project_id uuid,
   p_contract_amount numeric,
   p_initial_approved_amount numeric,
@@ -675,6 +675,40 @@ BEGIN
   WHERE id = p_project_id AND division_id = target_division_id;
 END;
 $function$;
+CREATE OR REPLACE FUNCTION public.crm_update_project_financials(
+  p_project_id uuid,
+  p_contract_amount numeric,
+  p_initial_approved_amount numeric,
+  p_commission_method text,
+  p_commission_rate numeric,
+  p_commission_fixed_amount numeric,
+  p_commission_salesperson_name text,
+  p_commission_earned_amount numeric,
+  p_commission_paid_amount numeric,
+  p_commission_paid_at date,
+  p_overhead_method text,
+  p_overhead_rate numeric,
+  p_overhead_fixed_amount numeric,
+  p_overhead_allocated_amount numeric
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path TO ''
+AS $function$
+BEGIN
+  PERFORM app_private.crm_update_project_financials(
+    p_project_id, p_contract_amount, p_initial_approved_amount, p_commission_method,
+    p_commission_rate, p_commission_fixed_amount, p_commission_salesperson_name,
+    p_commission_earned_amount, p_commission_paid_amount, p_commission_paid_at,
+    p_overhead_method, p_overhead_rate, p_overhead_fixed_amount, p_overhead_allocated_amount
+  );
+END;
+$function$;
+REVOKE ALL ON FUNCTION app_private.crm_update_project_financials(uuid,numeric,numeric,text,numeric,numeric,text,numeric,numeric,date,text,numeric,numeric,numeric) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION app_private.crm_update_project_financials(uuid,numeric,numeric,text,numeric,numeric,text,numeric,numeric,date,text,numeric,numeric,numeric) TO authenticated;
+REVOKE ALL ON FUNCTION public.crm_update_project_financials(uuid,numeric,numeric,text,numeric,numeric,text,numeric,numeric,date,text,numeric,numeric,numeric) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.crm_update_project_financials(uuid,numeric,numeric,text,numeric,numeric,text,numeric,numeric,date,text,numeric,numeric,numeric) TO authenticated;
 REVOKE ALL ON FUNCTION public.crm_update_project_financials(uuid,numeric,numeric,text,numeric,numeric,text,numeric,numeric,date,text,numeric,numeric,numeric) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.crm_update_project_financials(uuid,numeric,numeric,text,numeric,numeric,text,numeric,numeric,date,text,numeric,numeric,numeric) TO authenticated;
 
