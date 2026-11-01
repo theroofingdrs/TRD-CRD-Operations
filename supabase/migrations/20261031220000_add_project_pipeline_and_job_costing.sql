@@ -103,7 +103,10 @@ CREATE POLICY crm_workflow_stage_settings_insert ON public.crm_workflow_stage_se
 CREATE POLICY crm_workflow_stage_settings_update ON public.crm_workflow_stage_settings
   FOR UPDATE TO authenticated
   USING (app_private.has_division_admin_access(division_id))
-  WITH CHECK (app_private.has_division_admin_access(division_id));
+  WITH CHECK (
+    app_private.has_division_admin_access(division_id)
+    AND (updated_by IS NULL OR updated_by = (SELECT auth.uid()))
+  );
 GRANT SELECT, INSERT, UPDATE ON public.crm_workflow_stage_settings TO authenticated;
 
 CREATE TABLE public.crm_project_stage_history (
@@ -311,7 +314,10 @@ CREATE POLICY crm_division_financial_settings_read ON public.crm_division_financ
 CREATE POLICY crm_division_financial_settings_write ON public.crm_division_financial_settings
   FOR ALL TO authenticated
   USING (app_private.has_division_admin_access(division_id))
-  WITH CHECK (app_private.has_division_admin_access(division_id));
+  WITH CHECK (
+    app_private.has_division_admin_access(division_id)
+    AND (updated_by IS NULL OR updated_by = (SELECT auth.uid()))
+  );
 GRANT SELECT, INSERT, UPDATE ON public.crm_division_financial_settings TO authenticated;
 
 
@@ -812,6 +818,7 @@ CREATE POLICY crm_project_cost_estimates_update ON public.crm_project_cost_estim
   FOR UPDATE TO authenticated USING (app_private.has_division_financial_access(division_id, true))
   WITH CHECK (
     app_private.has_division_financial_access(division_id, true)
+    AND (updated_by IS NULL OR updated_by = (SELECT auth.uid()))
     AND EXISTS (SELECT 1 FROM public.crm_projects p WHERE p.id = crm_project_cost_estimates.project_id AND p.division_id = crm_project_cost_estimates.division_id)
   );
 GRANT SELECT, INSERT, UPDATE ON public.crm_project_cost_estimates TO authenticated;
