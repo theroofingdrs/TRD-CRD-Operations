@@ -45,6 +45,18 @@ BEGIN
   IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='CRD' AND category='Commercial Roofing' AND description='TPO roofing system' AND unit='SQ') <> 870.00 THEN
     RAISE EXCEPTION 'CRD all-in TPO rate was not seeded';
   END IF;
+  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='TRD' AND category='Labor, code and job conditions' AND description='Steep slope 7/12-9/12' AND unit='SQ') <> 30.00 THEN
+    RAISE EXCEPTION 'TRD steep slope rate was not seeded';
+  END IF;
+  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='CRD' AND category='Labor, code and job conditions' AND description='Steep slope 12/12-14/12' AND unit='SQ') <> 65.00 THEN
+    RAISE EXCEPTION 'CRD steep slope rate was not seeded';
+  END IF;
+  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='TRD' AND category='Temporary protection and tarping' AND description='Tarping - landscaping protection' AND unit='SF') <> 0.75 THEN
+    RAISE EXCEPTION 'TRD landscaping protection rate was not seeded';
+  END IF;
+  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='CRD' AND category='Temporary protection and tarping' AND description='Tarping - landscaping protection' AND unit='SF') <> 0.75 THEN
+    RAISE EXCEPTION 'CRD landscaping protection rate was not seeded';
+  END IF;
   IF NOT EXISTS(SELECT 1 FROM public.crm_price_book WHERE division_id='TRD' AND unit='SQ' AND unit_price IS NULL) THEN
     RAISE EXCEPTION 'Blank unit price was not preserved';
   END IF;
