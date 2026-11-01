@@ -292,6 +292,33 @@ INSERT INTO public.crm_workflow_stage_settings
   (division_id, pipeline_type, stage_key, display_label, sort_order, updated_by)
 VALUES ('TRD', 'retail', 'new_lead', 'New opportunity', 0, auth.uid());
 
+DO $body$
+DECLARE
+  stage_setting_id uuid;
+  cost_estimate_id uuid;
+BEGIN
+  SELECT id INTO stage_setting_id FROM public.crm_workflow_stage_settings
+  WHERE division_id = 'TRD' AND pipeline_type = 'retail' AND stage_key = 'new_lead';
+  BEGIN
+    UPDATE public.crm_workflow_stage_settings
+    SET updated_by = '00000000-0000-0000-0000-000000000002'
+    WHERE id = stage_setting_id;
+    RAISE EXCEPTION 'Workflow settings allowed a forged updated_by value';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+
+  SELECT id INTO cost_estimate_id FROM public.crm_project_cost_estimates
+  WHERE project_id = (SELECT project_id FROM pg_temp.test_ids) AND category = 'materials';
+  BEGIN
+    UPDATE public.crm_project_cost_estimates
+    SET updated_by = '00000000-0000-0000-0000-000000000002'
+    WHERE id = cost_estimate_id;
+    RAISE EXCEPTION 'Cost estimates allowed a forged updated_by value';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+END
+$body$;
+
 INSERT INTO public.crm_files
   (division_id, related_type, related_id, bucket_id, object_path, original_filename, content_type, uploaded_by, metadata)
 VALUES
