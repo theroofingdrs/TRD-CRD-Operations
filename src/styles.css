@@ -151,3 +151,58 @@ input:focus,select:focus,textarea:focus{border-color:#e8895c;box-shadow:0 0 0 3p
 .blog-preview-body{white-space:pre-wrap;font-size:13px;line-height:1.8;color:#454b54;border-top:1px solid #e6e8eb;padding-top:18px}
 @media(max-width:900px){.blog-editor-grid{grid-template-columns:1fr}.blog-editor-aside{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:720px){.blog-manager-hero{align-items:flex-start;flex-direction:column;padding:20px}.blog-manager-actions{width:100%}.blog-manager-actions button{flex:1}.blog-editor{padding:15px}.blog-editor-two,.blog-editor-aside{grid-template-columns:1fr}.blog-editor-footer{flex-wrap:wrap}.blog-editor-footer button{flex:1}.blog-filters{width:100%}.blog-filters input,.blog-filters select{width:100%}.blog-preview h1{font-size:26px}}
+
+.project-pipeline .pipeline-toolbar{display:flex;justify-content:space-between;align-items:center;margin:18px 0}
+.project-pipeline .segmented-filter{display:inline-flex;gap:4px;padding:4px;background:var(--surface-muted,#f1f3f5);border-radius:10px}
+.project-pipeline .segmented-filter button{border:0;background:transparent;padding:8px 14px;border-radius:7px;color:var(--text-muted,#667085);cursor:pointer}
+.project-pipeline .segmented-filter button.active{background:var(--surface,#fff);color:var(--text,#202939);box-shadow:0 1px 3px #00000018}
+.project-pipeline .pipeline-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(245px,1fr));gap:12px;margin-top:16px}
+.project-pipeline .pipeline-card{min-width:0;border:1px solid var(--border,#e4e7ec);border-radius:12px;padding:14px;background:var(--surface,#fff)}
+.project-pipeline .pipeline-card-main{display:flex;flex-direction:column;align-items:flex-start;gap:8px;width:100%;border:0;background:transparent;text-align:left;padding:0;color:inherit;cursor:pointer}
+.project-pipeline .pipeline-card-main strong{font-size:15px}
+.project-pipeline .pipeline-card-type{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted,#667085);font-weight:700}
+.project-pipeline .pipeline-card-stage{font-size:12px;border-radius:20px;background:var(--surface-muted,#f2f4f7);padding:5px 9px}
+.project-pipeline .pipeline-card-value{font-weight:700;font-size:17px;margin-top:4px}
+.project-pipeline .stage-quick-edit{display:flex;align-items:center;gap:8px;margin-top:14px;font-size:12px;color:var(--text-muted,#667085)}
+.project-pipeline .stage-quick-edit select{min-width:0;flex:1;padding:7px;border:1px solid var(--border,#d0d5dd);border-radius:7px;background:var(--surface,#fff);color:inherit}
+.project-pipeline .financial-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin:18px 0 24px}
+.project-pipeline .financial-summary>div{display:flex;flex-direction:column;gap:7px;padding:13px;border:1px solid var(--border,#e4e7ec);border-radius:10px}
+.project-pipeline .financial-summary span{font-size:12px;color:var(--text-muted,#667085)}
+.project-pipeline .financial-summary strong{font-size:18px}
+.project-pipeline .subheading{margin-top:24px;padding-top:16px;border-top:1px solid var(--border,#e4e7ec)}
+.project-pipeline .subheading h3{margin:0 0 5px;font-size:16px}
+.project-pipeline .history-list{display:grid;gap:10px}
+.project-pipeline .history-list>div{display:flex;flex-direction:column;gap:4px;padding:12px;border-left:3px solid var(--accent,#d97706);background:var(--surface-muted,#f8f9fb);border-radius:0 8px 8px 0}
+.project-pipeline .history-list span{font-size:12px;color:var(--text-muted,#667085)}
+.project-pipeline .error-text{color:#b42318}
+@media(max-width:640px){.project-pipeline .pipeline-grid{grid-template-columns:1fr}.project-pipeline .panel-heading{align-items:flex-start;gap:12px}}
+
+
+/* Pipeline kanban and list views */
+.project-pipeline .pipeline-view-toolbar{margin-top:10px;align-items:center}
+.project-pipeline .kanban-board{display:flex;gap:12px;overflow-x:auto;padding:8px 2px 14px;align-items:flex-start;scroll-snap-type:x proximity}
+.project-pipeline .kanban-column{flex:0 0 270px;max-width:270px;min-height:300px;border:1px solid var(--border,#e4e7ec);border-radius:12px;background:var(--surface-muted,#f7f8fa);scroll-snap-align:start}
+.project-pipeline .kanban-column-header{position:sticky;top:0;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px;border-bottom:1px solid var(--border,#e4e7ec);background:var(--surface-muted,#f7f8fa);border-radius:12px 12px 0 0;font-size:13px}
+.project-pipeline .kanban-column-header span{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;padding:0 6px;border-radius:20px;background:var(--surface,#fff);font-size:12px}
+.project-pipeline .kanban-column-cards{display:grid;gap:10px;padding:10px;min-height:250px}
+.project-pipeline .kanban-drop-placeholder{display:flex;align-items:center;justify-content:center;min-height:72px;border:1px dashed var(--border,#cbd5e1);border-radius:9px;color:var(--text-muted,#667085);font-size:12px}
+.project-pipeline .kanban-column .pipeline-card{width:100%;max-width:100%}
+.project-pipeline .pipeline-card[draggable="true"]{cursor:grab}
+.project-pipeline .pipeline-card[draggable="true"]:active{cursor:grabbing;opacity:.75}
+.project-pipeline .pipeline-list-link{padding:0;border:0;background:transparent;color:var(--accent,#b45309);font-weight:700;text-align:left;cursor:pointer}
+.project-pipeline .pipeline-list td small{display:block;margin-top:4px;color:var(--text-muted,#667085)}
+.project-pipeline .pipeline-list select{max-width:180px;padding:6px;border:1px solid var(--border,#d0d5dd);border-radius:7px;background:var(--surface,#fff);color:inherit}
+.project-pipeline .history-list details{padding:10px 12px;border:1px solid var(--border,#e4e7ec);border-radius:8px;background:var(--surface,#fff)}
+.project-pipeline .history-list details summary{display:flex;justify-content:space-between;gap:12px;cursor:pointer}
+.project-pipeline .history-list pre{overflow:auto;max-height:260px;padding:10px;background:var(--surface-muted,#f8f9fb);border-radius:7px;font-size:11px}
+@media(max-width:640px){.project-pipeline .kanban-column{flex-basis:250px;max-width:250px}.project-pipeline .pipeline-view-toolbar{align-items:flex-start;flex-direction:column}}
+
+
+.project-pipeline .workflow-choice{display:flex;flex-wrap:wrap;gap:18px;align-items:center;padding:9px 0}
+.project-pipeline .workflow-choice label{display:inline-flex;align-items:center;gap:8px;font-weight:600}
+.project-pipeline .workflow-choice input{accent-color:var(--accent,#b45309)}
+.project-pipeline .pipeline-list td{vertical-align:middle}
+
+
+.project-pipeline .company-expense-panel{margin-top:16px}
+.project-pipeline .form-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}

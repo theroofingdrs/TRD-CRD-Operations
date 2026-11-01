@@ -10,7 +10,7 @@ returns table (
   postal_code text, latitude double precision, longitude double precision
 )
 language plpgsql security definer
-set search_path = pg_catalog, public, app_private
+set search_path = ''
 as $$
 begin
   if not app_private.is_crm_owner() then
@@ -32,7 +32,7 @@ create or replace function public.crm_owner_save_property_coordinates(
   p_property_id uuid, p_latitude double precision, p_longitude double precision
 ) returns void
 language plpgsql security definer
-set search_path = pg_catalog, public, app_private
+set search_path = ''
 as $$
 begin
   if not app_private.is_crm_owner() then
