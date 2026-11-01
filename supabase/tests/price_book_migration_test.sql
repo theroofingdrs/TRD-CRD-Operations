@@ -27,6 +27,7 @@ INSERT INTO public.crm_divisions(id) VALUES ('TRD'),('CRD');
 INSERT INTO auth.users(id) VALUES ('00000000-0000-0000-0000-000000000001'),('00000000-0000-0000-0000-000000000002');
 INSERT INTO public.crm_memberships(user_id,division_id,role) VALUES
  ('00000000-0000-0000-0000-000000000001','TRD','owner'),
+ ('00000000-0000-0000-0000-000000000001','CRD','owner'),
  ('00000000-0000-0000-0000-000000000002','CRD','read_only');
 \ir ../migrations/20261031190000_add_editable_price_book.sql
 \ir ../migrations/20261031210000_split_material_and_labor_price_book.sql
