@@ -63,6 +63,39 @@ BEGIN
   IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='TRD' AND category='Decking' AND description='7/16 inch OSB roof decking sheet' AND unit='SHEET') <> 38.75 THEN
     RAISE EXCEPTION 'Entered unit price was not saved precisely';
   END IF;
+  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='TRD' AND category='Roof accessories and flashing' AND description='Exhaust cap through roof 3-4"' AND unit='EA') <> 120.00 THEN
+    RAISE EXCEPTION 'Exhaust cap through roof 3-4" rate was not seeded';
+  END IF;
+  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='TRD' AND category='Roof accessories and flashing' AND description='Exhaust cap through roof 6-8"' AND unit='EA') <> 155.00 THEN
+    RAISE EXCEPTION 'Exhaust cap through roof 6-8" rate was not seeded';
+  END IF;
+  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='TRD' AND category='Roof accessories and flashing' AND description='Furnace vent - rain cap & storm collar 3-4"' AND unit='EA') <> 75.00 THEN
+    RAISE EXCEPTION 'Furnace vent - rain cap & storm collar 3-4" rate was not seeded';
+  END IF;
+  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='TRD' AND category='Roof accessories and flashing' AND description='Furnace vent - rain cap & storm collar 6-8"' AND unit='EA') <> 95.00 THEN
+    RAISE EXCEPTION 'Furnace vent - rain cap & storm collar 6-8" rate was not seeded';
+  END IF;
+  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='TRD' AND category='Residential Roofing' AND description='Gutter apron' AND unit='LF') <> 3.55 THEN
+    RAISE EXCEPTION 'Gutter apron rate was not seeded';
+  END IF;
+  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='TRD' AND category='Roof accessories and flashing' AND description='Roof vent - turtle type' AND unit='EA') <> 75.00 THEN
+    RAISE EXCEPTION 'Roof vent - turtle type rate was not seeded';
+  END IF;
+  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='TRD' AND category='Roof accessories and flashing' AND description='Wind turbine 12"' AND unit='EA') <> 155.00 THEN
+    RAISE EXCEPTION 'Wind turbine 12" rate was not seeded';
+  END IF;
+  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='TRD' AND category='Roof accessories and flashing' AND description='Wind turbine 14"' AND unit='EA') <> 185.00 THEN
+    RAISE EXCEPTION 'Wind turbine 14" rate was not seeded';
+  END IF;
+  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='TRD' AND category='Roof accessories and flashing' AND description='Aluminum headwall flashing' AND unit='LF') <> 7.55 THEN
+    RAISE EXCEPTION 'Aluminum headwall flashing rate was not seeded';
+  END IF;
+  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='TRD' AND category='Roof accessories and flashing' AND description='Aluminum endwall flashing' AND unit='LF') <> 7.75 THEN
+    RAISE EXCEPTION 'Aluminum endwall flashing rate was not seeded';
+  END IF;
+  IF (SELECT unit_price FROM public.crm_price_book WHERE division_id='TRD' AND category='Roof accessories and flashing' AND description='Gable cornice return' AND unit='EA') <> 285.00 THEN
+    RAISE EXCEPTION 'Gable cornice return rate was not seeded';
+  END IF;
 END $body$;
 RESET ROLE;
 SELECT 'price book migration test passed' AS result;
