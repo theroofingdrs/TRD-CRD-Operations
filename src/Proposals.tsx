@@ -89,7 +89,7 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
       if (eligibleReports.length === 1) {
         const report = eligibleReports[0];
         setSelectedRoofrReportId(report.id);
-        const imported = (report.metadata?.extracted_measurements || []).filter(item => typeof item.value === "number" && Number.isFinite(item.value)).map(item => ({ description: item.label + " from Roofr", quantity: String(item.value), unit: item.unit === "FACETS" ? "EA" : item.unit, unit_price: "", line_type: "other" as const, apply_waste: false }));
+        const imported = (report.metadata?.extracted_measurements || []).filter(item => typeof item.value === "number" && Number.isFinite(item.value)).map(item => ({ description: item.label + " from Roofr", quantity: String(item.value), unit: item.unit === "FACETS" ? "EA" : item.unit, material_unit_price: "", labor_unit_price: "", apply_waste: false }));
         setLineItems(current => [...current.filter(item => !item.description.toLowerCase().endsWith(" from roofr")), ...imported]);
         setMessage("The only reviewed Roofr report for this property was automatically selected and its measurements were imported.");
       }
