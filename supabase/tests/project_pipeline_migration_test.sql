@@ -108,9 +108,9 @@ GRANT EXECUTE ON FUNCTION app_private.has_division_resource_access(text,text,boo
 GRANT ALL ON ALL TABLES IN SCHEMA public, storage, auth TO authenticated;
 
 INSERT INTO public.crm_divisions(id) VALUES ('TRD');
-INSERT INTO auth.users(id) VALUES ('00000000-0000-0000-0000-000000000001'), ('00000000-0000-0000-0000-000000000002');
+INSERT INTO auth.users(id) VALUES ('00000000-0000-0000-0000-000000000001'), ('00000000-0000-0000-0000-000000000002'), ('00000000-0000-0000-0000-000000000003');
 INSERT INTO public.crm_memberships(user_id, division_id, role)
-VALUES ('00000000-0000-0000-0000-000000000001', 'TRD', 'owner'), ('00000000-0000-0000-0000-000000000002', 'TRD', 'project_manager');
+VALUES ('00000000-0000-0000-0000-000000000001', 'TRD', 'owner'), ('00000000-0000-0000-0000-000000000002', 'TRD', 'project_manager'), ('00000000-0000-0000-0000-000000000003', 'TRD', 'accounting');
 INSERT INTO public.crm_leads(id,division_id,customer_id,property_id,service_interest,status)
 VALUES ('00000000-0000-0000-0000-000000000030','TRD','00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000020','Roof replacement','new');
 INSERT INTO public.crm_claims(id,division_id,customer_id,property_id,lead_id,claim_number,insurance_carrier,claim_status)
@@ -134,6 +134,21 @@ VALUES
    'Pipeline migration test', 'insurance', 'new_lead', auth.uid())
 RETURNING id AS test_project_id \gset
 INSERT INTO pg_temp.test_ids(project_id) VALUES (:'test_project_id');
+
+-- Accounting can update financial fields without gaining general project-edit permissions.
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000003', false);
+SELECT public.crm_update_project_financials(
+  :'test_project_id', 5000, 5000, 'manual', NULL, NULL, 'Accounting test',
+  0, 0, NULL, 'manual', NULL, NULL, 0
+);
+DO $body$
+BEGIN
+  IF (SELECT contract_amount FROM public.crm_projects WHERE id = (SELECT project_id FROM pg_temp.test_ids)) <> 5000 THEN
+    RAISE EXCEPTION 'Accounting could not update project financial fields';
+  END IF;
+END
+$body$;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
 
 DO $body$
 BEGIN
