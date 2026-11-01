@@ -296,13 +296,16 @@ async function makeProposalPdf(
     y -= 32;
     let forcedBreak = false;
     for (const section of sections) {
-      if (["Customer and property", "Itemized total"].includes(section.heading)) continue;
+      if (section.heading === "Customer and property") continue;
       if (!forcedBreak && /^(Scope of work|Itemized pricing|Roofr measurement report)$/i.test(section.heading)) {
         addPage();
         forcedBreak = true;
       }
-      sectionHeading(section.heading);
-      for (const line of section.body) paragraph(line, 8.8);
+      sectionHeading(section.heading === "Itemized total" ? "Estimate summary" : section.heading);
+      for (const line of section.body) {
+        const isTotal = section.heading === "Itemized total" && /^Total\\b/i.test(line);
+        paragraph(line, isTotal ? 10 : 8.8, isTotal ? navy : ink, 0, isTotal);
+      }
       y -= 7;
     }
     addPage();
