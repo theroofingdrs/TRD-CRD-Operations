@@ -76,6 +76,17 @@ VALUES
   ('CRD','Labor, code and job conditions','3 story high roof','SQ',35.00,true),
   ('CRD','Labor, code and job conditions','No access fee','SQ',25.00,true),
   ('CRD','Labor, code and job conditions','Hand load','SQ',25.00,true),
-  ('CRD','Temporary protection and tarping','Tarping - landscaping protection','SF',0.75,true)
+  ('CRD','Temporary protection and tarping','Tarping - landscaping protection','SF',0.75,true),
+  ('TRD','Roof accessories and flashing','Exhaust cap through roof 3-4"','EA',120.00,true),
+  ('TRD','Roof accessories and flashing','Exhaust cap through roof 6-8"','EA',155.00,true),
+  ('TRD','Roof accessories and flashing','Furnace vent - rain cap & storm collar 3-4"','EA',75.00,true),
+  ('TRD','Roof accessories and flashing','Furnace vent - rain cap & storm collar 6-8"','EA',95.00,true),
+  ('TRD','Residential Roofing','Gutter apron','LF',3.55,true),
+  ('TRD','Roof accessories and flashing','Roof vent - turtle type','EA',75.00,true),
+  ('TRD','Roof accessories and flashing','Wind turbine 12"','EA',155.00,true),
+  ('TRD','Roof accessories and flashing','Wind turbine 14"','EA',185.00,true),
+  ('TRD','Roof accessories and flashing','Aluminum headwall flashing','LF',7.55,true),
+  ('TRD','Roof accessories and flashing','Aluminum endwall flashing','LF',7.75,true),
+  ('TRD','Roof accessories and flashing','Gable cornice return','EA',285.00,true)
 ON CONFLICT (division_id, category, description, unit)
 DO UPDATE SET unit_price = EXCLUDED.unit_price, is_active = true, updated_at = now();
