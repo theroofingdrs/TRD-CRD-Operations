@@ -191,17 +191,15 @@ Deno.serve(async (req: Request) => {
     if (proposalScope) sections.push({ heading: "Scope of work", body: [proposalScope] });
     if (Array.isArray(data.line_items) && data.line_items.length) sections.push({ heading: "Itemized pricing", body: data.line_items.flatMap((item: any) => [
       String(item.description) + " | Qty " + item.quantity + " " + clean(item.unit),
-      "Materials: " + money(item.material_unit_price) + " per unit | Material total: " + money(item.material_amount),
-      "Labor: " + money(item.labor_unit_price) + " per unit | Labor total: " + money(item.labor_amount),
-      "Combined line total: " + money(item.amount)
+      "All-in price (materials and labor): " + money(item.unit_price) + " per " + clean(item.unit),
+      "Billable quantity: " + String(item.billable_quantity ?? item.quantity),
+      "Line total: " + money(item.amount)
     ]) });
     const pricingBreakdown = data.template_data?.pricing_breakdown || {};
     if (data.pricing_mode !== "lump_sum") sections.push({ heading: "Itemized total", body: [
-      "Materials subtotal " + money(pricingBreakdown.material_subtotal),
-      "Labor subtotal " + money(pricingBreakdown.labor_subtotal),
-      "Combined line item subtotal " + money(pricingBreakdown.raw_item_subtotal ?? pricingBreakdown.base_subtotal ?? data.subtotal),
-      ...(Number(pricingBreakdown.complexity_amount || 0) > 0 ? ["Labor complexity adjustment (" + String(pricingBreakdown.complexity_rate_percent) + "%) " + money(pricingBreakdown.complexity_amount)] : []),
-      ...(Number(pricingBreakdown.pitch_amount || 0) > 0 ? ["Labor pitch adjustment (" + String(pricingBreakdown.pitch_rate_percent) + "%) " + money(pricingBreakdown.pitch_amount)] : []),
+      "All-in line item subtotal (materials and labor) " + money(pricingBreakdown.raw_item_subtotal ?? pricingBreakdown.base_subtotal ?? data.subtotal),
+      ...(Number(pricingBreakdown.complexity_amount || 0) > 0 ? ["Complexity adjustment (" + String(pricingBreakdown.complexity_rate_percent) + "%) " + money(pricingBreakdown.complexity_amount)] : []),
+      ...(Number(pricingBreakdown.pitch_amount || 0) > 0 ? ["Pitch adjustment (" + String(pricingBreakdown.pitch_rate_percent) + "%) " + money(pricingBreakdown.pitch_amount)] : []),
       "Subtotal before overhead " + money(pricingBreakdown.base_subtotal ?? data.subtotal),
       ...(pricingBreakdown.overhead_enabled ? ["Overhead (" + String(pricingBreakdown.overhead_rate_percent ?? 10) + "%) " + money(pricingBreakdown.overhead_amount)] : []),
       ...(pricingBreakdown.profit_enabled ? ["Profit (" + String(pricingBreakdown.profit_rate_percent ?? 10) + "% of subtotal plus overhead) " + money(pricingBreakdown.profit_amount)] : []),
