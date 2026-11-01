@@ -631,7 +631,7 @@ CREATE OR REPLACE FUNCTION app_private.crm_update_project_financials(
 )
 RETURNS void
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path TO ''
 AS $function$
 DECLARE
