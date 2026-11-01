@@ -191,6 +191,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     if (expenseResult.error) setError(expenseResult.error.message);
     const expenseByProject: Record<string,{direct:number;recorded:number;materials:number;labor:number;unpaid:number}> = {};
     (expenseResult.data ?? []).forEach((item: {project_id:string;amount:number;category:string;paid_amount:number;payment_status:string}) => {
+      if (item.payment_status === "void") return;
       const amountCents = toCents(item.amount);
       const paidCents = toCents(item.paid_amount);
       const row = expenseByProject[item.project_id] || (expenseByProject[item.project_id] = {direct:0,recorded:0,materials:0,labor:0,unpaid:0});
