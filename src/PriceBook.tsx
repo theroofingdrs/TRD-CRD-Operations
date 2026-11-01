@@ -61,7 +61,7 @@ export default function PriceBook({ division, userId }: { division: DivisionId; 
     <p className="record-count">{rows.length} catalog items shown · {savedRows.filter(r=>r.unit_price!=="").length} items with pricing saved</p>
     <div className="table-wrap"><table><thead><tr><th>Category</th><th>Product / work item</th><th>Unit</th><th>All-in price per unit ($)</th><th>Save</th></tr></thead><tbody>
       {rows.map(row=><tr key={keyOf(row)}><td>{row.category}{row.custom?<span className="subline">Custom item</span>:null}</td><td><strong>{row.description}</strong>{row.item_code?<span className="subline">Code: {row.item_code}</span>:null}</td><td>{row.unit}</td><td><input aria-label={"All-in price per "+row.unit+" for "+row.description} type="number" min="0" step="0.01" placeholder="All-in price" value={prices[keyOf(row)] ?? row.unit_price} onChange={e=>setPrices(current=>({...current,[keyOf(row)]:e.target.value}))} /></td><td><button className="secondary-button compact" type="button" disabled={busyKey===keyOf(row)} onClick={()=>void saveRow(row)}>{busyKey===keyOf(row)?"Saving...":"Save"}</button></td></tr>)}
-      {!rows.length&&<tr><td colSpan={6}>No catalog items match this search.</td></tr>}
+      {!rows.length&&<tr><td colSpan={5}>No catalog items match this search.</td></tr>}
     </tbody></table></div>
   </section>
   <section className="panel"><div className="panel-heading"><div><p className="eyebrow">CUSTOM PRICE BOOK ITEM</p><h2>Add a product, material, or work item</h2></div></div>
