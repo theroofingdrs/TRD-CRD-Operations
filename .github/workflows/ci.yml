@@ -1,4 +1,4 @@
-name: CRM build validation
+name: CRM build and deployment
 
 on:
   push:
@@ -11,6 +11,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: crm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -65,3 +69,50 @@ jobs:
           grep -q '<div id="root"></div>' /tmp/crm-index.html
           curl --fail --silent http://localhost:8080/robots.txt | grep -q 'Disallow: /'
           docker stop trd-crm-ci
+
+  deploy:
+    name: Deploy production to Cloud Run
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    environment: production
+    steps:
+      - name: Check out validated commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify deployment configuration is present
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
+        run: |
+          set -eu
+          test -n "$GCP_PROJECT_ID" || { echo "Missing GitHub repository variable: GCP_PROJECT_ID"; exit 1; }
+          test -n "$GCP_WORKLOAD_IDENTITY_PROVIDER" || { echo "Missing GitHub repository variable: GCP_WORKLOAD_IDENTITY_PROVIDER"; exit 1; }
+          test -n "$GCP_DEPLOY_SERVICE_ACCOUNT" || { echo "Missing GitHub repository variable: GCP_DEPLOY_SERVICE_ACCOUNT"; exit 1; }
+          test -n "$VITE_GOOGLE_MAPS_API_KEY" || { echo "Missing GitHub Actions secret: VITE_GOOGLE_MAPS_API_KEY"; exit 1; }
+      - name: Authenticate to Google Cloud with Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Build and deploy through Cloud Build
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
+        run: |
+          gcloud builds submit \
+            --project "$GCP_PROJECT_ID" \
+            --config cloudbuild.yaml \
+            --substitutions="_VITE_GOOGLE_MAPS_API_KEY=$VITE_GOOGLE_MAPS_API_KEY" \
+            .
