@@ -95,7 +95,6 @@ CREATE TRIGGER crm_projects_recalculate_financial_methods
     commission_rate,
     commission_fixed_amount,
     commission_paid_amount,
-    commission_earned_amount,
     overhead_method,
     overhead_rate,
     overhead_fixed_amount
