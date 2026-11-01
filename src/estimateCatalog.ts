@@ -46,6 +46,7 @@ const groups: Record<string, { unit: string; items: string[] }[]> = {
     { unit: "EA", items: ["Replace roof drain","Install roof drain insert","Replace overflow drain","Install scupper","Replace roof hatch","Replace expansion joint","Replace pitch pocket","Install pipe penetration boot"] }
   ],
   "Temporary protection and tarping": [
+    { unit: "SF", items: ["Tarping - landscaping protection"] },
     { unit: "EA", items: ["Emergency roof tarp","Temporary roof dry in","Tarp swimming pool for roof work","Protect swimming pool during tear off","Tarp and protect flower beds","Protect landscaping and shrubs","Protect patio and deck","Protect windows and doors","Protect HVAC equipment","Protect exterior fixtures","Temporary weather protection","Remove temporary tarp","Install temporary roof covering"] }
   ],
   "Cleanup, debris and safety": [
@@ -60,7 +61,7 @@ const groups: Record<string, { unit: string; items: string[] }[]> = {
     { unit: "EA", items: ["Detach and reset satellite dish","Detach and reset solar panel","Detach and reset gutter","Detach and reset downspout","Detach and reset awning","Detach and reset carport components","Detach and reset fence section","Detach and reset deck accessory","Detach and reset exterior equipment","Remove and replace pipe jack","Replace plumbing vent boot","Replace roof penetration flashing","Seal roof penetration","Replace chimney flashing","Replace skylight","Replace exhaust fan curb","Replace roof mounted equipment curb"] }
   ],
   "Labor, code and job conditions": [
-    { unit: "SQ", items: ["Steep roof labor adjustment","High roof labor adjustment","Two story roof access labor adjustment"] },
+    { unit: "SQ", items: ["Steep roof labor adjustment","High roof labor adjustment","Two story roof access labor adjustment","Steep slope 7/12-9/12","Steep slope 10/12-12/12","Steep slope 12/12-14/12","2 story high roof","3 story high roof","No access fee","Hand load"] },
     { unit: "HR", items: ["Additional setup and protection labor","Additional labor for occupied property","Additional labor for restricted work hours","Additional labor for complex roof access"] },
     { unit: "EA", items: ["Code required upgrade","Permit and inspection allowance","Temporary power or equipment","Roofing labor minimum","Service call minimum","Additional trip charge"] }
   ],
