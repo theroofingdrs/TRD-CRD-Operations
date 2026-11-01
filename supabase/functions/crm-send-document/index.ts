@@ -189,10 +189,17 @@ Deno.serve(async (req: Request) => {
     }
     const proposalScope = clean(data.scope_of_work) || clean(savedTemplate?.default_scope);
     if (proposalScope) sections.push({ heading: "Scope of work", body: [proposalScope] });
-    if (Array.isArray(data.line_items) && data.line_items.length) sections.push({ heading: "Itemized pricing", body: data.line_items.map((item: any) => String(item.description) + " | Qty " + item.quantity + " | " + money(item.unit_price) + " each | " + money(item.amount)) });
+    if (Array.isArray(data.line_items) && data.line_items.length) sections.push({ heading: "Itemized pricing", body: data.line_items.flatMap((item: any) => [
+      String(item.description) + " | Qty " + item.quantity + " " + clean(item.unit),
+      "Materials: " + money(item.material_unit_price) + " per unit | Material total: " + money(item.material_amount),
+      "Labor: " + money(item.labor_unit_price) + " per unit | Labor total: " + money(item.labor_amount),
+      "Combined line total: " + money(item.amount)
+    ]) });
     const pricingBreakdown = data.template_data?.pricing_breakdown || {};
     if (data.pricing_mode !== "lump_sum") sections.push({ heading: "Itemized total", body: [
-      "Line item subtotal " + money(pricingBreakdown.raw_item_subtotal ?? pricingBreakdown.base_subtotal ?? data.subtotal),
+      "Materials subtotal " + money(pricingBreakdown.material_subtotal),
+      "Labor subtotal " + money(pricingBreakdown.labor_subtotal),
+      "Combined line item subtotal " + money(pricingBreakdown.raw_item_subtotal ?? pricingBreakdown.base_subtotal ?? data.subtotal),
       ...(Number(pricingBreakdown.complexity_amount || 0) > 0 ? ["Labor complexity adjustment (" + String(pricingBreakdown.complexity_rate_percent) + "%) " + money(pricingBreakdown.complexity_amount)] : []),
       ...(Number(pricingBreakdown.pitch_amount || 0) > 0 ? ["Labor pitch adjustment (" + String(pricingBreakdown.pitch_rate_percent) + "%) " + money(pricingBreakdown.pitch_amount)] : []),
       "Subtotal before overhead " + money(pricingBreakdown.base_subtotal ?? data.subtotal),
