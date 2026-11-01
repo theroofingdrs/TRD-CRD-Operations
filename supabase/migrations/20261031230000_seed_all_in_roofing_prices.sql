@@ -60,6 +60,22 @@ VALUES
   ('CRD','Repairs and Other','Flashing repair','EA',250.00,true),
   ('CRD','Repairs and Other','Pipe boot replacement','EA',150.00,true),
   ('CRD','Repairs and Other','Emergency service call','EA',199.00,true),
-  ('CRD','Repairs and Other','Roof inspection','EA',99.00,true)
+  ('CRD','Repairs and Other','Roof inspection','EA',99.00,true),
+  ('TRD','Labor, code and job conditions','Steep slope 7/12-9/12','SQ',30.00,true),
+  ('TRD','Labor, code and job conditions','Steep slope 10/12-12/12','SQ',45.00,true),
+  ('TRD','Labor, code and job conditions','Steep slope 12/12-14/12','SQ',65.00,true),
+  ('TRD','Labor, code and job conditions','2 story high roof','SQ',25.00,true),
+  ('TRD','Labor, code and job conditions','3 story high roof','SQ',35.00,true),
+  ('TRD','Labor, code and job conditions','No access fee','SQ',25.00,true),
+  ('TRD','Labor, code and job conditions','Hand load','SQ',25.00,true),
+  ('TRD','Temporary protection and tarping','Tarping - landscaping protection','SF',0.75,true),
+  ('CRD','Labor, code and job conditions','Steep slope 7/12-9/12','SQ',30.00,true),
+  ('CRD','Labor, code and job conditions','Steep slope 10/12-12/12','SQ',45.00,true),
+  ('CRD','Labor, code and job conditions','Steep slope 12/12-14/12','SQ',65.00,true),
+  ('CRD','Labor, code and job conditions','2 story high roof','SQ',25.00,true),
+  ('CRD','Labor, code and job conditions','3 story high roof','SQ',35.00,true),
+  ('CRD','Labor, code and job conditions','No access fee','SQ',25.00,true),
+  ('CRD','Labor, code and job conditions','Hand load','SQ',25.00,true),
+  ('CRD','Temporary protection and tarping','Tarping - landscaping protection','SF',0.75,true),
 ON CONFLICT (division_id, category, description, unit)
 DO UPDATE SET unit_price = EXCLUDED.unit_price, is_active = true, updated_at = now();
