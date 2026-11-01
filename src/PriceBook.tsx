@@ -37,9 +37,9 @@ export default function PriceBook({ division, userId }: { division: DivisionId; 
     return [...base,...custom].filter(r=>r.is_active && (category==="All categories" || r.category===category) && (!search.trim() || (r.description+" "+r.category+" "+r.unit).toLowerCase().includes(search.trim().toLowerCase())));
   },[savedRows,prices,category,search]);
   const categories = useMemo(()=>["All categories",...Array.from(new Set([...estimateCatalogCategories,...savedRows.map(r=>r.category)])).sort()], [savedRows]);
-  async function saveRow(row:CatalogRow) {
+  async function saveRow(row:CatalogRow, override?: {material:string;labor:string}) {
     if(!supabase) return;
-    const value=prices[keyOf(row)] ?? {material:row.material_unit_price,labor:row.labor_unit_price};
+    const value=override ?? prices[keyOf(row)] ?? {material:row.material_unit_price,labor:row.labor_unit_price};
     for(const [label,v] of [["Material",value.material],["Labor",value.labor]] as const) if(v.trim()!=="" && (!Number.isFinite(Number(v)) || Number(v)<0)){setMessage("Enter a valid nonnegative "+label.toLowerCase()+" unit price.");return;}
     setBusyKey(keyOf(row));setMessage("");
     const {error}=await supabase.from("crm_price_book").upsert({
@@ -53,8 +53,7 @@ export default function PriceBook({ division, userId }: { division: DivisionId; 
   async function addCustom() {
     if(!customCategory.trim()||!customDescription.trim()){setMessage("Enter a category and item description.");return;}
     const row:CatalogRow={category:customCategory.trim(),description:customDescription.trim(),unit:customUnit,material_unit_price:customMaterialPrice,labor_unit_price:customLaborPrice,is_active:true,custom:true};
-    setPrices(current=>({...current,[keyOf(row)]:{material:customMaterialPrice,labor:customLaborPrice}}));
-    await saveRow(row);
+    await saveRow(row,{material:customMaterialPrice,labor:customLaborPrice});
     setCustomDescription("");setCustomMaterialPrice("");setCustomLaborPrice("");
   }
   return <div className="content-stack"><section className="panel">
