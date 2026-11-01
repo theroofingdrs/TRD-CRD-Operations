@@ -955,7 +955,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
       {scope !== "combined" && canWrite && <label className="stage-quick-edit">Manager<select value={project.project_manager_id || ""} onChange={e=>void assignProjectManager(project,e.target.value)} disabled={busy}><option value="">Unassigned</option>{teamMembers.filter(member=>member.role!=="read_only").map(member=><option key={member.user_id} value={member.user_id}>{member.display_name}</option>)}</select></label>}
     </article>;
   };
-  const totalExpenses = expenses.reduce((sum, item) => sum + Math.round(Number(item.amount) * 100), 0) / 100;
+  const totalExpenses = fromCents(expenses.filter(item => item.payment_status !== "void").reduce((sum, item) => sum + toCents(item.amount), 0));
   const directExpenseCents = expenses.filter(x => x.payment_status !== "void" && x.category !== "overhead" && x.category !== "sales_commission").reduce((sum, item) => sum + toCents(item.amount), 0);
   const contractValueCents = toCents(selected?.contract_amount || selected?.initial_approved_amount || 0) + toCents(selected?.supplements_approved_amount);
   const grossCents = contractValueCents - directExpenseCents;
