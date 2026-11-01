@@ -121,6 +121,7 @@ VALUES ('00000000-0000-0000-0000-000000000040','TRD','00000000-0000-0000-0000-00
 \ir ../migrations/20261031220100_complete_project_pipeline_stage_gates.sql
 \ir ../migrations/20261031220200_add_project_transaction_attachments.sql
 \ir ../migrations/20261031220300_add_company_expense_ledger.sql
+\ir ../migrations/20261031220400_recalculate_project_financial_methods.sql
 
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
 SET ROLE authenticated;
@@ -387,7 +388,61 @@ BEGIN
   IF (SELECT collected_amount FROM public.crm_projects WHERE id = (SELECT project_id FROM pg_temp.test_ids)) <> 0 THEN
     RAISE EXCEPTION 'Voided payment was not removed from collected total';
   END IF;
-END $$;
+END $;
+
+-- Percentage-based commissions and overhead must follow payments, approved revenue, and actual expenses.
+SELECT public.crm_update_project_financials(
+  :'test_project_id', 12000, 8000, 'collected_percent', 10, NULL, 'Test Salesperson',
+  0, 0, NULL, 'direct_cost_percent', 5, NULL, 0
+);
+DO $body$
+BEGIN
+  IF (SELECT commission_earned_amount FROM public.crm_projects WHERE id = (SELECT project_id FROM pg_temp.test_ids)) <> 0 THEN
+    RAISE EXCEPTION 'Collected-revenue commission should be zero before payment';
+  END IF;
+  IF (SELECT overhead_allocated_amount FROM public.crm_projects WHERE id = (SELECT project_id FROM pg_temp.test_ids)) <> 6.25 THEN
+    RAISE EXCEPTION 'Direct-cost overhead did not calculate from actual project expenses';
+  END IF;
+END
+$body$;
+
+INSERT INTO public.crm_project_transactions
+  (division_id, project_id, transaction_type, amount, transaction_date, reference_number, entered_by)
+VALUES ('TRD', :'test_project_id', 'payment', 1000, CURRENT_DATE, 'PAY-DYNAMIC-TEST', auth.uid());
+DO $body$
+BEGIN
+  IF (SELECT commission_earned_amount FROM public.crm_projects WHERE id = (SELECT project_id FROM pg_temp.test_ids)) <> 100 THEN
+    RAISE EXCEPTION 'Collected-revenue commission did not recalculate after a payment';
+  END IF;
+END
+$body$;
+
+UPDATE public.crm_project_expenses SET amount = 500
+WHERE id = (SELECT expense_id FROM pg_temp.test_ids);
+DO $body$
+BEGIN
+  IF (SELECT overhead_allocated_amount FROM public.crm_projects WHERE id = (SELECT project_id FROM pg_temp.test_ids)) <> 25 THEN
+    RAISE EXCEPTION 'Direct-cost overhead did not recalculate after an expense change';
+  END IF;
+END
+$body$;
+
+UPDATE public.crm_project_transactions
+SET status = 'void', void_reason = 'Dynamic commission test correction'
+WHERE reference_number = 'PAY-DYNAMIC-TEST';
+UPDATE public.crm_project_expenses
+SET payment_status = 'void'
+WHERE id = (SELECT expense_id FROM pg_temp.test_ids);
+DO $body$
+BEGIN
+  IF (SELECT commission_earned_amount FROM public.crm_projects WHERE id = (SELECT project_id FROM pg_temp.test_ids)) <> 0 THEN
+    RAISE EXCEPTION 'Collected-revenue commission did not recalculate after a payment was voided';
+  END IF;
+  IF (SELECT overhead_allocated_amount FROM public.crm_projects WHERE id = (SELECT project_id FROM pg_temp.test_ids)) <> 0 THEN
+    RAISE EXCEPTION 'Direct-cost overhead did not exclude a voided expense';
+  END IF;
+END
+$body$;
 
 -- Exercise purchase order, completion date, supplement approval, balance-close, and audit gates.
 UPDATE public.crm_project_supplements SET approved_amount = 0 WHERE id = (SELECT supplement_id FROM pg_temp.test_ids);
