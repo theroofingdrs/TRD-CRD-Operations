@@ -1,10 +1,20 @@
 export type EstimateCatalogItem = { category: string; description: string; unit: string };
 
 const groups: Record<string, { unit: string; items: string[] }[]> = {
-  "User all-in price list": [
-    { unit: "SQ", items: ["Architectural shingles","Designer shingles","3-tab shingles","Synthetic underlayment","Felt underlayment","Ice and water shield","Shingle tear-off","Second layer tear-off","TPO roofing system","PVC roofing system","EPDM roofing system","Modified bitumen","Metal roof coating","Acrylic roof coating","Silicone roof coating","Polyurethane roof coating","Roof insulation","Cover board","Vapor barrier","Metal panel replacement","Commercial roof tear-off","Commercial roof installation","Shingle repair"] },
-    { unit: "LF", items: ["Ridge cap","Starter shingles","Drip edge","Valley metal","Step flashing","Ridge vent","Fascia replacement","Soffit replacement","Gutter installation","Gutter guards","Flashing installation","Seam repair"] },
-    { unit: "EA", items: ["Pipe boot","Box vent","Satellite dish D&R","Flashing split-boot","Chimney flashing (L)","Chimney flashing (M)","Chimney flashing (XL)","Roof drain replacement","Roof leak repair","Flashing repair","Pipe boot replacement","Emergency service call","Roof inspection","Roof decking replacement"] }
+  "Residential Roofing": [
+    { unit: "SQ", items: ["Architectural shingles","Designer shingles","3-tab shingles","Synthetic underlayment","Felt underlayment","Ice and water shield","Shingle tear-off","Second layer tear-off"] },
+    { unit: "LF", items: ["Ridge cap","Starter shingles","Drip edge","Valley metal","Step flashing","Ridge vent","Fascia replacement","Soffit replacement","Gutter installation","Gutter guards"] },
+    { unit: "EA", items: ["Pipe boot","Box vent","Chimney flashing (L)","Chimney flashing (M)","Chimney flashing (XL)","Satellite dish D&R","Flashing split-boot"] },
+    { unit: "SHEET", items: ["Roof decking replacement"] }
+  ],
+  "Commercial Roofing": [
+    { unit: "SQ", items: ["TPO roofing system","PVC roofing system","EPDM roofing system","Modified bitumen","Metal roof coating","Acrylic roof coating","Silicone roof coating","Polyurethane roof coating","Roof insulation","Cover board","Vapor barrier","Metal panel replacement","Commercial roof tear-off","Commercial roof installation"] },
+    { unit: "LF", items: ["Flashing installation","Seam repair"] },
+    { unit: "EA", items: ["Roof drain replacement"] }
+  ],
+  "Repairs and Other": [
+    { unit: "EA", items: ["Roof leak repair","Flashing repair","Pipe boot replacement","Emergency service call","Roof inspection"] },
+    { unit: "SQ", items: ["Shingle repair"] }
   ],
   "Roofing removal and installation": [
     { unit: "SQ", items: ["Remove composition shingles","Install composition shingles","Remove laminated architectural shingles","Install laminated architectural shingles","Remove three tab shingles","Install three tab shingles","Remove wood shingles","Install wood shingles","Remove wood shakes","Install wood shakes","Remove tile roofing","Install tile roofing","Remove slate roofing","Install slate roofing","Remove metal roofing panels","Install metal roofing panels","Remove built up roofing","Install built up roofing","Install modified bitumen roofing","Install TPO membrane roofing","Install PVC membrane roofing","Install EPDM membrane roofing","Install rolled roofing","Install mineral surfaced roll roofing","Install standing seam metal roofing","Install exposed fastener metal roofing","Install roof coating","Remove roof coating","Install synthetic underlayment","Install felt underlayment","Install ice and water barrier","Install self adhered membrane","Install starter course","Install ridge cap shingles","Install hip and ridge shingles","Install roof insulation","Install tapered roof insulation","Install cover board","Install vapor barrier","Install roof cover board","Install roof membrane overlay"] }
