@@ -792,7 +792,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
   async function saveFinancials(event: FormEvent) {
     event.preventDefault();
     if (!supabase || !selected || !canWriteFinancials) return;
-    const directCents = expenses.filter(x => x.category !== "overhead" && x.category !== "sales_commission").reduce((sum, x) => sum + toCents(x.amount), 0);
+    const directCents = expenses.filter(x => x.payment_status !== "void" && x.category !== "overhead" && x.category !== "sales_commission").reduce((sum, x) => sum + toCents(x.amount), 0);
     const approved = cents(financeApproved);
     const contractAmount = cents(financeContract);
     const collectedCents = toCents(selected.collected_amount);
@@ -956,7 +956,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
     </article>;
   };
   const totalExpenses = expenses.reduce((sum, item) => sum + Math.round(Number(item.amount) * 100), 0) / 100;
-  const directExpenseCents = expenses.filter(x => x.category !== "overhead" && x.category !== "sales_commission").reduce((sum, item) => sum + toCents(item.amount), 0);
+  const directExpenseCents = expenses.filter(x => x.payment_status !== "void" && x.category !== "overhead" && x.category !== "sales_commission").reduce((sum, item) => sum + toCents(item.amount), 0);
   const contractValueCents = toCents(selected?.contract_amount || selected?.initial_approved_amount || 0) + toCents(selected?.supplements_approved_amount);
   const grossCents = contractValueCents - directExpenseCents;
   const netProfitCents = grossCents - toCents(selected?.commission_earned_amount) - toCents(selected?.overhead_allocated_amount);
