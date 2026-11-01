@@ -76,6 +76,6 @@ VALUES
   ('CRD','Labor, code and job conditions','3 story high roof','SQ',35.00,true),
   ('CRD','Labor, code and job conditions','No access fee','SQ',25.00,true),
   ('CRD','Labor, code and job conditions','Hand load','SQ',25.00,true),
-  ('CRD','Temporary protection and tarping','Tarping - landscaping protection','SF',0.75,true),
+  ('CRD','Temporary protection and tarping','Tarping - landscaping protection','SF',0.75,true)
 ON CONFLICT (division_id, category, description, unit)
 DO UPDATE SET unit_price = EXCLUDED.unit_price, is_active = true, updated_at = now();
