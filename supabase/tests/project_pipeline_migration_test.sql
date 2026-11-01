@@ -431,7 +431,7 @@ UPDATE public.crm_project_transactions
 SET status = 'void', void_reason = 'Dynamic commission test correction'
 WHERE reference_number = 'PAY-DYNAMIC-TEST';
 UPDATE public.crm_project_expenses
-SET payment_status = 'void'
+SET payment_status = 'void', void_reason = 'Dynamic financial test correction'
 WHERE id = (SELECT expense_id FROM pg_temp.test_ids);
 DO $body$
 BEGIN
