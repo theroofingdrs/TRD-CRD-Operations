@@ -56,6 +56,7 @@ jobs:
           deno check supabase/functions/crm-invite-employee/index.ts
           deno check supabase/functions/crm-import-website-intake/index.ts
           deno check supabase/functions/crm-public-blog/index.ts
+          deno check --node-modules-dir=auto supabase/functions/crm-send-document/index.ts
       - name: Build Cloud Run container
         run: |
           docker build \

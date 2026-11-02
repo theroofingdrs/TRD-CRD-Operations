@@ -109,6 +109,152 @@ async function makePdf(brand: string, title: string, sections: { heading: string
   });
   return await pdf.save();
 }
+
+async function makeProposalPdf(
+  division: string, brand: string, title: string, customerName: string, address: string,
+  proposalNumber: string, sections: { heading: string; body: string[] }[], totalAmount: unknown
+) {
+  const pdf = await PDFDocument.create();
+  const regular = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const navy = rgb(0.10, 0.13, 0.17);
+  const orange = rgb(0.91, 0.36, 0.16);
+  const ink = rgb(0.15, 0.17, 0.20);
+  const muted = rgb(0.42, 0.45, 0.49);
+  const pale = rgb(0.96, 0.97, 0.97);
+  const isResidential = division === "TRD";
+  const logoUrl = isResidential
+    ? "https://trd-crd-operations-687495157172.us-east1.run.app/brand-assets/the-roof-doctors.png"
+    : "https://trd-crd-operations-687495157172.us-east1.run.app/brand-assets/commercial-roof-doctors.png";
+  let logo: any = null;
+  try {
+    const response = await fetch(logoUrl, { signal: AbortSignal.timeout(8000) });
+    if (response.ok && (response.headers.get("content-type") || "").includes("image/png")) {
+      logo = await pdf.embedPng(new Uint8Array(await response.arrayBuffer()));
+    }
+  } catch { /* Keep a clean branded text fallback if the hosted logo cannot be reached. */ }
+
+  const pages: any[] = [];
+  let page: any;
+  let y = 0;
+  const pageWidth = 612;
+  const margin = 42;
+  const bodySize = isResidential ? 8.6 : 9.2;
+  const lineGap = isResidential ? 10.7 : 12.2;
+  const maxWidth = pageWidth - margin * 2;
+
+  const addPage = () => {
+    page = pdf.addPage([612, 792]);
+    pages.push(page);
+    page.drawRectangle({ x: 0, y: 0, width: 612, height: 792, color: rgb(1, 1, 1) });
+    page.drawRectangle({ x: 0, y: 746, width: 612, height: 46, color: rgb(1, 1, 1) });
+    page.drawRectangle({ x: 0, y: 786, width: 612, height: 6, color: navy });
+    page.drawRectangle({ x: 0, y: 742, width: 612, height: 4, color: orange });
+    if (logo) {
+      const fitted = logo.scaleToFit(178, 36);
+      page.drawImage(logo, { x: margin, y: 751 + (34 - fitted.height) / 2, width: fitted.width, height: fitted.height });
+    } else {
+      page.drawText(brand.toUpperCase(), { x: margin, y: 762, size: 12, font: bold, color: rgb(1, 1, 1), maxWidth: 300 });
+    }
+    page.drawText("PROJECT PROPOSAL", { x: 405, y: 762, size: 8, font: bold, color: navy });
+    page.drawLine({ start: { x: margin, y: 39 }, end: { x: 570, y: 39 }, thickness: 0.6, color: rgb(0.84, 0.85, 0.86) });
+    y = 720;
+  };
+  const wrapText = (value: string, font: any, size: number, width: number) => {
+    const words = value.split(/\s+/);
+    const lines: string[] = [];
+    let line = "";
+    for (const word of words) {
+      const candidate = line ? line + " " + word : word;
+      if (font.widthOfTextAtSize(candidate, size) > width && line) {
+        lines.push(line);
+        line = word;
+      } else line = candidate;
+    }
+    if (line) lines.push(line);
+    return lines;
+  };
+  const ensureSpace = (needed: number) => { if (y - needed < 58) addPage(); };
+  const drawParagraph = (value: string, size = bodySize, color = ink, indent = 0) => {
+    const lines = wrapText(value, regular, size, maxWidth - indent);
+    for (const line of lines) {
+      ensureSpace(lineGap);
+      page.drawText(line, { x: margin + indent, y, size, font: regular, color, maxWidth: maxWidth - indent });
+      y -= lineGap;
+    }
+  };
+  const drawSection = (section: { heading: string; body: string[] }) => {
+    if (!section.body.some(line => clean(line))) return;
+    ensureSpace(isResidential ? 30 : 38);
+    page.drawRectangle({ x: margin, y: y - 4, width: maxWidth, height: isResidential ? 17 : 20, color: pale });
+    page.drawRectangle({ x: margin, y: y - 4, width: 3, height: isResidential ? 17 : 20, color: orange });
+    page.drawText(section.heading.toUpperCase(), { x: margin + 10, y: y + 1, size: isResidential ? 8 : 9, font: bold, color: navy });
+    y -= isResidential ? 21 : 26;
+    for (const raw of section.body) {
+      const value = clean(raw);
+      if (!value) continue;
+      const emphasized = /^(TOTAL|LUMP SUM OPTION)/i.test(value);
+      drawParagraph(value, emphasized ? (isResidential ? 10 : 11) : bodySize, emphasized ? navy : ink, emphasized ? 0 : 2);
+      if (emphasized) y -= 2;
+    }
+    y -= isResidential ? 5 : 9;
+  };
+
+  addPage();
+  page.drawText(title, { x: margin, y: 708, size: isResidential ? 17 : 20, font: bold, color: navy, maxWidth });
+  y = 681;
+  page.drawText("PREPARED FOR", { x: margin, y, size: 7, font: bold, color: muted });
+  page.drawText(customerName || "Customer", { x: margin, y: y - 16, size: 11, font: bold, color: ink, maxWidth: 310 });
+  page.drawText("PROJECT LOCATION", { x: 350, y, size: 7, font: bold, color: muted });
+  const addressLines = wrapText(address || "Property address on file", regular, 9, 218);
+  addressLines.slice(0, 2).forEach((line, index) => page.drawText(line, { x: 350, y: y - 16 - index * 11, size: 9, font: regular, color: ink, maxWidth: 218 }));
+  const metaY = y - 43;
+  page.drawRectangle({ x: margin, y: metaY - 5, width: maxWidth, height: 23, color: pale });
+  page.drawText("PROPOSAL " + (proposalNumber || "DRAFT"), { x: margin + 10, y: metaY + 3, size: 7.5, font: bold, color: navy });
+  page.drawText("PREPARED " + new Date().toLocaleDateString("en-US"), { x: 350, y: metaY + 3, size: 7.5, font: bold, color: navy });
+  y = metaY - 19;
+
+  const filtered = sections.filter(section => !["Customer and property", "Itemized total"].includes(section.heading));
+  let forcedCommercialBreak = false;
+  for (const section of filtered) {
+    if (!isResidential && !forcedCommercialBreak && /^(Scope of work|Itemized pricing|Itemized total)$/i.test(section.heading)) {
+      addPage();
+      forcedCommercialBreak = true;
+    }
+    drawSection(section);
+  }
+  if (isResidential) {
+    const priceText = money(totalAmount);
+    ensureSpace(52);
+    page.drawRectangle({ x: margin, y: y - 28, width: maxWidth, height: 40, color: navy });
+    page.drawText("PROPOSAL TOTAL", { x: margin + 12, y: y - 3, size: 8, font: bold, color: rgb(1, 1, 1) });
+    page.drawText(priceText, { x: 390, y: y - 8, size: 17, font: bold, color: rgb(1, 1, 1) });
+    y -= 48;
+    drawParagraph("Thank you for considering The ROOF Doctors. Please contact our office with any questions about this proposal.", 7.5, muted);
+  } else {
+    addPage();
+    page.drawText("PROPOSAL ACCEPTANCE", { x: margin, y: y - 4, size: 17, font: bold, color: navy });
+    y -= 40;
+    drawParagraph("The undersigned acknowledges the scope, pricing, exclusions, and terms described in this proposal and authorizes the work as presented, subject to the agreed written contract.", 10, ink);
+  }
+  ensureSpace(82);
+  y -= 12;
+  page.drawLine({ start: { x: margin, y }, end: { x: 285, y }, thickness: 0.8, color: muted });
+  page.drawLine({ start: { x: 330, y }, end: { x: 570, y }, thickness: 0.8, color: muted });
+  page.drawText("CUSTOMER / AUTHORIZED SIGNATURE", { x: margin, y: y - 13, size: 6.5, font: bold, color: muted });
+  page.drawText("DATE", { x: 330, y: y - 13, size: 6.5, font: bold, color: muted });
+  y -= 48;
+  page.drawLine({ start: { x: margin, y }, end: { x: 285, y }, thickness: 0.8, color: muted });
+  page.drawLine({ start: { x: 330, y }, end: { x: 570, y }, thickness: 0.8, color: muted });
+  page.drawText("PRINTED NAME / TITLE", { x: margin, y: y - 13, size: 6.5, font: bold, color: muted });
+  page.drawText("COMPANY (IF APPLICABLE)", { x: 330, y: y - 13, size: 6.5, font: bold, color: muted });
+  pages.forEach((currentPage, index) => {
+    currentPage.drawText(brand + "  |  " + title, { x: margin, y: 24, size: 6.5, font: regular, color: muted, maxWidth: 390 });
+    currentPage.drawText("Page " + (index + 1) + " of " + pages.length, { x: 492, y: 24, size: 6.5, font: regular, color: muted });
+  });
+  return await pdf.save();
+}
+
 function toBase64(bytes: Uint8Array): string {
   let binary = "";
   const chunkSize = 0x8000;
@@ -151,6 +297,8 @@ Deno.serve(async (req: Request) => {
   let address = "";
   let title = "";
   let brand = "";
+  let proposalNumber = "";
+  let proposalTotal = 0;
   const sections: { heading: string; body: string[] }[] = [];
   const photoImages: { label: string; caption: string; section: string; bytes: Uint8Array; contentType: string }[] = [];
   const extraAttachments: { filename: string; content: string }[] = [];
@@ -158,9 +306,11 @@ Deno.serve(async (req: Request) => {
     const { data, error } = await client.from("crm_proposals").select("id,division_id,customer_id,property_id,title,proposal_number,pricing_mode,line_items,lump_sum_amount,subtotal,tax_amount,total_amount,scope_of_work,existing_conditions,exclusions,payment_terms,warranty_summary,valid_until,template_data,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
     if (error || !data) return json({ error: "Proposal not found or access denied." }, 404);
     division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
-    recipient = clean(data.crm_customers?.email); customerName = clean(data.crm_customers?.display_name);
-    address = [data.crm_properties?.address_line1,data.crm_properties?.city,data.crm_properties?.state,data.crm_properties?.postal_code].filter(Boolean).join(", ");
+    recipient = clean(data.crm_customers?.[0]?.email); customerName = clean(data.crm_customers?.[0]?.display_name);
+    address = [data.crm_properties?.[0]?.address_line1,data.crm_properties?.[0]?.city,data.crm_properties?.[0]?.state,data.crm_properties?.[0]?.postal_code].filter(Boolean).join(", ");
     title = data.title;
+    proposalNumber = clean(data.proposal_number);
+    proposalTotal = Number(data.total_amount || 0);
     const { data: savedTemplate } = await client.from("crm_proposal_templates")
       .select("company_name,introduction,default_scope,default_exclusions,payment_terms,warranty_summary,footer_text")
       .eq("division_id", division).maybeSingle();
@@ -204,8 +354,8 @@ Deno.serve(async (req: Request) => {
     const { data, error } = await client.from("crm_inspections").select("id,division_id,customer_id,property_id,inspection_type,inspected_at,weather_conditions,overall_condition,summary,recommendations,measurements,roof_sections,claim_information,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
     if (error || !data) return json({ error: "Inspection not found or access denied." }, 404);
     division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
-    recipient = clean(data.crm_customers?.email); customerName = clean(data.crm_customers?.display_name);
-    address = [data.crm_properties?.address_line1,data.crm_properties?.city,data.crm_properties?.state,data.crm_properties?.postal_code].filter(Boolean).join(", ");
+    recipient = clean(data.crm_customers?.[0]?.email); customerName = clean(data.crm_customers?.[0]?.display_name);
+    address = [data.crm_properties?.[0]?.address_line1,data.crm_properties?.[0]?.city,data.crm_properties?.[0]?.state,data.crm_properties?.[0]?.postal_code].filter(Boolean).join(", ");
     title = "Roof inspection report"; brand = division === "TRD" ? "The ROOF Doctors" : "Commercial ROOF Doctors";
     sections.push({ heading: "Customer and property", body: [customerName, address, "Inspection type: " + data.inspection_type, "Inspected: " + (data.inspected_at || "Not recorded"), "Overall condition: " + (data.overall_condition || "Not recorded"), "Weather: " + (data.weather_conditions || "Not recorded")] });
     const measurements = data.measurements || {};
@@ -263,8 +413,8 @@ Deno.serve(async (req: Request) => {
     const { data, error } = await client.from("crm_warranties").select("id,division_id,customer_id,property_id,title,warranty_type,provider_name,roof_system,coverage_summary,exclusions,maintenance_requirements,start_date,end_date,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
     if (error || !data) return json({ error: "Warranty not found or access denied." }, 404);
     division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
-    recipient = clean(data.crm_customers?.email); customerName = clean(data.crm_customers?.display_name);
-    address = [data.crm_properties?.address_line1,data.crm_properties?.city,data.crm_properties?.state,data.crm_properties?.postal_code].filter(Boolean).join(", ");
+    recipient = clean(data.crm_customers?.[0]?.email); customerName = clean(data.crm_customers?.[0]?.display_name);
+    address = [data.crm_properties?.[0]?.address_line1,data.crm_properties?.[0]?.city,data.crm_properties?.[0]?.state,data.crm_properties?.[0]?.postal_code].filter(Boolean).join(", ");
     title = data.title; brand = division === "TRD" ? "The ROOF Doctors" : "Commercial ROOF Doctors";
     sections.push({ heading: "Customer and property", body: [customerName, address] });
     sections.push({ heading: "Warranty details", body: ["Type: " + data.warranty_type, "Provider: " + (data.provider_name || "Not specified"), "Roof system: " + (data.roof_system || "Not specified"), "Start date: " + (data.start_date || "Not specified"), "End date: " + (data.end_date || "Not specified")] });
@@ -274,7 +424,9 @@ Deno.serve(async (req: Request) => {
   }
   if (!recipient || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) return json({ error: "This customer does not have a valid email address on file." }, 400);
   const subject = brand + ": " + (type === "inspection" ? "Roof inspection report" : title);
-  const pdfBytes = await makePdf(brand, title, sections, photoImages);
+  const pdfBytes = type === "proposal"
+    ? await makeProposalPdf(division, brand, title, customerName, address, proposalNumber, sections, proposalTotal)
+    : await makePdf(brand, title, sections, photoImages);
   const base64 = toBase64(new Uint8Array(pdfBytes));
   const fileName = type + "-" + id + ".pdf";
   const { data: delivery, error: deliveryError } = await client.from("crm_document_deliveries").insert({
