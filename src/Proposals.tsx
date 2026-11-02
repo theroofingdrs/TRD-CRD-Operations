@@ -174,6 +174,26 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
       description: item.description.trim(), quantity: Number(item.quantity || 0), billable_quantity: effectiveQuantity(item), unit: item.unit || "EA", unit_price: Number(item.unit_price || 0), apply_waste: Boolean(item.apply_waste), waste_factor_percent_applied: item.apply_waste ? Number(wasteFactorPercent) : 0, category: item.category || null,
       amount: lineAmount(item)
     }));
+    if (pricingMode !== "lump_sum") {
+      const describedItems = lineItems.filter(item => item.description.trim());
+      if (describedItems.length === 0) {
+        setMessage("Add at least one itemized line with a verified all-in unit price, or choose lump sum only.");
+        setBusy(false);
+        return;
+      }
+      const invalidItem = describedItems.some(item =>
+        !item.unit_price.trim() ||
+        !Number.isFinite(Number(item.unit_price)) ||
+        Number(item.unit_price) < 0 ||
+        !Number.isFinite(Number(item.quantity)) ||
+        Number(item.quantity) <= 0
+      );
+      if (invalidItem) {
+        setMessage("Every itemized line needs a valid quantity greater than zero and an all-in unit price. Enter missing rates in the Price book or choose lump sum only.");
+        setBusy(false);
+        return;
+      }
+    }
     const { error } = await supabase.from("crm_proposals").insert({
       division_id: division, customer_id: customerId, property_id: propertyId, title: title.trim(),
       pricing_mode: pricingMode, line_items: savedItems, lump_sum_amount: pricingMode === "itemized" || !lumpSum ? null : calculatedLumpSumTotal,
