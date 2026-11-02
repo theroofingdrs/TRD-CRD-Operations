@@ -87,6 +87,24 @@ CREATE TABLE public.crm_files (
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 ALTER TABLE public.crm_files ENABLE ROW LEVEL SECURITY;
+CREATE TABLE public.crm_properties (
+  id uuid PRIMARY KEY,
+  customer_id uuid NOT NULL
+);
+CREATE TABLE public.crm_customer_divisions (
+  customer_id uuid NOT NULL,
+  division_id text NOT NULL,
+  PRIMARY KEY (customer_id, division_id)
+);
+CREATE TABLE public.crm_inspections (
+  id uuid PRIMARY KEY,
+  division_id text NOT NULL
+);
+CREATE TABLE public.crm_inspection_photos (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  inspection_id uuid NOT NULL,
+  file_id uuid NOT NULL
+);
 
 CREATE OR REPLACE FUNCTION app_private.has_division_resource_access(p_division_id text, p_resource text, p_write boolean DEFAULT false)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO ''
@@ -95,11 +113,30 @@ AS $$
     SELECT 1 FROM public.crm_memberships m
     WHERE m.user_id = (SELECT auth.uid())
       AND m.division_id = p_division_id AND m.active
-      AND (NOT p_write OR m.role IN ('owner','division_admin','office_manager','project_manager'))
+      AND (
+        NOT p_write
+        OR m.role IN ('owner','division_admin','office_manager','project_manager')
+        OR (m.role = 'sales_rep' AND p_resource IN ('customers','contacts','properties','leads','appointments','tasks','activity','files','claims'))
+        OR (m.role = 'field_inspector' AND p_resource IN ('appointments','inspections','inspection_items','activity','files','maintenance'))
+      )
   );
 $$;
 CREATE POLICY crm_files_read ON public.crm_files FOR SELECT TO authenticated
   USING (app_private.has_division_resource_access(division_id, 'files', false));
+CREATE POLICY crm_files_insert ON public.crm_files FOR INSERT TO authenticated
+  WITH CHECK (app_private.has_division_resource_access(division_id, 'files', true)
+    AND (uploaded_by IS NULL OR uploaded_by = (SELECT auth.uid())));
+CREATE POLICY crm_private_files_insert ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'roof-doctors-private'
+    AND app_private.has_division_resource_access((storage.foldername(name))[1], 'files', true));
+CREATE POLICY crm_private_files_read ON storage.objects FOR SELECT TO authenticated
+  USING (bucket_id = 'roof-doctors-private'
+    AND app_private.has_division_resource_access((storage.foldername(name))[1], 'files', false));
+CREATE POLICY crm_private_files_update ON storage.objects FOR UPDATE TO authenticated
+  USING (bucket_id = 'roof-doctors-private'
+    AND app_private.has_division_resource_access((storage.foldername(name))[1], 'files', true))
+  WITH CHECK (bucket_id = 'roof-doctors-private'
+    AND app_private.has_division_resource_access((storage.foldername(name))[1], 'files', true));
 
 GRANT USAGE ON SCHEMA auth, storage, app_private TO authenticated;
 GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated;
@@ -108,9 +145,15 @@ GRANT EXECUTE ON FUNCTION app_private.has_division_resource_access(text,text,boo
 GRANT ALL ON ALL TABLES IN SCHEMA public, storage, auth TO authenticated;
 
 INSERT INTO public.crm_divisions(id) VALUES ('TRD');
-INSERT INTO auth.users(id) VALUES ('00000000-0000-0000-0000-000000000001'), ('00000000-0000-0000-0000-000000000002'), ('00000000-0000-0000-0000-000000000003');
+INSERT INTO auth.users(id) VALUES ('00000000-0000-0000-0000-000000000001'), ('00000000-0000-0000-0000-000000000002'), ('00000000-0000-0000-0000-000000000003'), ('00000000-0000-0000-0000-000000000004'), ('00000000-0000-0000-0000-000000000005');
 INSERT INTO public.crm_memberships(user_id, division_id, role)
-VALUES ('00000000-0000-0000-0000-000000000001', 'TRD', 'owner'), ('00000000-0000-0000-0000-000000000002', 'TRD', 'project_manager'), ('00000000-0000-0000-0000-000000000003', 'TRD', 'accounting');
+VALUES ('00000000-0000-0000-0000-000000000001', 'TRD', 'owner'), ('00000000-0000-0000-0000-000000000002', 'TRD', 'project_manager'), ('00000000-0000-0000-0000-000000000003', 'TRD', 'accounting'), ('00000000-0000-0000-0000-000000000004', 'TRD', 'sales_rep'), ('00000000-0000-0000-0000-000000000005', 'TRD', 'field_inspector');
+INSERT INTO public.crm_properties(id,customer_id)
+VALUES ('00000000-0000-0000-0000-000000000020','00000000-0000-0000-0000-000000000010');
+INSERT INTO public.crm_customer_divisions(customer_id,division_id)
+VALUES ('00000000-0000-0000-0000-000000000010','TRD');
+INSERT INTO public.crm_inspections(id,division_id)
+VALUES ('00000000-0000-0000-0000-000000000050','TRD');
 INSERT INTO public.crm_leads(id,division_id,customer_id,property_id,service_interest,status)
 VALUES ('00000000-0000-0000-0000-000000000030','TRD','00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000020','Roof replacement','new');
 INSERT INTO public.crm_claims(id,division_id,customer_id,property_id,lead_id,claim_number,insurance_carrier,claim_status)
@@ -122,6 +165,7 @@ VALUES ('00000000-0000-0000-0000-000000000040','TRD','00000000-0000-0000-0000-00
 \ir ../migrations/20261031220200_add_project_transaction_attachments.sql
 \ir ../migrations/20261031220300_add_company_expense_ledger.sql
 \ir ../migrations/20261031220400_recalculate_project_financial_methods.sql
+\ir ../migrations/20261102030000_isolate_private_file_access_policies.sql
 
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
 SET ROLE authenticated;
@@ -607,6 +651,74 @@ BEGIN
      OR has_table_privilege('authenticated','public.crm_project_supplement_history','DELETE')
      OR has_table_privilege('authenticated','public.crm_project_transaction_history','DELETE') THEN
     RAISE EXCEPTION 'Authenticated clients can delete audit history rows';
+  END IF;
+END
+$body$;
+
+-- Verify generic file policies cannot bypass the record-specific storage policies.
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000004', false);
+
+INSERT INTO storage.objects(bucket_id, name)
+VALUES ('roof-doctors-private', 'TRD/property-test-file.pdf');
+INSERT INTO public.crm_files
+  (division_id, related_type, related_id, bucket_id, object_path, original_filename, content_type, file_size_bytes, uploaded_by)
+VALUES
+  ('TRD','property','00000000-0000-0000-0000-000000000020','roof-doctors-private','TRD/property-test-file.pdf','property-test-file.pdf','application/pdf',100,auth.uid());
+
+DO $body$
+BEGIN
+  IF (SELECT count(*) FROM storage.objects WHERE name='TRD/property-test-file.pdf') <> 1 THEN
+    RAISE EXCEPTION 'Sales rep could not read a registered property file';
+  END IF;
+  BEGIN
+    INSERT INTO storage.objects(bucket_id, name)
+    VALUES ('roof-doctors-private', 'TRD/company-expenses/unauthorized.pdf');
+    RAISE EXCEPTION 'Sales rep bypassed financial receipt upload restrictions';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+  BEGIN
+    INSERT INTO storage.objects(bucket_id, name)
+    VALUES ('roof-doctors-private', 'TRD/00000000-0000-0000-0000-000000000060/unauthorized.pdf');
+    RAISE EXCEPTION 'Sales rep bypassed project attachment upload restrictions';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+  BEGIN
+    INSERT INTO public.crm_files
+      (division_id, related_type, related_id, bucket_id, object_path, original_filename, uploaded_by)
+    VALUES ('TRD','company_expense','00000000-0000-0000-0000-000000000099','roof-doctors-private',
+      'TRD/company-expenses/unauthorized.pdf','unauthorized.pdf',auth.uid());
+    RAISE EXCEPTION 'Sales rep inserted restricted company-expense file metadata';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+END
+$body$;
+
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000005', false);
+INSERT INTO storage.objects(bucket_id, name)
+VALUES ('roof-doctors-private', 'TRD/inspections/00000000-0000-0000-0000-000000000050/inspection-photo.jpg');
+INSERT INTO public.crm_files
+  (division_id, related_type, related_id, bucket_id, object_path, original_filename, content_type, file_size_bytes, uploaded_by)
+VALUES
+  ('TRD','inspection','00000000-0000-0000-0000-000000000050','roof-doctors-private',
+   'TRD/inspections/00000000-0000-0000-0000-000000000050/inspection-photo.jpg','inspection-photo.jpg','image/jpeg',100,auth.uid())
+RETURNING id AS inspection_file_id \gset
+INSERT INTO public.crm_inspection_photos(inspection_id,file_id)
+VALUES ('00000000-0000-0000-0000-000000000050', :'inspection_file_id');
+
+DO $body$
+BEGIN
+  IF (SELECT count(*) FROM storage.objects
+      WHERE name='TRD/inspections/00000000-0000-0000-0000-000000000050/inspection-photo.jpg') <> 1 THEN
+    RAISE EXCEPTION 'Field inspector could not read a registered inspection photo';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='storage' AND tablename='objects' AND policyname='crm_private_files_read') THEN
+    RAISE EXCEPTION 'Broad division-wide private file read policy still exists';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='crm_files' AND policyname='crm_files_insert') THEN
+    RAISE EXCEPTION 'Broad CRM file metadata insert policy still exists';
   END IF;
 END
 $body$;
