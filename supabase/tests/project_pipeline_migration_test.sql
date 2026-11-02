@@ -21,7 +21,13 @@ CREATE TABLE storage.objects (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), buc
 ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 CREATE OR REPLACE FUNCTION storage.foldername(name text)
 RETURNS text[] LANGUAGE sql IMMUTABLE
-AS $$ SELECT (string_to_array(name, '/'))[1:3] $$;
+AS $
+  SELECT CASE
+    WHEN array_length(parts, 1) > 1 THEN parts[1:array_length(parts, 1) - 1]
+    ELSE ARRAY[]::text[]
+  END
+  FROM (SELECT string_to_array(name, '/') AS parts) AS path_parts
+$;
 
 CREATE TABLE public.crm_divisions (id text PRIMARY KEY);
 CREATE TABLE public.crm_memberships (
