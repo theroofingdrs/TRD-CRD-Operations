@@ -29,8 +29,8 @@ INSERT INTO public.crm_memberships(user_id,division_id,role) VALUES
  ('00000000-0000-0000-0000-000000000001','TRD','owner'),
  ('00000000-0000-0000-0000-000000000001','CRD','owner'),
  ('00000000-0000-0000-0000-000000000002','CRD','read_only');
-\ir ../migrations/20261031190000_add_editable_price_book.sql
-\ir ../migrations/20261031230000_seed_all_in_roofing_prices.sql
+\ir ../migrations/20261102020000_add_editable_price_book.sql
+\ir ../migrations/20261102020100_seed_all_in_roofing_prices.sql
 SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
 SET ROLE authenticated;
 INSERT INTO public.crm_price_book(division_id,category,description,unit,unit_price,updated_by)
