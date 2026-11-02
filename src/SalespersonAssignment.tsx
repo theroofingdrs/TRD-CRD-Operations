@@ -20,6 +20,7 @@ export default function SalespersonAssignment({ entityType, entityId, division, 
   const [historyNames, setHistoryNames] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [assignedName, setAssignedName] = useState("");
 
   const load = useCallback(async () => {
     if (!supabase || !isOwner) return;
@@ -55,6 +56,21 @@ export default function SalespersonAssignment({ entityType, entityId, division, 
 
   useEffect(() => { void load(); void loadHistory(); }, [load, loadHistory]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAssignedName() {
+      if (!supabase || !assignedTo || isOwner) { setAssignedName(""); return; }
+      const { data, error } = await supabase.rpc("crm_assigned_salesperson_name", {
+        p_entity_type: entityType,
+        p_entity_id: entityId
+      });
+      if (cancelled) return;
+      setAssignedName(!error && typeof data === "string" ? data : "Assigned");
+    }
+    void loadAssignedName();
+    return () => { cancelled = true; };
+  }, [assignedTo, entityId, entityType, isOwner]);
+
   async function assign(value: string) {
     if (!supabase || !isOwner) return;
     setBusy(true); setMessage("");
@@ -65,7 +81,7 @@ export default function SalespersonAssignment({ entityType, entityId, division, 
     setBusy(false);
   }
 
-  if (!isOwner) return <span className="muted">{people.find(p => p.user_id === assignedTo)?.display_name || (assignedTo ? "Assigned" : "Unassigned")}</span>;
+  if (!isOwner) return <span className="muted">{assignedTo ? (assignedName || "Assigned") : "Unassigned"}</span>;
 
   return <div className={compact ? "assignment-control compact" : "assignment-control"}>
     <select className="table-select" aria-label="Assigned salesperson" value={assignedTo || ""} disabled={busy}
