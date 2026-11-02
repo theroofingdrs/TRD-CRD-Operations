@@ -61,5 +61,4 @@ VALUES
   ('CRD','Repairs and Other','Pipe boot replacement','EA',150.00,true),
   ('CRD','Repairs and Other','Emergency service call','EA',199.00,true),
   ('CRD','Repairs and Other','Roof inspection','EA',99.00,true)
-ON CONFLICT (division_id, category, description, unit)
-DO UPDATE SET unit_price = EXCLUDED.unit_price, is_active = true, updated_at = now();
+;
