@@ -1,4 +1,4 @@
-name: CRM build validation
+name: CRM build and deployment
 
 on:
   push:
@@ -8,9 +8,19 @@ on:
     branches:
       - '**'
   workflow_dispatch:
+    inputs:
+      approve_production_deploy:
+        description: "I approve deploying this validated commit to production Cloud Run"
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+
+concurrency:
+  group: crm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -28,12 +38,24 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Type check and production build
         run: npm run build
+      - name: Test project pipeline migration in disposable PostgreSQL
+        run: |
+          docker run --detach --rm --name project-pipeline-test-db --publish 5433:5432 --volume "$GITHUB_WORKSPACE:/workspace:ro" --env POSTGRES_PASSWORD=ci-test postgres:17
+          trap 'docker stop project-pipeline-test-db >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            if docker exec project-pipeline-test-db pg_isready --host 127.0.0.1 --username postgres --dbname postgres; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec --interactive --workdir /workspace/supabase/tests project-pipeline-test-db psql --host 127.0.0.1 --username postgres --dbname postgres --file /workspace/supabase/tests/project_pipeline_migration_test.sql
       - name: Set up Deno
         uses: denoland/setup-deno@v2
       - name: Type check Supabase Edge Functions
         run: |
           deno check --node-modules-dir=auto supabase/functions/crm-invite-employee/index.ts
           deno check --node-modules-dir=auto supabase/functions/crm-import-website-intake/index.ts
+          deno check --node-modules-dir=auto supabase/functions/crm-public-blog/index.ts
           deno check --node-modules-dir=auto supabase/functions/crm-send-document/index.ts
       - name: Build Cloud Run container
         run: |
@@ -54,3 +76,51 @@ jobs:
           grep -q '<div id="root"></div>' /tmp/crm-index.html
           curl --fail --silent http://localhost:8080/robots.txt | grep -q 'Disallow: /'
           docker stop trd-crm-ci
+
+  deploy:
+    name: Deploy production to Cloud Run
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.approve_production_deploy == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    environment: production
+    steps:
+      - name: Check out validated commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify deployment configuration is present
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
+        run: |
+          set -eu
+          test -n "$GCP_PROJECT_ID" || { echo "Missing GitHub repository variable: GCP_PROJECT_ID"; exit 1; }
+          test -n "$GCP_WORKLOAD_IDENTITY_PROVIDER" || { echo "Missing GitHub repository variable: GCP_WORKLOAD_IDENTITY_PROVIDER"; exit 1; }
+          test -n "$GCP_DEPLOY_SERVICE_ACCOUNT" || { echo "Missing GitHub repository variable: GCP_DEPLOY_SERVICE_ACCOUNT"; exit 1; }
+          test -n "$VITE_GOOGLE_MAPS_API_KEY" || { echo "Missing GitHub Actions secret: VITE_GOOGLE_MAPS_API_KEY"; exit 1; }
+      - name: Authenticate to Google Cloud with Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Build and deploy through Cloud Build
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
+        run: |
+          GCP_PROJECT_ID="$(printf '%s' "$GCP_PROJECT_ID" | tr -d '\r\n')"
+          gcloud builds submit \
+            --project "$GCP_PROJECT_ID" \
+            --config cloudbuild.yaml \
+            --substitutions="_VITE_GOOGLE_MAPS_API_KEY=$VITE_GOOGLE_MAPS_API_KEY" \
+            .
