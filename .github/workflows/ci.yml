@@ -49,6 +49,17 @@ jobs:
             sleep 1
           done
           docker exec --interactive --workdir /workspace/supabase/tests project-pipeline-test-db psql --host 127.0.0.1 --username postgres --dbname postgres --file /workspace/supabase/tests/project_pipeline_migration_test.sql
+      - name: Test editable price book migration in disposable PostgreSQL
+        run: |
+          docker run --detach --rm --name price-book-test-db --publish 5434:5432 --volume "$GITHUB_WORKSPACE:/workspace:ro" --env POSTGRES_PASSWORD=ci-test postgres:17
+          trap 'docker stop price-book-test-db >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            if docker exec price-book-test-db pg_isready --host 127.0.0.1 --username postgres --dbname postgres; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec --interactive --workdir /workspace/supabase/tests price-book-test-db psql --host 127.0.0.1 --username postgres --dbname postgres --file /workspace/supabase/tests/price_book_migration_test.sql
       - name: Set up Deno
         uses: denoland/setup-deno@v2
       - name: Type check Supabase Edge Functions
@@ -56,6 +67,7 @@ jobs:
           deno check supabase/functions/crm-invite-employee/index.ts
           deno check supabase/functions/crm-import-website-intake/index.ts
           deno check supabase/functions/crm-public-blog/index.ts
+          deno check --node-modules-dir=auto supabase/functions/crm-send-document/index.ts
       - name: Build Cloud Run container
         run: |
           docker build \
