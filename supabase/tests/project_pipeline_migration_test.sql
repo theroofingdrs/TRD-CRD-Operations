@@ -303,6 +303,10 @@ UPDATE pg_temp.test_ids SET transaction_id = :'test_transaction_id';
 
 INSERT INTO storage.objects(bucket_id,name)
 VALUES ('roof-doctors-private','TRD/' || :'test_project_id' || '/payment-receipt-test.pdf');
+SELECT auth.uid() AS debug_user, app_private.has_division_financial_access('TRD', true) AS debug_financial_write;
+SELECT policyname, cmd, with_check FROM pg_policies
+WHERE schemaname='public' AND tablename='crm_files'
+ORDER BY policyname;
 INSERT INTO public.crm_files
   (division_id,related_type,related_id,bucket_id,object_path,original_filename,content_type,file_size_bytes,uploaded_by,metadata)
 VALUES
