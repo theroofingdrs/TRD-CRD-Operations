@@ -8,6 +8,12 @@ on:
     branches:
       - '**'
   workflow_dispatch:
+    inputs:
+      approve_production_deploy:
+        description: "I approve deploying this validated commit to production Cloud Run"
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -73,7 +79,7 @@ jobs:
   deploy:
     name: Deploy production to Cloud Run
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.approve_production_deploy == true
     runs-on: ubuntu-latest
     permissions:
       contents: read
