@@ -4,7 +4,7 @@
 
 ## Decision
 
-Use a **GitHub Actions controller in this repository** as the first implementation, with a GitHub App installed only on the two approved repositories. Keep the first release manual-dispatch only. Add a schedule only after a separate cost and operating-limit approval.
+Use a **GitHub Actions controller in this repository** as the first implementation, with a GitHub App installed only on the two approved repositories. Keep the first release manual-dispatch only. The approved design target is a **$50 USD hard monthly cap on model/API spend**, with a lower per-run cap and fail-closed enforcement. Add a schedule only after metering and enforcement are tested.
 
 Do not start with Cloud Run. A scheduled, bounded GitHub Actions job is sufficient for the first agent loop and avoids introducing a continuously running service, queue infrastructure, or new cloud resources. Revisit Cloud Run Jobs only if measured workflow limits or queue requirements justify it.
 
@@ -45,7 +45,7 @@ Do not put secrets, customer information, lead data, or private production recor
 
 Create a dedicated GitHub App installed only on the two repositories. Grant only the permissions needed to read contents/issues/PRs/actions and to create task branches, commits, PRs, and tracker comments. Do not use a broad personal access token.
 
-The runner will need a model-provider API credential stored as a GitHub Actions secret. Do not request or create that credential until the provider, model, maximum tokens, per-run cap, monthly cap, and notification thresholds are approved.
+The runner will need a model-provider API credential stored as a GitHub Actions secret. The user has approved a $50 USD monthly model/API spend ceiling. The provider and model, maximum tokens, per-run cap, and notification thresholds still require selection and approval before a credential is requested or created.
 
 Never pass credentials into the model prompt. Redact secrets from logs, avoid printing environment variables, and keep all secret-bearing actions outside model-controlled shell commands.
 
@@ -63,12 +63,13 @@ Never pass credentials into the model prompt. Redact secrets from logs, avoid pr
 
 ## Cost and run limits
 
-Initial mode: **manual only**. No schedule and no Cloud Run resource.
+Initial mode: **manual only**. No schedule and no Cloud Run resource. Approved model/API budget ceiling: **$50 USD per calendar month**; this is a cap, not a commitment to spend.
 
 Before enabling autonomous scheduled runs, set and enforce:
+- a hard **$50 USD monthly model/API spend ceiling** and a lower per-run spend cap
 - maximum runs per day and a concurrency limit of one
 - maximum model input/output tokens per run
-- maximum model spend per run and per calendar month
+- reliable usage metering; halt before the cap if usage cannot be measured
 - hard stop when usage or billing data cannot be measured
 - bounded runner duration and artifact retention
 - failure notifications and a kill switch
@@ -78,7 +79,7 @@ The workflow must fail closed if cost limits, credentials, repository allowlists
 ## Rollout plan
 
 ### Phase 0 — Design and review
-- Review this decision and approve the provider and spending caps.
+- Provider/model selection and per-run token/spend limits remain to be approved; the $50 USD monthly model/API ceiling is approved.
 - Confirm GitHub App ownership and installation on exactly the two repositories.
 - Confirm the state-branch protection and retention policy.
 
