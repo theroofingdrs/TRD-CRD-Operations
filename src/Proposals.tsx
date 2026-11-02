@@ -5,15 +5,18 @@ import { estimateCatalog, estimateCatalogCategories } from "./estimateCatalog";
 type DivisionId = "TRD" | "CRD";
 type Customer = { id: string; display_name: string; email: string | null };
 type Property = { id: string; customer_id: string; address_line1: string; city: string; state: string };
-type LineItem = { description: string; quantity: string; unit: string; unit_price: string };
+type LineItem = { description: string; quantity: string; unit: string; unit_price: string; category?: string; apply_waste?: boolean };
 type RoofrMeasurement = { label: string; value: number; unit: string };
 type RoofrReport = { id: string; original_filename: string; created_at: string; metadata: { document_type?: string; extraction_status?: string; extracted_measurements?: RoofrMeasurement[]; predominant_pitch?: string | null; pitch_distribution?: { pitch: string; area_sqft: number; squares: number }[] } | null };
 type Proposal = { id: string; title: string; status: string; pricing_mode: string; total_amount: number; lump_sum_amount: number | null; created_at: string; customer_id: string; property_id: string };
+type PriceBookEntry = { category: string; description: string; unit: string; unit_price: number | null; is_active: boolean };
+const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 export default function Proposals({ division, userId, canWrite, initialCustomerId = "", initialPropertyId = "", onLaunchConsumed }: { division: DivisionId; userId: string; canWrite: boolean; initialCustomerId?: string; initialPropertyId?: string; onLaunchConsumed?: () => void }) {
   const [rows, setRows] = useState<Proposal[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
+  const [priceBookRows, setPriceBookRows] = useState<PriceBookEntry[]>([]);
   const [customerId, setCustomerId] = useState(initialCustomerId);
   const [propertyId, setPropertyId] = useState(initialPropertyId);
   const [roofrReports, setRoofrReports] = useState<RoofrReport[]>([]);
@@ -23,6 +26,8 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
   const [lumpSum, setLumpSum] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([{ description: "", quantity: "1", unit: "EA", unit_price: "" }]);
   const [taxRate, setTaxRate] = useState("0");
+  const [overheadEnabled, setOverheadEnabled] = useState(true);
+  const [profitEnabled, setProfitEnabled] = useState(true);
   const [catalogCategory, setCatalogCategory] = useState(estimateCatalogCategories[0] || "Roofing systems and accessories");
   const [catalogSelection, setCatalogSelection] = useState("");
   const [catalogSearch, setCatalogSearch] = useState("");
@@ -34,17 +39,20 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
   const [validUntil, setValidUntil] = useState("");
   const [wasteFactorPercent, setWasteFactorPercent] = useState("10");
   const [complexityFactor, setComplexityFactor] = useState("standard");
+  const [complexityRate, setComplexityRate] = useState("0");
   const [pitchFactor, setPitchFactor] = useState("standard");
+  const [pitchRate, setPitchRate] = useState("0");
   const [showForm, setShowForm] = useState(Boolean(initialPropertyId));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [sendingId, setSendingId] = useState("");
   const load = useCallback(async () => {
     if (!supabase) return;
-    const [proposalResult, customerResult, templateResult] = await Promise.all([
+    const [proposalResult, customerResult, templateResult, priceBookResult] = await Promise.all([
       supabase.from("crm_proposals").select("id,title,status,pricing_mode,total_amount,lump_sum_amount,created_at,customer_id,property_id").eq("division_id", division).order("created_at", { ascending: false }),
       supabase.from("crm_customer_divisions").select("customer_id,crm_customers(id,display_name,email)").eq("division_id", division),
-      supabase.from("crm_proposal_templates").select("default_scope,default_exclusions,payment_terms,warranty_summary").eq("division_id", division).maybeSingle()
+      supabase.from("crm_proposal_templates").select("default_scope,default_exclusions,payment_terms,warranty_summary").eq("division_id", division).maybeSingle(),
+      supabase.from("crm_price_book").select("category,description,unit,unit_price,is_active").eq("division_id",division).eq("is_active",true)
     ]);
     if (templateResult.data) {
       setScope(templateResult.data.default_scope || "");
@@ -53,6 +61,8 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
       setWarrantySummary(templateResult.data.warranty_summary || "");
     }
     if (proposalResult.error) setMessage(proposalResult.error.message);
+    if (priceBookResult.error) setMessage(priceBookResult.error.message);
+    setPriceBookRows((priceBookResult.data || []) as PriceBookEntry[]);
     setRows((proposalResult.data ?? []) as Proposal[]);
     const customerRows = (customerResult.data ?? []).flatMap((item: any) => item.crm_customers ? [item.crm_customers] : []);
     setCustomers(customerRows as Customer[]);
@@ -79,7 +89,7 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
       if (eligibleReports.length === 1) {
         const report = eligibleReports[0];
         setSelectedRoofrReportId(report.id);
-        const imported = (report.metadata?.extracted_measurements || []).filter(item => typeof item.value === "number" && Number.isFinite(item.value)).map(item => ({ description: item.label + " from Roofr", quantity: String(item.value), unit: item.unit === "FACETS" ? "EA" : item.unit, unit_price: "" }));
+        const imported = (report.metadata?.extracted_measurements || []).filter(item => typeof item.value === "number" && Number.isFinite(item.value)).map(item => ({ description: item.label + " from Roofr", quantity: String(item.value), unit: item.unit === "FACETS" ? "EA" : item.unit, unit_price: "", apply_waste: false }));
         setLineItems(current => [...current.filter(item => !item.description.toLowerCase().endsWith(" from roofr")), ...imported]);
         setMessage("The only reviewed Roofr report for this property was automatically selected and its measurements were imported.");
       }
@@ -90,12 +100,43 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
   const customerProperties = properties.filter((item) => item.customer_id === customerId);
   const selectedRoofrReport = roofrReports.find(report => report.id === selectedRoofrReportId);
   const roofSquares = selectedRoofrReport?.metadata?.extracted_measurements?.find(item => item.label.toLowerCase().includes("roof squares"))?.value;
+  const roofAreaSqft = selectedRoofrReport?.metadata?.extracted_measurements?.find(item => item.label.toLowerCase().includes("roof area"))?.value;
   const adjustedRoofSquares = typeof roofSquares === "number" ? roofSquares * (1 + Number(wasteFactorPercent) / 100) : null;
-  const catalogMatches = estimateCatalog.filter(item => item.category === catalogCategory && (!catalogSearch.trim() || item.description.toLowerCase().includes(catalogSearch.trim().toLowerCase())));
-  const itemSubtotal = lineItems.reduce((sum, item) => sum + Math.max(0, Number(item.quantity || 0)) * Math.max(0, Number(item.unit_price || 0)), 0);
-  const subtotal = pricingMode === "lump_sum" ? Number(lumpSum || 0) : itemSubtotal;
-  const taxAmount = subtotal * Math.max(0, Number(taxRate || 0)) / 100;
-  const total = subtotal + taxAmount;
+  function effectiveQuantity(item: LineItem) { const base = Math.max(0, Number(item.quantity || 0)); return roundMoney(base * (item.apply_waste && (item.unit === "SQ" || item.unit === "SF") ? 1 + Number(wasteFactorPercent) / 100 : 1)); }
+  function lineAmount(item: LineItem) { return roundMoney(effectiveQuantity(item) * Math.max(0, Number(item.unit_price || 0))); }
+  function roofrQuantityForItem(description: string, unit: string) {
+    const measurements = selectedRoofrReport?.metadata?.extracted_measurements || [];
+    if (unit === "SQ" && typeof roofSquares === "number") return String(roofSquares);
+    if (unit === "SF" && typeof roofAreaSqft === "number") return String(roofAreaSqft);
+    if (unit === "LF") {
+      const d = description.toLowerCase();
+      const keys = d.includes("drip edge") ? ["eave","rake"] : d.includes("gutter") ? ["eave"] : ["eave","rake","ridge","hip","valley","perimeter"].filter(k=>d.includes(k));
+      const matches = measurements.filter(m=>keys.some(k=>m.label.toLowerCase().includes(k)) && (m.unit.toUpperCase()==="LF" || m.unit.toLowerCase().includes("linear")));
+      if(matches.length) return String(matches.reduce((sum,m)=>sum+m.value,0));
+    }
+    return "1";
+  }
+  const allCatalogItems = [...estimateCatalog,...priceBookRows.filter(row=>!estimateCatalog.some(item=>item.category===row.category&&item.description===row.description&&item.unit===row.unit)).map(row=>({category:row.category,description:row.description,unit:row.unit}))];
+  const catalogCategories = Array.from(new Set([...estimateCatalogCategories,...priceBookRows.map(row=>row.category)])).sort();
+  const catalogMatches = allCatalogItems.filter(item => item.category === catalogCategory && (!catalogSearch.trim() || item.description.toLowerCase().includes(catalogSearch.trim().toLowerCase())));
+  const rawItemSubtotal = roundMoney(lineItems.reduce((sum,item)=>sum+lineAmount(item),0));
+  const complexityAmount = pricingMode === "lump_sum" ? 0 : roundMoney(rawItemSubtotal * Math.max(0,Number(complexityRate||0)) / 100);
+  const pitchAmount = pricingMode === "lump_sum" ? 0 : roundMoney(rawItemSubtotal * Math.max(0,Number(pitchRate||0)) / 100);
+  const itemSubtotal = roundMoney(rawItemSubtotal + complexityAmount + pitchAmount);
+  const baseSubtotal = roundMoney(Math.max(0, pricingMode === "lump_sum" ? Number(lumpSum || 0) : itemSubtotal));
+  const overheadAmount = overheadEnabled ? roundMoney(baseSubtotal * 0.10) : 0;
+  const profitBase = roundMoney(baseSubtotal + overheadAmount);
+  const profitAmount = profitEnabled ? roundMoney(profitBase * 0.10) : 0;
+  const subtotal = roundMoney(baseSubtotal + overheadAmount + profitAmount);
+  const taxRateValue = Math.max(0, Number(taxRate || 0));
+  const taxAmount = roundMoney(subtotal * taxRateValue / 100);
+  const total = roundMoney(subtotal + taxAmount);
+  const lumpSumBase = roundMoney(Math.max(0, Number(lumpSum || 0)));
+  const lumpSumOverhead = overheadEnabled ? roundMoney(lumpSumBase * 0.10) : 0;
+  const lumpSumProfit = profitEnabled ? roundMoney((lumpSumBase + lumpSumOverhead) * 0.10) : 0;
+  const lumpSumSubtotal = roundMoney(lumpSumBase + lumpSumOverhead + lumpSumProfit);
+  const lumpSumTax = roundMoney(lumpSumSubtotal * taxRateValue / 100);
+  const calculatedLumpSumTotal = roundMoney(lumpSumSubtotal + lumpSumTax);
   function updateLine(index: number, patch: Partial<LineItem>) {
     setLineItems(current => current.map((item, i) => i === index ? { ...item, ...patch } : item));
   }
@@ -104,15 +145,18 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
     setSelectedRoofrReportId(report.id);
     if (!measurements.length) return;
     setLineItems(current => {
-      const imported = measurements.filter(item => typeof item.value === "number" && Number.isFinite(item.value)).map(item => ({ description: item.label + " from Roofr", quantity: String(item.value), unit: item.unit === "FACETS" ? "EA" : item.unit, unit_price: "" }));
+      const imported = measurements.filter(item => typeof item.value === "number" && Number.isFinite(item.value)).map(item => ({ description: item.label + " from Roofr", quantity: String(item.value), unit: item.unit === "FACETS" ? "EA" : item.unit, unit_price: "", apply_waste: false }));
       return [...current.filter(item => item.description.trim() && !item.description.toLowerCase().endsWith(" from roofr")), ...imported];
     });
     setMessage("Reviewed Roofr quantities added as new estimate lines. Existing line items were left unchanged.");
   }
   function addCatalogItem() {
-    const selected = estimateCatalog.find(item => item.description === catalogSelection && item.category === catalogCategory);
+    const selected = allCatalogItems.find(item => item.description === catalogSelection && item.category === catalogCategory);
     if (!selected) return;
-    setLineItems(current => [...current, { description: selected.description, quantity: "1", unit: selected.unit, unit_price: "" }]);
+    const savedPrice = priceBookRows.find(row=>row.category===selected.category&&row.description===selected.description&&row.unit===selected.unit);
+    const quantity = roofrQuantityForItem(selected.description,selected.unit);
+    const applyWaste = selected.unit === "SQ" || selected.unit === "SF";
+    setLineItems(current => [...current, { description: selected.description, quantity, unit: selected.unit, unit_price: savedPrice?.unit_price == null ? "" : String(savedPrice.unit_price), category:selected.category, apply_waste:applyWaste }]);
     setCatalogSelection("");
   }
   async function sendPdf(id: string) {
@@ -127,22 +171,42 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
     if (!supabase || !customerId || !propertyId) return;
     setBusy(true); setMessage("");
     const savedItems = pricingMode === "lump_sum" ? [] : lineItems.filter(item => item.description.trim()).map(item => ({
-      description: item.description.trim(), quantity: Number(item.quantity || 1), unit: item.unit || "EA", unit_price: Number(item.unit_price || 0),
-      amount: Number(item.quantity || 1) * Number(item.unit_price || 0)
+      description: item.description.trim(), quantity: Number(item.quantity || 0), billable_quantity: effectiveQuantity(item), unit: item.unit || "EA", unit_price: Number(item.unit_price || 0), apply_waste: Boolean(item.apply_waste), waste_factor_percent_applied: item.apply_waste ? Number(wasteFactorPercent) : 0, category: item.category || null,
+      amount: lineAmount(item)
     }));
+    if (pricingMode !== "lump_sum") {
+      const describedItems = lineItems.filter(item => item.description.trim());
+      if (describedItems.length === 0) {
+        setMessage("Add at least one itemized line with a verified all-in unit price, or choose lump sum only.");
+        setBusy(false);
+        return;
+      }
+      const invalidItem = describedItems.some(item =>
+        !item.unit_price.trim() ||
+        !Number.isFinite(Number(item.unit_price)) ||
+        Number(item.unit_price) < 0 ||
+        !Number.isFinite(Number(item.quantity)) ||
+        Number(item.quantity) <= 0
+      );
+      if (invalidItem) {
+        setMessage("Every itemized line needs a valid quantity greater than zero and an all-in unit price. Enter missing rates in the Price book or choose lump sum only.");
+        setBusy(false);
+        return;
+      }
+    }
     const { error } = await supabase.from("crm_proposals").insert({
       division_id: division, customer_id: customerId, property_id: propertyId, title: title.trim(),
-      pricing_mode: pricingMode, line_items: savedItems, lump_sum_amount: pricingMode === "itemized" || !lumpSum ? null : Number(lumpSum),
+      pricing_mode: pricingMode, line_items: savedItems, lump_sum_amount: pricingMode === "itemized" || !lumpSum ? null : calculatedLumpSumTotal,
       subtotal, tax_amount: taxAmount, total_amount: total, scope_of_work: scope || null,
       existing_conditions: conditions || null, exclusions: exclusions || null, payment_terms: paymentTerms || null,
       valid_until: validUntil || null, warranty_summary: warrantySummary || null, created_by: userId,
-      template_data: { template: division === "TRD" ? "residential_standard_v1" : "commercial_standard_v1", tax_rate_percent: Number(taxRate || 0), roofr_report_id: selectedRoofrReportId || null, roofr_measurements: selectedRoofrReport?.metadata?.extracted_measurements || [], roofr_predominant_pitch: selectedRoofrReport?.metadata?.predominant_pitch || null, roofr_pitch_distribution: selectedRoofrReport?.metadata?.pitch_distribution || [], adjusted_roof_squares: adjustedRoofSquares, waste_factor_percent: Number(wasteFactorPercent), waste_factor_label: wasteFactorPercent === "20" ? "20%+" : wasteFactorPercent + "%", complexity_factor: complexityFactor, pitch_factor: pitchFactor }
+      template_data: { template: division === "TRD" ? "residential_standard_v1" : "commercial_standard_v1", tax_rate_percent: taxRateValue, pricing_breakdown: { raw_item_subtotal: rawItemSubtotal, complexity_rate_percent: Number(complexityRate), complexity_amount: complexityAmount, pitch_rate_percent: Number(pitchRate), pitch_amount: pitchAmount, base_subtotal: baseSubtotal, overhead_enabled: overheadEnabled, overhead_rate_percent: 10, overhead_amount: overheadAmount, profit_enabled: profitEnabled, profit_rate_percent: 10, profit_base: profitBase, profit_amount: profitAmount, subtotal_before_tax: subtotal, tax_rate_percent: taxRateValue, tax_amount: taxAmount, total: total, lump_sum_base: lumpSum ? lumpSumBase : null, lump_sum_overhead: lumpSum ? lumpSumOverhead : null, lump_sum_profit: lumpSum ? lumpSumProfit : null, lump_sum_subtotal_before_tax: lumpSum ? lumpSumSubtotal : null, lump_sum_tax: lumpSum ? lumpSumTax : null, lump_sum_total: lumpSum ? calculatedLumpSumTotal : null }, roofr_report_id: selectedRoofrReportId || null, roofr_measurements: selectedRoofrReport?.metadata?.extracted_measurements || [], roofr_predominant_pitch: selectedRoofrReport?.metadata?.predominant_pitch || null, roofr_pitch_distribution: selectedRoofrReport?.metadata?.pitch_distribution || [], adjusted_roof_squares: adjustedRoofSquares, waste_factor_percent: Number(wasteFactorPercent), waste_factor_label: wasteFactorPercent === "20" ? "20%+" : wasteFactorPercent + "%", complexity_factor: complexityFactor, complexity_rate_percent: Number(complexityRate), pitch_factor: pitchFactor, pitch_rate_percent: Number(pitchRate) }
     });
     if (error) setMessage(error.message);
     else {
       setMessage("Proposal draft saved to this customer and property.");
       setShowForm(false); setTitle(""); setScope(""); setConditions(""); setExclusions(""); setLumpSum(""); setSelectedRoofrReportId("");
-      setLineItems([{ description: "", quantity: "1", unit: "EA", unit_price: "" }]); setTaxRate("0"); setValidUntil(""); setWasteFactorPercent("10"); setComplexityFactor("standard"); setPitchFactor("standard");
+      setLineItems([{ description: "", quantity: "1", unit: "EA", unit_price: "", apply_waste:false }]); setTaxRate("0"); setOverheadEnabled(true); setProfitEnabled(true); setValidUntil(""); setWasteFactorPercent("10"); setComplexityFactor("standard"); setComplexityRate("0"); setPitchFactor("standard"); setPitchRate("0");
       await load();
     }
     setBusy(false);
@@ -154,20 +218,20 @@ export default function Proposals({ division, userId, canWrite, initialCustomerI
       <label className="wide">Property<select required value={propertyId} onChange={e => { setPropertyId(e.target.value); setSelectedRoofrReportId(""); setRoofrReports([]); setLineItems(current => current.filter(item => !item.description.toLowerCase().endsWith(" from roofr"))); }}><option value="">Select property</option>{customerProperties.map(p => <option key={p.id} value={p.id}>{p.address_line1}, {p.city}, {p.state}</option>)}</select></label>
       {propertyId && <div className="wide"><h3>Roofr measurement import</h3>{roofrReports.length ? roofrReports.map(report => <div className="button-row" key={report.id}><span>{report.original_filename} · {new Date(report.created_at).toLocaleDateString()}</span><button type="button" className="secondary-button" onClick={() => importRoofrMeasurements(report)}>{selectedRoofrReportId === report.id ? "Selected for estimate" : "Select report and import measurements"}</button></div>) : <p className="muted">No reviewed Roofr measurements are saved for this property yet. Upload and review a report in the customer record first.</p>}</div>}
       {propertyId && !roofrReports.length && <div className="wide"><p className="inline-message">No reviewed Roofr measurements are available for this property. You can still save a proposal draft and add measurements or pricing later.</p></div>}
-      {propertyId && <div className="wide"><h3>Waste, complexity and pitch factors</h3><p className="muted">These selections are saved with the proposal. Roofr source quantities remain unchanged; adjusted quantities are planning references only.</p><div className="button-row" role="group" aria-label="Waste factor">{[10,12,15,20].map(value => <button key={value} type="button" className={wasteFactorPercent === String(value) ? "primary-button compact" : "secondary-button compact"} aria-pressed={wasteFactorPercent === String(value)} onClick={() => setWasteFactorPercent(String(value))}>{value === 20 ? "20%+" : value + "%"}</button>)}</div><div className="form-grid"><label>Complexity factor<select value={complexityFactor} onChange={e => setComplexityFactor(e.target.value)}><option value="standard">Standard</option><option value="moderate">Moderate</option><option value="complex">Complex</option><option value="very_complex">Very complex</option></select></label><label>Pitch factor<select value={pitchFactor} onChange={e => setPitchFactor(e.target.value)}><option value="standard">Standard pitch</option><option value="low_slope">Low slope / flat</option><option value="steep">Steep pitch</option><option value="very_steep">Very steep pitch</option></select></label></div></div>}
+      {propertyId && <div className="wide"><h3>Waste, complexity and pitch factors</h3><p className="muted">Waste automatically increases quantities on eligible SQ and SF material lines. Complexity and pitch adjustments apply to the all-in work subtotal. These are editable starting adjustments, not fixed market rules.</p><div className="button-row" role="group" aria-label="Waste factor">{[10,12,15,20].map(value => <button key={value} type="button" className={Number(wasteFactorPercent) >= 20 && value === 20 || wasteFactorPercent === String(value) ? "primary-button compact" : "secondary-button compact"} aria-pressed={value === 20 ? Number(wasteFactorPercent) >= 20 : wasteFactorPercent === String(value)} onClick={() => setWasteFactorPercent(String(value))}>{value === 20 ? "20%+" : value + "%"}</button>)}</div>{Number(wasteFactorPercent)>=20 && <label>Custom waste factor (%)<input type="number" min="20" max="100" step="1" value={wasteFactorPercent} onChange={e=>setWasteFactorPercent(e.target.value)} /></label>}<div className="form-grid"><label>Complexity<select value={complexityFactor} onChange={e => {setComplexityFactor(e.target.value);setComplexityRate(({standard:"0",moderate:"12",complex:"20",very_complex:"35"} as Record<string,string>)[e.target.value] || "0");}}><option value="standard">Standard</option><option value="moderate">Moderate</option><option value="complex">Complex</option><option value="very_complex">Very complex</option></select></label><label>Complexity adjustment (%)<input type="number" min="0" step="0.01" value={complexityRate} onChange={e=>setComplexityRate(e.target.value)} /></label><label>Roof pitch<select value={pitchFactor} onChange={e => {setPitchFactor(e.target.value);setPitchRate(({standard:"0",low_slope:"0",steep:"7",very_steep:"15"} as Record<string,string>)[e.target.value] || "0");}}><option value="standard">Standard pitch</option><option value="low_slope">Low slope / flat</option><option value="steep">Steep pitch</option><option value="very_steep">Very steep pitch</option></select></label><label>Pitch adjustment (%)<input type="number" min="0" step="0.01" value={pitchRate} onChange={e=>setPitchRate(e.target.value)} /></label></div></div>}
       {selectedRoofrReport && <div className="wide"><h3>Imported Roofr source values</h3><p className="muted">Original extracted measurements are retained with this proposal. Source quantities are shown before waste allowance.</p><div className="form-grid">{(selectedRoofrReport.metadata?.extracted_measurements || []).map((item,index) => <div key={item.label + index}><strong>{item.label}</strong><p>{item.value} {item.unit}</p></div>)}</div>{selectedRoofrReport.metadata?.predominant_pitch && <p><strong>Predominant pitch:</strong> {selectedRoofrReport.metadata.predominant_pitch}</p>}{(selectedRoofrReport.metadata?.pitch_distribution || []).length > 0 && <div className="table-wrap"><table><thead><tr><th>Pitch</th><th>Area (sq ft)</th><th>Squares</th></tr></thead><tbody>{selectedRoofrReport.metadata?.pitch_distribution?.map(item => <tr key={item.pitch}><td>{item.pitch}</td><td>{item.area_sqft.toLocaleString()}</td><td>{item.squares.toFixed(1)}</td></tr>)}</tbody></table></div>}{adjustedRoofSquares !== null && <p><strong>Planning quantity including {wasteFactorPercent === "20" ? "20%+" : wasteFactorPercent + "%"} waste:</strong> {adjustedRoofSquares.toFixed(1)} squares</p>}</div>}
       <label className="wide">Proposal title<input required value={title} onChange={e => setTitle(e.target.value)} placeholder={division === "TRD" ? "Residential roof replacement proposal" : "Commercial roof restoration proposal"} /></label>
       <label className="wide">Pricing format<select value={pricingMode} onChange={e => setPricingMode(e.target.value)}><option value="both">Show itemized and lump sum options</option><option value="itemized">Itemized only</option><option value="lump_sum">Lump sum only</option></select></label>
-      {pricingMode !== "lump_sum" && <div className="wide"><h3>Itemized pricing</h3><div className="form-grid"><label>Catalog category<select value={catalogCategory} onChange={e => { setCatalogCategory(e.target.value); setCatalogSelection(""); }}>{estimateCatalogCategories.map(category => <option key={category} value={category}>{category}</option>)}</select></label><label>Search catalog<input value={catalogSearch} onChange={e => { setCatalogSearch(e.target.value); setCatalogSelection(""); }} placeholder="Search roof, tarp, magnet, hand load..." /></label><label className="wide">Catalog item<select value={catalogSelection} onChange={e => setCatalogSelection(e.target.value)}><option value="">Choose a standard estimate item</option>{catalogMatches.map(item => <option key={item.description} value={item.description}>{item.description} ({item.unit})</option>)}</select></label><button type="button" className="secondary-button" disabled={!catalogSelection} onClick={addCatalogItem}>+ Add catalog item</button></div><p className="muted">Starter reference catalog only. Descriptions and units are editable. Enter pricing from your current estimate or authorized price list. No Xactimate codes or prices are represented as official.</p>{lineItems.map((item,index) => <div className="form-grid" key={index}><label className="wide">Description<input required value={item.description} onChange={e => updateLine(index,{description:e.target.value})} placeholder="Labor, materials, tear off, decking..." /></label><label>Quantity<input type="number" min="0" step="0.01" value={item.quantity} onChange={e => updateLine(index,{quantity:e.target.value})} /></label><label>Unit<select value={item.unit} onChange={e => updateLine(index,{unit:e.target.value})}><option>EA</option><option>SF</option><option>LF</option><option>SQ</option><option>HR</option><option>DAY</option><option>WK</option><option>MO</option><option>LS</option></select></label><label>Unit price ($)<input type="number" min="0" step="0.01" value={item.unit_price} onChange={e => updateLine(index,{unit_price:e.target.value})} /></label><p className="muted">Line total: {(Number(item.quantity || 0)*Number(item.unit_price || 0)).toLocaleString("en-US",{style:"currency",currency:"USD"})}</p></div>)}<button type="button" className="secondary-button" onClick={() => setLineItems(current => [...current,{description:"",quantity:"1",unit:"EA",unit_price:""}])}>+ Add line item</button></div>}
+      {pricingMode !== "lump_sum" && <div className="wide"><h3>Itemized pricing</h3><div className="form-grid"><label>Catalog category<select value={catalogCategory} onChange={e => { setCatalogCategory(e.target.value); setCatalogSelection(""); }}>{catalogCategories.map(category => <option key={category} value={category}>{category}</option>)}</select></label><label>Search catalog<input value={catalogSearch} onChange={e => { setCatalogSearch(e.target.value); setCatalogSelection(""); }} placeholder="Search roof, tarp, magnet, hand load..." /></label><label className="wide">Catalog item<select value={catalogSelection} onChange={e => setCatalogSelection(e.target.value)}><option value="">Choose a standard estimate item</option>{catalogMatches.map(item => <option key={item.description} value={item.description}>{item.description} ({item.unit})</option>)}</select></label><button type="button" className="secondary-button" disabled={!catalogSelection} onClick={addCatalogItem}>+ Add catalog item</button></div><p className="muted">Starter catalog with division-specific saved prices. Items without a saved rate stay blank; enter verified rates in the Price book. No Xactimate codes or prices are represented as official.</p>{lineItems.map((item,index) => <div className="form-grid" key={index}><label className="wide">Description<input required value={item.description} onChange={e => updateLine(index,{description:e.target.value})} placeholder="Labor, materials, tear off, decking..." /></label><label>Quantity<input type="number" min="0" step="0.01" value={item.quantity} onChange={e => updateLine(index,{quantity:e.target.value})} /></label><label>Unit<select value={item.unit} onChange={e => updateLine(index,{unit:e.target.value})}><option>EA</option><option>SF</option><option>LF</option><option>SQ</option><option>HR</option><option>DAY</option><option>WK</option><option>MO</option><option>LS</option><option>CY</option><option>SHEET</option><option>ROLL</option><option>GAL</option><option>BDL</option><option>BOX</option><option>PAIL</option><option>TUBE</option><option>PALLET</option></select></label><label>All-in price per unit ($)<input type="number" min="0" step="0.01" value={item.unit_price} onChange={e => updateLine(index,{unit_price:e.target.value})} /></label>{(item.unit==="SQ"||item.unit==="SF")&&<label><input type="checkbox" checked={Boolean(item.apply_waste)} onChange={e=>updateLine(index,{apply_waste:e.target.checked})} /> Apply waste factor</label>}<p className="muted">Billable quantity: {effectiveQuantity(item).toLocaleString("en-US",{maximumFractionDigits:2})} {item.unit}. All-in line total: {lineAmount(item).toLocaleString("en-US",{style:"currency",currency:"USD"})}</p></div>)}<button type="button" className="secondary-button" onClick={() => setLineItems(current => [...current,{description:"",quantity:"1",unit:"EA",unit_price:"",apply_waste:false}])}>+ Add line item</button></div>}
       {pricingMode !== "itemized" && <label>Lump sum amount ($)<input required type="number" min="0.01" step="0.01" value={lumpSum} onChange={e => setLumpSum(e.target.value)} /></label>}
-      <label>Tax rate (%)<input type="number" min="0" step="0.01" value={taxRate} onChange={e => setTaxRate(e.target.value)} /></label>
+      <div className="wide"><h3>Overhead, profit and tax</h3><p className="muted">Calculations update automatically. Overhead is added first at 10%. Profit is then calculated at 10% of the subtotal plus overhead. Tax is calculated on the resulting pre-tax subtotal using the applicable rate entered below.</p><div className="form-grid"><label><input type="checkbox" checked={overheadEnabled} onChange={e => setOverheadEnabled(e.target.checked)} /> Add overhead (10%)</label><label><input type="checkbox" checked={profitEnabled} onChange={e => setProfitEnabled(e.target.checked)} /> Add profit (10%)</label><label>Applicable tax rate (%)<input type="number" min="0" step="0.01" value={taxRate} onChange={e => setTaxRate(e.target.value)} /></label></div><p className="fine-print">Enter the tax rate applicable to this job. Tax treatment can vary by jurisdiction and work type; this version applies the entered rate to the full pre-tax subtotal.</p></div>
       <label>Valid through<input type="date" value={validUntil} onChange={e => setValidUntil(e.target.value)} /></label>
       <label className="wide">Existing conditions<textarea rows={2} value={conditions} onChange={e => setConditions(e.target.value)} /></label>
       <label className="wide">Scope of work<textarea rows={4} value={scope} onChange={e => setScope(e.target.value)} placeholder={division === "TRD" ? "Describe tear off, decking, underlayment, flashing, roofing material, ventilation and cleanup." : "Describe roof sections, system, preparation, insulation, membrane or coating, details, access and phasing."} /></label>
       <label className="wide">Exclusions<textarea rows={2} value={exclusions} onChange={e => setExclusions(e.target.value)} /></label>
       <label className="wide">Payment terms<textarea rows={2} value={paymentTerms} onChange={e => setPaymentTerms(e.target.value)} /></label>
       <label className="wide">Warranty wording<textarea rows={2} value={warrantySummary} onChange={e => setWarrantySummary(e.target.value)} /></label>
-      <div className="wide"><strong>Current estimate total: {total.toLocaleString("en-US",{style:"currency",currency:"USD"})}</strong>{pricingMode === "both" && <p className="muted">The lump sum is stored as an alternate price. The itemized total is used as the proposal's recorded total until the customer selects an option.</p>}</div>
+      <div className="wide"><h3>Automatic estimate breakdown</h3><div className="table-wrap"><table><tbody>{pricingMode!=="lump_sum"&&<><tr><td>All-in work subtotal (materials and labor)</td><td>{rawItemSubtotal.toLocaleString("en-US",{style:"currency",currency:"USD"})}</td></tr>{complexityAmount>0&&<tr><td>Complexity adjustment ({complexityRate}%)</td><td>{complexityAmount.toLocaleString("en-US",{style:"currency",currency:"USD"})}</td></tr>}{pitchAmount>0&&<tr><td>Pitch adjustment ({pitchRate}%)</td><td>{pitchAmount.toLocaleString("en-US",{style:"currency",currency:"USD"})}</td></tr>}</>}{pricingMode==="lump_sum"&&<tr><td>Lump sum base</td><td>{baseSubtotal.toLocaleString("en-US",{style:"currency",currency:"USD"})}</td></tr>}{overheadEnabled && <tr><td>Overhead (10%)</td><td>{overheadAmount.toLocaleString("en-US",{style:"currency",currency:"USD"})}</td></tr>}{profitEnabled && <tr><td>Profit (10% of base plus overhead)</td><td>{profitAmount.toLocaleString("en-US",{style:"currency",currency:"USD"})}</td></tr>}<tr><td>Subtotal before tax</td><td>{subtotal.toLocaleString("en-US",{style:"currency",currency:"USD"})}</td></tr><tr><td>Tax ({taxRateValue.toFixed(2)}%)</td><td>{taxAmount.toLocaleString("en-US",{style:"currency",currency:"USD"})}</td></tr><tr><th>Current estimate total</th><th>{total.toLocaleString("en-US",{style:"currency",currency:"USD"})}</th></tr></tbody></table></div>{pricingMode === "both" && <p className="muted">Calculated lump sum alternative, including the selected overhead, profit and tax settings: {calculatedLumpSumTotal.toLocaleString("en-US",{style:"currency",currency:"USD"})}. The itemized total remains the recorded proposal total until the customer selects an option.</p>}</div>
     </div><button className="primary-button" disabled={busy || !customers.length || !customerProperties.length}>{busy ? "Saving..." : "Save proposal draft"}</button></form>}
     {message && <p className="inline-message">{message}</p>}
     {rows.length ? <div className="table-wrap"><table><thead><tr><th>Proposal</th><th>Customer</th><th>Pricing</th><th>Recorded total</th><th>Lump sum alternative</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{rows.map(r => <tr key={r.id}><td><strong>{r.title}</strong></td><td>{customers.find(c => c.id === r.customer_id)?.display_name || "Customer"}</td><td>{r.pricing_mode.replaceAll("_"," ")}</td><td>{Number(r.total_amount || 0).toLocaleString("en-US",{style:"currency",currency:"USD"})}</td><td>{r.lump_sum_amount == null ? "—" : Number(r.lump_sum_amount).toLocaleString("en-US",{style:"currency",currency:"USD"})}</td><td><span className={"pill " + r.status}>{r.status.replaceAll("_"," ")}</span></td><td>{new Date(r.created_at).toLocaleDateString()}</td><td><button type="button" className="secondary-button" disabled={sendingId===r.id} onClick={()=>sendPdf(r.id)}>{sendingId===r.id?"Sending...":"Send PDF by email"}</button></td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No proposal drafts yet</strong><span>Saved proposals will appear here and remain associated with their customer and property.</span></div>}

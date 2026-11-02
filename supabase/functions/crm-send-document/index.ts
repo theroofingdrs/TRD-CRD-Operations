@@ -109,6 +109,224 @@ async function makePdf(brand: string, title: string, sections: { heading: string
   });
   return await pdf.save();
 }
+
+async function makeProposalPdf(
+  division: string, brand: string, title: string, customerName: string, address: string,
+  proposalNumber: string, sections: { heading: string; body: string[] }[], totalAmount: unknown,
+  claimNumber = ""
+) {
+  const pdf = await PDFDocument.create();
+  const regular = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const navy = rgb(0.10, 0.13, 0.17);
+  const orange = rgb(0.91, 0.36, 0.16);
+  const ink = rgb(0.15, 0.17, 0.20);
+  const muted = rgb(0.42, 0.45, 0.49);
+  const pale = rgb(0.96, 0.97, 0.97);
+  const isResidential = division === "TRD";
+  const logoUrl = isResidential
+    ? "https://trd-crd-operations-687495157172.us-east1.run.app/brand-assets/the-roof-doctors.png"
+    : "https://trd-crd-operations-687495157172.us-east1.run.app/brand-assets/commercial-roof-doctors.png";
+  let logo: any = null;
+  try {
+    const response = await fetch(logoUrl, { signal: AbortSignal.timeout(8000) });
+    if (response.ok && (response.headers.get("content-type") || "").includes("image/png")) {
+      logo = await pdf.embedPng(new Uint8Array(await response.arrayBuffer()));
+    }
+  } catch { /* Branded text remains available if the hosted logo cannot be reached. */ }
+
+  const pages: any[] = [];
+  let page: any;
+  let y = 0;
+  const margin = isResidential ? 48 : 42;
+  const width = 612 - margin * 2;
+  const today = new Date().toLocaleDateString("en-US");
+  const addPage = () => {
+    page = pdf.addPage([612, 792]);
+    pages.push(page);
+    page.drawRectangle({ x: 0, y: 0, width: 612, height: 792, color: rgb(1, 1, 1) });
+    page.drawRectangle({ x: 0, y: 786, width: 612, height: 6, color: navy });
+    page.drawRectangle({ x: 0, y: 742, width: 612, height: 4, color: orange });
+    if (logo) {
+      const fitted = logo.scaleToFit(178, 34);
+      page.drawImage(logo, { x: margin, y: 750 + (34 - fitted.height) / 2, width: fitted.width, height: fitted.height });
+    } else {
+      page.drawText(brand.toUpperCase(), { x: margin, y: 760, size: 12, font: bold, color: navy, maxWidth: 300 });
+    }
+    page.drawText(isResidential ? "(903) 231-5940  |  TheRoofingDrs@gmail.com" : "(903) 231-5940  |  TheRoofingDrs@gmail.com  |  CommercialRoofDoctors.com",
+      { x: 300, y: 760, size: 7, font: regular, color: muted, maxWidth: 270 });
+    y = 720;
+  };
+  const wrapLines = (value: string, font: any, size: number, maxWidth: number) => {
+    const words = value.split(/\s+/);
+    const lines: string[] = [];
+    let line = "";
+    for (const word of words) {
+      const candidate = line ? line + " " + word : word;
+      if (font.widthOfTextAtSize(candidate, size) > maxWidth && line) {
+        lines.push(line);
+        line = word;
+      } else line = candidate;
+    }
+    if (line) lines.push(line);
+    return lines;
+  };
+  const ensure = (needed: number) => { if (y - needed < 58) addPage(); };
+  const paragraph = (value: string, size = 8.5, color = ink, indent = 0, boldText = false) => {
+    const font = boldText ? bold : regular;
+    const lines = wrapLines(value, font, size, width - indent);
+    for (const line of lines) {
+      ensure(size + 4);
+      page.drawText(line, { x: margin + indent, y, size, font, color, maxWidth: width - indent });
+      y -= size + 4;
+    }
+  };
+  const sectionHeading = (heading: string) => {
+    ensure(27);
+    page.drawRectangle({ x: margin, y: y - 4, width, height: 18, color: pale });
+    page.drawRectangle({ x: margin, y: y - 4, width: 3, height: 18, color: orange });
+    page.drawText(heading.toUpperCase(), { x: margin + 9, y: y + 1, size: 8, font: bold, color: navy });
+    y -= 23;
+  };
+  const drawFooter = () => {
+    pages.forEach((p, index) => {
+      p.drawLine({ start: { x: margin, y: 40 }, end: { x: 612 - margin, y: 40 }, thickness: 0.6, color: rgb(0.84, 0.85, 0.86) });
+      p.drawText(brand + "  |  " + (isResidential ? "ROOFING ESTIMATE" : "COMMERCIAL ROOFING PROPOSAL"),
+        { x: margin, y: 26, size: 6.5, font: regular, color: muted, maxWidth: 390 });
+      p.drawText("Page " + (index + 1) + " of " + pages.length,
+        { x: 500, y: 26, size: 6.5, font: regular, color: muted });
+    });
+  };
+
+  addPage();
+  if (isResidential) {
+    page.drawText("ROOFING ESTIMATE", { x: margin, y: 710, size: 19, font: bold, color: navy });
+    page.drawText("Estimate Date: " + today, { x: 405, y: 710, size: 8, font: regular, color: muted });
+    y = 680;
+    page.drawText("PREPARED FOR", { x: margin, y, size: 7, font: bold, color: muted });
+    page.drawText("PROPERTY ADDRESS", { x: 330, y, size: 7, font: bold, color: muted });
+    y -= 16;
+    paragraph(customerName || "Customer", 10, ink, 0, true);
+    const addressY = y + 14;
+    const addressLines = wrapLines(address || "Property address on file", regular, 8.5, 230);
+    addressLines.slice(0, 2).forEach((line, i) => page.drawText(line, { x: 330, y: addressY - i * 11, size: 8.5, font: regular, color: ink, maxWidth: 230 }));
+    y -= Math.max(18, addressLines.slice(0, 2).length * 11);
+    page.drawRectangle({ x: margin, y: y - 5, width, height: 22, color: pale });
+    page.drawText("ESTIMATE NO: " + (proposalNumber || "DRAFT"), { x: margin + 9, y: y + 2, size: 7.5, font: bold, color: navy });
+    page.drawText("CLAIM NO: " + (claimNumber || "N/A"), { x: 330, y: y + 2, size: 7.5, font: bold, color: navy });
+    y -= 32;
+
+    for (const section of sections) {
+      if (section.heading === "Customer and property") continue;
+      if (section.heading === "Introduction") {
+        paragraph(section.body.join(" "), 8.2, muted);
+        y -= 4;
+        continue;
+      }
+      if (section.heading === "Itemized pricing") {
+        if (!section.body.length) continue;
+        sectionHeading("Description and pricing");
+        const col = { desc: margin + 7, qty: 350, rate: 414, amount: 500 };
+        page.drawText("DESCRIPTION", { x: col.desc, y, size: 6.5, font: bold, color: muted });
+        page.drawText("QTY", { x: col.qty, y, size: 6.5, font: bold, color: muted });
+        page.drawText("RATE", { x: col.rate, y, size: 6.5, font: bold, color: muted });
+        page.drawText("AMOUNT", { x: col.amount, y, size: 6.5, font: bold, color: muted });
+        y -= 12;
+        for (let i = 0; i < section.body.length; i += 4) {
+          const description = section.body[i] || "";
+          const unitPrice = section.body[i + 1] || "";
+          const quantity = section.body[i + 2] || "";
+          const lineTotal = section.body[i + 3] || "";
+          const qtyMatch = quantity.match(/(?:Billable quantity:\s*)?([\d,.]+(?:\s+\w+)?)/i);
+          const rateMatch = unitPrice.match(/\$[\d,.]+/);
+          const amountMatch = lineTotal.match(/\$[\d,.]+/);
+          const lines = wrapLines(description, regular, 7.5, 285);
+          const rowHeight = Math.max(17, lines.length * 9 + 6);
+          ensure(rowHeight + 2);
+          page.drawLine({ start: { x: margin + 5, y: y - 4 }, end: { x: 612 - margin - 5, y: y - 4 }, thickness: 0.35, color: rgb(0.88, 0.89, 0.90) });
+          lines.forEach((line, index) => page.drawText(line, { x: col.desc, y: y - index * 9, size: 7.5, font: regular, color: ink, maxWidth: 285 }));
+          page.drawText(qtyMatch?.[1] || "", { x: col.qty, y, size: 7.5, font: regular, color: ink, maxWidth: 55 });
+          page.drawText(rateMatch?.[0] || "", { x: col.rate, y, size: 7.5, font: regular, color: ink, maxWidth: 70 });
+          page.drawText(amountMatch?.[0] || "", { x: col.amount, y, size: 7.5, font: regular, color: ink, maxWidth: 65 });
+          y -= rowHeight;
+        }
+        y -= 7;
+        continue;
+      }
+      if (section.heading === "Itemized total") {
+        sectionHeading("Estimate summary");
+        for (const line of section.body) {
+          const isTotal = /^Total\b/i.test(line);
+          ensure(16);
+          page.drawText(line, { x: isTotal ? margin + 8 : margin + 14, y, size: isTotal ? 10 : 8, font: isTotal ? bold : regular, color: isTotal ? navy : ink, maxWidth: width - 20 });
+          y -= isTotal ? 16 : 12;
+        }
+        continue;
+      }
+      sectionHeading(section.heading);
+      for (const line of section.body) paragraph(line, 8.2);
+      y -= 4;
+    }
+    if (totalAmount != null) {
+      ensure(42);
+      page.drawRectangle({ x: margin, y: y - 26, width, height: 36, color: navy });
+      page.drawText("ESTIMATE TOTAL", { x: margin + 11, y: y - 4, size: 8, font: bold, color: rgb(1, 1, 1) });
+      page.drawText(money(totalAmount), { x: 430, y: y - 9, size: 15, font: bold, color: rgb(1, 1, 1) });
+      y -= 47;
+    }
+    paragraph("This estimate is based on the information and conditions currently available. Final scope and quantities are subject to field verification and written approval.", 7.2, muted);
+    ensure(45);
+    y -= 5;
+    page.drawLine({ start: { x: margin, y }, end: { x: 320, y }, thickness: 0.7, color: muted });
+    page.drawLine({ start: { x: 350, y }, end: { x: 612 - margin, y }, thickness: 0.7, color: muted });
+    page.drawText("CUSTOMER / AUTHORIZED SIGNATURE", { x: margin, y: y - 12, size: 6, font: bold, color: muted });
+    page.drawText("DATE", { x: 350, y: y - 12, size: 6, font: bold, color: muted });
+  } else {
+    page.drawText(title || "COMMERCIAL ROOFING PROPOSAL", { x: margin, y: 710, size: 18, font: bold, color: navy, maxWidth: width });
+    y = 680;
+    page.drawText("PREPARED FOR", { x: margin, y, size: 7, font: bold, color: muted });
+    page.drawText("PROJECT LOCATION", { x: 350, y, size: 7, font: bold, color: muted });
+    page.drawText(customerName || "Customer", { x: margin, y: y - 15, size: 10, font: bold, color: ink, maxWidth: 285 });
+    const addressLines = wrapLines(address || "Property address on file", regular, 8.5, 210);
+    addressLines.slice(0, 2).forEach((line, i) => page.drawText(line, { x: 350, y: y - 15 - i * 11, size: 8.5, font: regular, color: ink, maxWidth: 210 }));
+    y -= 42;
+    page.drawRectangle({ x: margin, y: y - 5, width, height: 22, color: pale });
+    page.drawText("PROPOSAL " + (proposalNumber || "DRAFT"), { x: margin + 9, y: y + 2, size: 7.5, font: bold, color: navy });
+    page.drawText("PREPARED " + today, { x: 400, y: y + 2, size: 7.5, font: bold, color: navy });
+    y -= 32;
+    let forcedBreak = false;
+    for (const section of sections) {
+      if (section.heading === "Customer and property") continue;
+      if (!forcedBreak && /^(Scope of work|Itemized pricing|Roofr measurement report)$/i.test(section.heading)) {
+        addPage();
+        forcedBreak = true;
+      }
+      sectionHeading(section.heading === "Itemized total" ? "Estimate summary" : section.heading);
+      for (const line of section.body) {
+        const isTotal = section.heading === "Itemized total" && /^Total\b/i.test(line);
+        paragraph(line, isTotal ? 10 : 8.8, isTotal ? navy : ink, 0, isTotal);
+      }
+      y -= 7;
+    }
+    addPage();
+    page.drawText("PROPOSAL ACCEPTANCE", { x: margin, y: 700, size: 17, font: bold, color: navy });
+    y = 650;
+    paragraph("The undersigned acknowledges the scope, pricing, exclusions, and terms described in this proposal and authorizes the work as presented, subject to the agreed written contract.", 10);
+    y -= 36;
+    page.drawLine({ start: { x: margin, y }, end: { x: 285, y }, thickness: 0.8, color: muted });
+    page.drawLine({ start: { x: 330, y }, end: { x: 612 - margin, y }, thickness: 0.8, color: muted });
+    page.drawText("AUTHORIZED SIGNATURE", { x: margin, y: y - 13, size: 6.5, font: bold, color: muted });
+    page.drawText("DATE", { x: 330, y: y - 13, size: 6.5, font: bold, color: muted });
+    y -= 48;
+    page.drawLine({ start: { x: margin, y }, end: { x: 285, y }, thickness: 0.8, color: muted });
+    page.drawLine({ start: { x: 330, y }, end: { x: 612 - margin, y }, thickness: 0.8, color: muted });
+    page.drawText("PRINTED NAME / TITLE", { x: margin, y: y - 13, size: 6.5, font: bold, color: muted });
+    page.drawText("COMPANY", { x: 330, y: y - 13, size: 6.5, font: bold, color: muted });
+  }
+  drawFooter();
+  return await pdf.save();
+}
+
 function toBase64(bytes: Uint8Array): string {
   let binary = "";
   const chunkSize = 0x8000;
@@ -151,6 +369,9 @@ Deno.serve(async (req: Request) => {
   let address = "";
   let title = "";
   let brand = "";
+  let proposalNumber = "";
+  let proposalTotal: number | null = null;
+  let proposalClaimNumber = "";
   const sections: { heading: string; body: string[] }[] = [];
   const photoImages: { label: string; caption: string; section: string; bytes: Uint8Array; contentType: string }[] = [];
   const extraAttachments: { filename: string; content: string }[] = [];
@@ -158,9 +379,12 @@ Deno.serve(async (req: Request) => {
     const { data, error } = await client.from("crm_proposals").select("id,division_id,customer_id,property_id,title,proposal_number,pricing_mode,line_items,lump_sum_amount,subtotal,tax_amount,total_amount,scope_of_work,existing_conditions,exclusions,payment_terms,warranty_summary,valid_until,template_data,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
     if (error || !data) return json({ error: "Proposal not found or access denied." }, 404);
     division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
-    recipient = clean(data.crm_customers?.email); customerName = clean(data.crm_customers?.display_name);
-    address = [data.crm_properties?.address_line1,data.crm_properties?.city,data.crm_properties?.state,data.crm_properties?.postal_code].filter(Boolean).join(", ");
+    recipient = clean(data.crm_customers?.[0]?.email); customerName = clean(data.crm_customers?.[0]?.display_name);
+    address = [data.crm_properties?.[0]?.address_line1,data.crm_properties?.[0]?.city,data.crm_properties?.[0]?.state,data.crm_properties?.[0]?.postal_code].filter(Boolean).join(", ");
     title = data.title;
+    proposalNumber = clean(data.proposal_number);
+    proposalTotal = Number(data.total_amount || 0);
+    proposalClaimNumber = clean(data.template_data?.claim_number);
     const { data: savedTemplate } = await client.from("crm_proposal_templates")
       .select("company_name,introduction,default_scope,default_exclusions,payment_terms,warranty_summary,footer_text")
       .eq("division_id", division).maybeSingle();
@@ -189,9 +413,27 @@ Deno.serve(async (req: Request) => {
     }
     const proposalScope = clean(data.scope_of_work) || clean(savedTemplate?.default_scope);
     if (proposalScope) sections.push({ heading: "Scope of work", body: [proposalScope] });
-    if (Array.isArray(data.line_items) && data.line_items.length) sections.push({ heading: "Itemized pricing", body: data.line_items.map((item: any) => String(item.description) + " | Qty " + item.quantity + " | " + money(item.unit_price) + " each | " + money(item.amount)) });
-    if (data.pricing_mode !== "lump_sum") sections.push({ heading: "Itemized total", body: ["Subtotal " + money(data.subtotal), "Tax " + money(data.tax_amount), "Total " + money(data.total_amount)] });
-    if (data.lump_sum_amount != null) sections.push({ heading: "Lump sum option", body: [money(data.lump_sum_amount)] });
+    if (Array.isArray(data.line_items) && data.line_items.length) sections.push({ heading: "Itemized pricing", body: data.line_items.flatMap((item: any) => [
+      String(item.description) + " | Qty " + item.quantity + " " + clean(item.unit),
+      "All-in price (materials and labor): " + money(item.unit_price) + " per " + clean(item.unit),
+      "Billable quantity: " + String(item.billable_quantity ?? item.quantity),
+      "Line total: " + money(item.amount)
+    ]) });
+    const pricingBreakdown = data.template_data?.pricing_breakdown || {};
+    if (data.pricing_mode !== "lump_sum") sections.push({ heading: "Itemized total", body: [
+      "All-in line item subtotal (materials and labor) " + money(pricingBreakdown.raw_item_subtotal ?? pricingBreakdown.base_subtotal ?? data.subtotal),
+      ...(Number(pricingBreakdown.complexity_amount || 0) > 0 ? ["Complexity adjustment (" + String(pricingBreakdown.complexity_rate_percent) + "%) " + money(pricingBreakdown.complexity_amount)] : []),
+      ...(Number(pricingBreakdown.pitch_amount || 0) > 0 ? ["Pitch adjustment (" + String(pricingBreakdown.pitch_rate_percent) + "%) " + money(pricingBreakdown.pitch_amount)] : []),
+      "Subtotal before overhead " + money(pricingBreakdown.base_subtotal ?? data.subtotal),
+      ...(pricingBreakdown.overhead_enabled ? ["Overhead (" + String(pricingBreakdown.overhead_rate_percent ?? 10) + "%) " + money(pricingBreakdown.overhead_amount)] : []),
+      ...(pricingBreakdown.profit_enabled ? ["Profit (" + String(pricingBreakdown.profit_rate_percent ?? 10) + "% of subtotal plus overhead) " + money(pricingBreakdown.profit_amount)] : []),
+      "Subtotal before tax " + money(data.subtotal),
+      "Tax" + (pricingBreakdown.tax_rate_percent != null ? " (" + String(pricingBreakdown.tax_rate_percent) + "%)" : "") + " " + money(data.tax_amount),
+      "Total " + money(data.total_amount)
+    ] });
+    if (data.lump_sum_amount != null) sections.push({ heading: "Lump sum option", body: [
+      "Total including selected overhead, profit and tax " + money(data.lump_sum_amount)
+    ] });
     const proposalExclusions = clean(data.exclusions) || clean(savedTemplate?.default_exclusions);
     if (proposalExclusions) sections.push({ heading: "Exclusions", body: [proposalExclusions] });
     const proposalPaymentTerms = clean(data.payment_terms) || clean(savedTemplate?.payment_terms);
@@ -204,8 +446,8 @@ Deno.serve(async (req: Request) => {
     const { data, error } = await client.from("crm_inspections").select("id,division_id,customer_id,property_id,inspection_type,inspected_at,weather_conditions,overall_condition,summary,recommendations,measurements,roof_sections,claim_information,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
     if (error || !data) return json({ error: "Inspection not found or access denied." }, 404);
     division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
-    recipient = clean(data.crm_customers?.email); customerName = clean(data.crm_customers?.display_name);
-    address = [data.crm_properties?.address_line1,data.crm_properties?.city,data.crm_properties?.state,data.crm_properties?.postal_code].filter(Boolean).join(", ");
+    recipient = clean(data.crm_customers?.[0]?.email); customerName = clean(data.crm_customers?.[0]?.display_name);
+    address = [data.crm_properties?.[0]?.address_line1,data.crm_properties?.[0]?.city,data.crm_properties?.[0]?.state,data.crm_properties?.[0]?.postal_code].filter(Boolean).join(", ");
     title = "Roof inspection report"; brand = division === "TRD" ? "The ROOF Doctors" : "Commercial ROOF Doctors";
     sections.push({ heading: "Customer and property", body: [customerName, address, "Inspection type: " + data.inspection_type, "Inspected: " + (data.inspected_at || "Not recorded"), "Overall condition: " + (data.overall_condition || "Not recorded"), "Weather: " + (data.weather_conditions || "Not recorded")] });
     const measurements = data.measurements || {};
@@ -263,8 +505,8 @@ Deno.serve(async (req: Request) => {
     const { data, error } = await client.from("crm_warranties").select("id,division_id,customer_id,property_id,title,warranty_type,provider_name,roof_system,coverage_summary,exclusions,maintenance_requirements,start_date,end_date,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
     if (error || !data) return json({ error: "Warranty not found or access denied." }, 404);
     division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
-    recipient = clean(data.crm_customers?.email); customerName = clean(data.crm_customers?.display_name);
-    address = [data.crm_properties?.address_line1,data.crm_properties?.city,data.crm_properties?.state,data.crm_properties?.postal_code].filter(Boolean).join(", ");
+    recipient = clean(data.crm_customers?.[0]?.email); customerName = clean(data.crm_customers?.[0]?.display_name);
+    address = [data.crm_properties?.[0]?.address_line1,data.crm_properties?.[0]?.city,data.crm_properties?.[0]?.state,data.crm_properties?.[0]?.postal_code].filter(Boolean).join(", ");
     title = data.title; brand = division === "TRD" ? "The ROOF Doctors" : "Commercial ROOF Doctors";
     sections.push({ heading: "Customer and property", body: [customerName, address] });
     sections.push({ heading: "Warranty details", body: ["Type: " + data.warranty_type, "Provider: " + (data.provider_name || "Not specified"), "Roof system: " + (data.roof_system || "Not specified"), "Start date: " + (data.start_date || "Not specified"), "End date: " + (data.end_date || "Not specified")] });
@@ -274,7 +516,9 @@ Deno.serve(async (req: Request) => {
   }
   if (!recipient || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) return json({ error: "This customer does not have a valid email address on file." }, 400);
   const subject = brand + ": " + (type === "inspection" ? "Roof inspection report" : title);
-  const pdfBytes = await makePdf(brand, title, sections, photoImages);
+  const pdfBytes = type === "proposal"
+    ? await makeProposalPdf(division, brand, title, customerName, address, proposalNumber, sections, proposalTotal, proposalClaimNumber)
+    : await makePdf(brand, title, sections, photoImages);
   const base64 = toBase64(new Uint8Array(pdfBytes));
   const fileName = type + "-" + id + ".pdf";
   const { data: delivery, error: deliveryError } = await client.from("crm_document_deliveries").insert({
