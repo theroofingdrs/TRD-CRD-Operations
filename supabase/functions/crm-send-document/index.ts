@@ -306,8 +306,8 @@ Deno.serve(async (req: Request) => {
     const { data, error } = await client.from("crm_proposals").select("id,division_id,customer_id,property_id,title,proposal_number,pricing_mode,line_items,lump_sum_amount,subtotal,tax_amount,total_amount,scope_of_work,existing_conditions,exclusions,payment_terms,warranty_summary,valid_until,template_data,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
     if (error || !data) return json({ error: "Proposal not found or access denied." }, 404);
     division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
-    recipient = clean(data.crm_customers?.email); customerName = clean(data.crm_customers?.display_name);
-    address = [data.crm_properties?.address_line1,data.crm_properties?.city,data.crm_properties?.state,data.crm_properties?.postal_code].filter(Boolean).join(", ");
+    recipient = clean(data.crm_customers?.[0]?.email); customerName = clean(data.crm_customers?.[0]?.display_name);
+    address = [data.crm_properties?.[0]?.address_line1,data.crm_properties?.[0]?.city,data.crm_properties?.[0]?.state,data.crm_properties?.[0]?.postal_code].filter(Boolean).join(", ");
     title = data.title;
     proposalNumber = clean(data.proposal_number);
     proposalTotal = Number(data.total_amount || 0);
@@ -354,8 +354,8 @@ Deno.serve(async (req: Request) => {
     const { data, error } = await client.from("crm_inspections").select("id,division_id,customer_id,property_id,inspection_type,inspected_at,weather_conditions,overall_condition,summary,recommendations,measurements,roof_sections,claim_information,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
     if (error || !data) return json({ error: "Inspection not found or access denied." }, 404);
     division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
-    recipient = clean(data.crm_customers?.email); customerName = clean(data.crm_customers?.display_name);
-    address = [data.crm_properties?.address_line1,data.crm_properties?.city,data.crm_properties?.state,data.crm_properties?.postal_code].filter(Boolean).join(", ");
+    recipient = clean(data.crm_customers?.[0]?.email); customerName = clean(data.crm_customers?.[0]?.display_name);
+    address = [data.crm_properties?.[0]?.address_line1,data.crm_properties?.[0]?.city,data.crm_properties?.[0]?.state,data.crm_properties?.[0]?.postal_code].filter(Boolean).join(", ");
     title = "Roof inspection report"; brand = division === "TRD" ? "The ROOF Doctors" : "Commercial ROOF Doctors";
     sections.push({ heading: "Customer and property", body: [customerName, address, "Inspection type: " + data.inspection_type, "Inspected: " + (data.inspected_at || "Not recorded"), "Overall condition: " + (data.overall_condition || "Not recorded"), "Weather: " + (data.weather_conditions || "Not recorded")] });
     const measurements = data.measurements || {};
@@ -413,8 +413,8 @@ Deno.serve(async (req: Request) => {
     const { data, error } = await client.from("crm_warranties").select("id,division_id,customer_id,property_id,title,warranty_type,provider_name,roof_system,coverage_summary,exclusions,maintenance_requirements,start_date,end_date,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
     if (error || !data) return json({ error: "Warranty not found or access denied." }, 404);
     division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
-    recipient = clean(data.crm_customers?.email); customerName = clean(data.crm_customers?.display_name);
-    address = [data.crm_properties?.address_line1,data.crm_properties?.city,data.crm_properties?.state,data.crm_properties?.postal_code].filter(Boolean).join(", ");
+    recipient = clean(data.crm_customers?.[0]?.email); customerName = clean(data.crm_customers?.[0]?.display_name);
+    address = [data.crm_properties?.[0]?.address_line1,data.crm_properties?.[0]?.city,data.crm_properties?.[0]?.state,data.crm_properties?.[0]?.postal_code].filter(Boolean).join(", ");
     title = data.title; brand = division === "TRD" ? "The ROOF Doctors" : "Commercial ROOF Doctors";
     sections.push({ heading: "Customer and property", body: [customerName, address] });
     sections.push({ heading: "Warranty details", body: ["Type: " + data.warranty_type, "Provider: " + (data.provider_name || "Not specified"), "Roof system: " + (data.roof_system || "Not specified"), "Start date: " + (data.start_date || "Not specified"), "End date: " + (data.end_date || "Not specified")] });
