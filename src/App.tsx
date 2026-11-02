@@ -17,7 +17,7 @@ import BlogManager from "./BlogManager";
 type DivisionId = "TRD" | "CRD";
 type Role = "owner" | "division_admin" | "office_manager" | "sales_rep" | "project_manager" | "field_inspector" | "production_manager" | "accounting" | "read_only";
 type Membership = { division_id: DivisionId; role: Role };
-type View = "overview" | "leads" | "customers" | "import" | "contacts" | "properties" | "claims" | "roofs" | "documents" | "appointments" | "proposals" | "proposal_templates" | "price_book" | "warranties | "deliveries" | "inspections" | "projects" | "project_pipeline" | "tasks" | "team" | "completed_map" | "blog";
+type View = "overview" | "leads" | "customers" | "import" | "contacts" | "properties" | "claims" | "roofs" | "documents" | "appointments" | "proposals" | "proposal_templates" | "price_book" | "warranties" | "deliveries" | "inspections" | "projects" | "project_pipeline" | "tasks" | "team" | "completed_map" | "blog";
 type Lead = { id: string; service_interest: string | null; status: string; priority: string; source: string | null; description: string | null; created_at: string; assigned_to: string | null };
 type Customer = { id: string; display_name: string; customer_type: string; email: string | null; phone: string | null; billing_address_line1?: string | null; billing_city?: string | null; billing_state?: string | null; billing_postal_code?: string | null; created_at: string; assigned_to: string | null };
 type GenericRow = Record<string, string | number | null>;
@@ -130,7 +130,7 @@ function App() {
         const allowedDivision = savedDivision && memberships.some((item) => item.division_id === savedDivision) ? savedDivision : memberships[0].division_id;
         const validView = navigation.some((item) => item.id === preference.view);
         const savedView = validView ? preference.view as View : "overview";
-        const canAccessSavedView = savedView !== "completed_map" && savedView !== "team" && savedView !== "proposal_templates" && savedView !== "price_book" && savedView !== "blog
+        const canAccessSavedView = savedView !== "completed_map" && savedView !== "team" && savedView !== "proposal_templates" && savedView !== "price_book" && savedView !== "blog"
           ? true
           : memberships.some((item) => item.role === "owner");
         setDivision(allowedDivision);
