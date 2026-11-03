@@ -72,7 +72,7 @@ jobs:
           deno check --node-modules-dir=auto supabase/functions/crm-send-document/index.ts
       - name: Test document provider and authentication boundaries
         run: |
-          node --test --test-isolation=none supabase/functions/crm-send-document/delivery.test.mjs
+          node --experimental-strip-types supabase/functions/crm-send-document/delivery.test.mjs
           deno test --allow-env --node-modules-dir=auto supabase/functions/crm-send-document/handler.test.ts
       - name: Build Cloud Run container
         run: |
