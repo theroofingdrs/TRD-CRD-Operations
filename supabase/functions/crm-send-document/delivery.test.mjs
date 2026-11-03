@@ -44,3 +44,18 @@ test('manual recovery is GET-only and requires the operation tag and frozen reci
   assert.equal(await verifyRecovery(op,id,'synthetic',async(url,options)=>{assert.equal(url,'https://api.resend.com/emails/'+id);assert.equal(options.method,undefined);return Response.json(email)}),'delivered');
   for(const change of [{tags:[]},{to:['other@example.test']},{html:'different'},{id:'wrong'}])await assert.rejects(verifyRecovery(op,id,'synthetic',async()=>Response.json({...email,...change})));
 });
+
+test('provider retrieval failure leaves reconciliation unverified and never resends',async()=>{
+  const { verifyRecovery }=await import('./delivery.ts');
+  const id='10000000-0000-0000-0000-000000000001';
+  for(const failure of [null,404,403,429,500,'malformed']) {
+    let calls=0;
+    await assert.rejects(verifyRecovery({id:'operation',body:'{}'},id,'synthetic',async(_url,options)=>{
+      calls++;assert.equal(options.method,undefined);
+      if(failure===null)throw Error('timeout');
+      if(failure==='malformed')return new Response('invalid json');
+      return Response.json({}, {status:failure});
+    }));
+    assert.equal(calls,1);
+  }
+});

@@ -72,11 +72,15 @@ rollback;
             namespace='delivery_private' if 'server_authoritative' in migration.name else 'file_private'
             sql(f"do $$ begin if to_regnamespace('{namespace}') is not null then raise exception 'Partial migration survived'; end if; end $$; alter table {target} rename column security_test_drift to {column};")
             print('PASS: schema drift aborts migration atomically')
+        if migration.name.startswith('20261103030000'):
+            sql((root/'supabase/tests/security_delivery_defect_reproductions.sql').read_text())
+            print('PASS: both original defects reproduced before corrective migration (rolled back)')
         sql(migration.read_text())
-    sql((root/f'supabase/tests/security_{mode}.sql').read_text())
+    sql((root/f'supabase/tests/security_{mode}.sql').read_text() + ((root/'supabase/tests/security_delivery_recovery.sql').read_text() if mode=='delivery' else ''))
     if mode=='delivery':
+        print('PASS: NULL/stale/terminal claims, context binding, expiry, credentials and owner recovery SQL')
         sql("insert into public.crm_proposals(id,division_id,customer_id,property_id,title,updated_at) values('40000000-0000-0000-0000-000000000002','TRD','20000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000001','Concurrent synthetic','2026-11-03T00:00:00Z');")
-        query = "set role service_role; set request.jwt.claim.role='service_role'; select public.crm_claim_document_delivery('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000002','2026-11-03T00:00:00Z','{\"to\":[\"customer@example.test\"],\"subject\":\"Concurrent\"}',repeat('a',64));"
+        query = "set role service_role; set request.jwt.claim.role='service_role'; select public.crm_claim_document_delivery('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000002','2026-11-03T00:00:00Z',jsonb_build_object('to',jsonb_build_array('customer@example.test'),'subject','Concurrent','_crm_context',public.crm_document_delivery_context('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000002'))::text,repeat('a',64));"
         def claim(_):
             result=run(['exec',name,'psql','-h','127.0.0.1','-X','-U','postgres','-v','ON_ERROR_STOP=1','-Atq','-c',query],capture_output=True,text=True)
             return json.loads(result.stdout.strip())

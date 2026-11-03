@@ -365,7 +365,7 @@ Deno.serve(async (req: Request) => {
     try {
       const { data: operation, error } = await server.rpc("crm_delivery_reconciliation", { p_actor: auth.user.id, p_id: input.delivery_id });
       if (error || !operation) return json({ error: "Exact division owner authorization required." }, 403);
-      const context = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(resendKey));
+      const context = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(operation.context_fingerprint == null ? resendKey : JSON.stringify([resendKey, from, "crm-pdf-v2"])));
       const fingerprint = Array.from(new Uint8Array(context)).map(b => b.toString(16).padStart(2,"0")).join("");
       if (fingerprint !== operation.provider_context) throw new Error("Provider context changed.");
       const event = await verifyRecovery(operation, input.provider_id, resendKey);
@@ -379,6 +379,14 @@ Deno.serve(async (req: Request) => {
   if (!["proposal", "inspection", "warranty"].includes(type || "") || !/^[0-9a-f-]{36}$/i.test(id)) {
     return json({ error: "Select a valid document and document ID." }, 400);
   }
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  if (!serviceKey) return json({ error: "Trusted delivery storage is not configured." }, 503);
+  const server = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  // Snapshot before reading/rendering; reservation recomputes it to reject changed context.
+  const { data: deliveryContext, error: contextError } = await server.rpc("crm_document_delivery_context", {
+    p_actor: auth.user.id, p_type: type, p_document: id,
+  });
+  if (contextError || typeof deliveryContext !== "string") return json({ error: "Document not found or delivery access denied." }, 404);
   let division = "";
   let customerId = "";
   let propertyId = "";
@@ -572,15 +580,12 @@ Deno.serve(async (req: Request) => {
     : await makePdf(brand, title, sections, photoImages);
   const base64 = toBase64(new Uint8Array(pdfBytes));
   const fileName = type + "-" + id + ".pdf";
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-  if (!serviceKey) return json({ error: "Trusted delivery storage is not configured." }, 503);
-  const server = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const requestBody = JSON.stringify({
-    from, to: [recipient], subject,
+    _crm_context: deliveryContext, from, to: [recipient], subject,
     html: "<p>Hello " + customerName.replace(/[&<>"]/g, "") + ",</p><p>Attached is your document from " + brand + ".</p>",
     attachments: [{ filename: fileName, content: base64 }, ...extraAttachments],
   });
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(resendKey));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([resendKey, from, "crm-pdf-v2"])));
   const providerContext = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
   try {
     const { data: operation, error: claimError } = await server.rpc("crm_claim_document_delivery", {
