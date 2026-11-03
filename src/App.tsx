@@ -1,3 +1,4 @@
+import { registerFile } from "./registerFile";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./lib/supabase";
@@ -908,13 +909,13 @@ function Documents({ division, userId, canWrite }: { division: DivisionId; userI
     const path=division+"/"+crypto.randomUUID()+"-"+safeName;
     const {error:uploadError}=await supabase.storage.from("roof-doctors-private").upload(path,file,{contentType:file.type,upsert:false});
     if(uploadError){setMessage(uploadError.message);setSaving(false);return;}
-    const {error:metadataError}=await supabase.from("crm_files").insert({
+    const {error:metadataError}=await registerFile(supabase, {
       division_id:division,related_type:"property",related_id:propertyId,bucket_id:"roof-doctors-private",
       object_path:path,original_filename:file.name,content_type:file.type,file_size_bytes:file.size,uploaded_by:userId
     });
     if(metadataError){
-      await supabase.storage.from("roof-doctors-private").remove([path]);
-      setMessage("File upload could not be registered. The uploaded object was rolled back. "+metadataError.message);
+      const { error: cleanupError } = await supabase.storage.from("roof-doctors-private").remove([path]);
+      setMessage("File registration failed. " + (cleanupError ? "Upload cleanup also failed; contact the division owner. " : "Unregistered upload removed. ") + metadataError.message);
     }else{setMessage("File uploaded.");setFile(null);const picker=document.getElementById("crm-file-picker") as HTMLInputElement|null;if(picker)picker.value="";await load();}
     setSaving(false);
   }

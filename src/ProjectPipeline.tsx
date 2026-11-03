@@ -1,3 +1,4 @@
+import { registerFile } from "./registerFile";
 import { DragEvent, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "./lib/supabase";
 
@@ -482,18 +483,15 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         const { error: uploadError } = await supabase.storage.from("roof-doctors-private").upload(path, receiptFile, { contentType: receiptFile.type, upsert: false });
         if (uploadError) setError("Expense saved, but receipt upload failed: " + uploadError.message);
         else {
-          const { data: fileRow, error: fileError } = await supabase.from("crm_files").insert({
+          const { error: fileError } = await registerFile(supabase, {
             division_id: selected.division_id, related_type: "project", related_id: selected.id,
             bucket_id: "roof-doctors-private", object_path: path, original_filename: receiptFile.name,
             content_type: receiptFile.type, file_size_bytes: receiptFile.size, uploaded_by: userId,
             metadata: { document_category: "expense_receipt", expense_id: expenseRow.id }
-          }).select("id").single();
+          });
           if (fileError) {
             await supabase.storage.from("roof-doctors-private").remove([path]);
             setError("Expense saved, but receipt registration failed: " + fileError.message);
-          } else {
-            const { error: linkError } = await supabase.from("crm_project_expenses").update({ receipt_file_id: fileRow.id }).eq("id", expenseRow.id).eq("division_id", division);
-            if (linkError) setError("Expense saved, but receipt linking failed: " + linkError.message);
           }
         }
       }
@@ -539,18 +537,15 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         const { error: uploadError } = await supabase.storage.from("roof-doctors-private").upload(path, companyExpenseReceipt, { contentType: companyExpenseReceipt.type, upsert: false });
         if (uploadError) setError("Company expense saved, but receipt upload failed: " + uploadError.message);
         else {
-          const { data: fileRow, error: fileError } = await supabase.from("crm_files").insert({
+          const { error: fileError } = await registerFile(supabase, {
             division_id: division, related_type: "company_expense", related_id: expenseRow.id,
             bucket_id: "roof-doctors-private", object_path: path, original_filename: companyExpenseReceipt.name,
             content_type: companyExpenseReceipt.type, file_size_bytes: companyExpenseReceipt.size, uploaded_by: userId,
             metadata: { document_category: "company_expense_receipt", category: companyExpenseCategory, expense_date: companyExpenseDate }
-          }).select("id").single();
+          });
           if (fileError) {
             await supabase.storage.from("roof-doctors-private").remove([path]);
             setError("Company expense saved, but receipt registration failed: " + fileError.message);
-          } else {
-            const { error: linkError } = await supabase.from("crm_company_expenses").update({ receipt_file_id: fileRow.id }).eq("id", expenseRow.id).eq("division_id", division);
-            if (linkError) setError("Company expense saved, but receipt linking failed: " + linkError.message);
           }
         }
       }
@@ -612,7 +607,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         const { error: uploadError } = await supabase.storage.from("roof-doctors-private").upload(path, supplementFile, { contentType: supplementFile.type, upsert: false });
         if (uploadError) setError("Supplement saved, but attachment upload failed: " + uploadError.message);
         else {
-          const { error: fileError } = await supabase.from("crm_files").insert({
+          const { error: fileError } = await registerFile(supabase, {
             division_id: selected.division_id, related_type: "supplement", related_id: supplementRow.id,
             bucket_id: "roof-doctors-private", object_path: path, original_filename: supplementFile.name,
             content_type: supplementFile.type, file_size_bytes: supplementFile.size, uploaded_by: userId,
@@ -675,7 +670,7 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         const { error: uploadError } = await supabase.storage.from("roof-doctors-private").upload(path, supplementFile, { contentType: supplementFile.type, upsert: false });
         if (uploadError) setError("Carrier response saved, but attachment upload failed: " + uploadError.message);
         else {
-          const { error: fileError } = await supabase.from("crm_files").insert({
+          const { error: fileError } = await registerFile(supabase, {
             division_id: selected.division_id, related_type: "supplement", related_id: supplement.id,
             bucket_id: "roof-doctors-private", object_path: path, original_filename: supplementFile.name,
             content_type: supplementFile.type, file_size_bytes: supplementFile.size, uploaded_by: userId,
@@ -736,18 +731,15 @@ export default function ProjectPipeline({ division, userId, canWrite, canWriteFi
         if (uploadError) setError("Transaction saved, but the original document upload failed: " + uploadError.message);
         else {
           const category = transactionType === "invoice" ? "invoice_document" : "payment_receipt";
-          const { data: fileRow, error: fileError } = await supabase.from("crm_files").insert({
+          const { error: fileError } = await registerFile(supabase, {
             division_id: selected.division_id, related_type: "project", related_id: selected.id,
             bucket_id: "roof-doctors-private", object_path: path, original_filename: transactionFile.name,
             content_type: transactionFile.type, file_size_bytes: transactionFile.size, uploaded_by: userId,
             metadata: { document_category: category, transaction_id: transactionRow.id }
-          }).select("id").single();
+          });
           if (fileError) {
             await supabase.storage.from("roof-doctors-private").remove([path]);
             setError("Transaction saved, but original document registration failed: " + fileError.message);
-          } else {
-            const { error: linkError } = await supabase.from("crm_project_transactions").update({ attachment_file_id: fileRow.id }).eq("id", transactionRow.id).eq("division_id", selected.division_id);
-            if (linkError) setError("Transaction saved, but original document could not be linked: " + linkError.message);
           }
         }
       }

@@ -1,3 +1,4 @@
+import { registerFile } from "./registerFile";
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { supabase } from "./lib/supabase";
@@ -120,12 +121,12 @@ export default function RoofrMeasurements({ division, userId, properties, canWri
     const { error: storageError } = await supabase.storage.from("roof-doctors-private")
       .upload(path, file, { contentType: "application/pdf", upsert: false });
     if (storageError) { setBusy(false); setMessage(storageError.message); return; }
-    const { data, error } = await supabase.from("crm_files").insert({
+    const { data, error } = await registerFile(supabase, {
       division_id: division, related_type: "property", related_id: propertyId,
       bucket_id: "roof-doctors-private", object_path: path, original_filename: file.name,
       content_type: "application/pdf", file_size_bytes: file.size, uploaded_by: userId,
       metadata: { document_type: "roofr_measurement_report", extraction_status: extractionError ? "extraction_failed" : extracted.measurements.length ? "review_required" : "no_text_matches", extraction_error: extractionError || null, extracted_at: new Date().toISOString(), extracted_measurements: extracted.measurements, extracted_structures: extracted.structures, extracted_text: extracted.text.slice(0, 100000) }
-    }).select("id").single();
+    });
     if (error) {
       await supabase.storage.from("roof-doctors-private").remove([path]);
       setBusy(false); setMessage("Report registration failed. Uploaded file was removed. " + error.message); return;

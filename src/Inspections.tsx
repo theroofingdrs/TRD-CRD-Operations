@@ -1,3 +1,4 @@
+import { registerFile } from "./registerFile";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { supabase } from "./lib/supabase";
 
@@ -172,26 +173,23 @@ export default function Inspections({ division, userId, canWrite, initialCustome
     }));
     const { data: savedItems, error: itemError } = await supabase.from("crm_inspection_items").insert(itemRows).select("id,category");
     if (itemError) setMessage("Inspection saved, but checklist items need attention: " + itemError.message);
+    const photoErrors: string[] = [];
     for (const photo of photos) {
       const safeName = photo.file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-100);
       const objectPath = division + "/inspections/" + inspection.id + "/" + crypto.randomUUID() + "-" + safeName;
       const { error: uploadError } = await supabase.storage.from("roof-doctors-private").upload(objectPath, photo.file, { contentType: photo.file.type, upsert: false });
-      if (uploadError) { setMessage("Inspection saved. A photo upload failed: " + uploadError.message); continue; }
-      const { data: fileRow, error: fileError } = await supabase.from("crm_files").insert({
+      if (uploadError) { photoErrors.push("A photo upload failed: " + uploadError.message); continue; }
+      const matching = savedItems?.find((item: any) => item.category === photo.roofSection);
+      const { data: fileRow, error: fileError } = await registerFile(supabase, {
         division_id: division, related_type: "inspection", related_id: inspection.id, bucket_id: "roof-doctors-private",
         object_path: objectPath, original_filename: photo.file.name, content_type: photo.file.type,
-        file_size_bytes: photo.file.size, uploaded_by: userId
-      }).select("id").single();
-      if (fileError || !fileRow) { setMessage("Photo uploaded but its CRM file record failed: " + (fileError?.message || "unknown error")); continue; }
-      const matching = savedItems?.find((item: any) => item.category === photo.roofSection);
-      const { error: photoError } = await supabase.from("crm_inspection_photos").insert({
-        division_id: division, inspection_id: inspection.id, inspection_item_id: matching?.id || null,
-        file_id: fileRow.id, photo_label: photo.label || "Inspection photo", caption: photo.caption || null,
-        roof_section: photo.roofSection || null, created_by: userId
+        file_size_bytes: photo.file.size, uploaded_by: userId,
+        metadata: { inspection_item_id: matching?.id || null, photo_label: photo.label || "Inspection photo", caption: photo.caption || null, roof_section: photo.roofSection || null }
       });
-      if (photoError) setMessage("Photo uploaded but photo details were not saved: " + photoError.message);
+      if (fileError || !fileRow) { photoErrors.push("Photo uploaded but registration failed: " + (fileError?.message || "unknown error")); continue; }
+
     }
-    setMessage(itemError ? "Inspection saved with checklist errors. " + itemError.message : "Inspection and selected photos saved to the customer and property.");
+    setMessage(photoErrors.length ? "Inspection saved with attachment errors: " + photoErrors.join("; ") : itemError ? "Inspection saved with checklist errors. " + itemError.message : "Inspection and selected photos saved to the customer and property.");
     setCustomerId(""); setPropertyId(""); setItems(freshItems(division)); setSummary(""); setRecommendations(""); setWeather(""); setCarrier(""); setPolicyNumber(""); setClaimNumber(""); setAdjuster(""); setAdjusterPhone(""); setAdjusterEmail(""); setRoofArea(""); setSquares(""); setPitch(""); setSections(""); setRoofrReportId(""); setPhotos([]);
     await load(); setBusy(false);
   }

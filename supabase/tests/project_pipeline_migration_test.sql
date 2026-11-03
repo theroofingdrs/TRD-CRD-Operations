@@ -171,7 +171,7 @@ VALUES ('00000000-0000-0000-0000-000000000040','TRD','00000000-0000-0000-0000-00
 \ir ../migrations/20261031220200_add_project_transaction_attachments.sql
 \ir ../migrations/20261031220300_add_company_expense_ledger.sql
 \ir ../migrations/20261031220400_recalculate_project_financial_methods.sql
-\ir ../migrations/20261102030000_isolate_private_file_access_policies.sql
+-- Private-file security is exercised by scripts/test-security.py against the actual baseline.
 
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
 SET ROLE authenticated;
@@ -665,73 +665,5 @@ BEGIN
 END
 $body$;
 
--- Verify generic file policies cannot bypass the record-specific storage policies.
-SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000004', false);
-
-INSERT INTO storage.objects(bucket_id, name)
-VALUES ('roof-doctors-private', 'TRD/property-test-file.pdf');
-INSERT INTO public.crm_files
-  (division_id, related_type, related_id, bucket_id, object_path, original_filename, content_type, file_size_bytes, uploaded_by)
-VALUES
-  ('TRD','property','00000000-0000-0000-0000-000000000020','roof-doctors-private','TRD/property-test-file.pdf','property-test-file.pdf','application/pdf',100,auth.uid());
-
-DO $body$
-BEGIN
-  IF (SELECT count(*) FROM storage.objects WHERE name='TRD/property-test-file.pdf') <> 1 THEN
-    RAISE EXCEPTION 'Sales rep could not read a registered property file';
-  END IF;
-  BEGIN
-    INSERT INTO storage.objects(bucket_id, name)
-    VALUES ('roof-doctors-private', 'TRD/company-expenses/unauthorized.pdf');
-    RAISE EXCEPTION 'Sales rep bypassed financial receipt upload restrictions';
-  EXCEPTION WHEN insufficient_privilege THEN
-    NULL;
-  END;
-  BEGIN
-    INSERT INTO storage.objects(bucket_id, name)
-    VALUES ('roof-doctors-private', 'TRD/00000000-0000-0000-0000-000000000060/unauthorized.pdf');
-    RAISE EXCEPTION 'Sales rep bypassed project attachment upload restrictions';
-  EXCEPTION WHEN insufficient_privilege THEN
-    NULL;
-  END;
-  BEGIN
-    INSERT INTO public.crm_files
-      (division_id, related_type, related_id, bucket_id, object_path, original_filename, uploaded_by)
-    VALUES ('TRD','company_expense','00000000-0000-0000-0000-000000000099','roof-doctors-private',
-      'TRD/company-expenses/unauthorized.pdf','unauthorized.pdf',auth.uid());
-    RAISE EXCEPTION 'Sales rep inserted restricted company-expense file metadata';
-  EXCEPTION WHEN insufficient_privilege THEN
-    NULL;
-  END;
-END
-$body$;
-
-SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000005', false);
-INSERT INTO storage.objects(bucket_id, name)
-VALUES ('roof-doctors-private', 'TRD/inspections/00000000-0000-0000-0000-000000000050/inspection-photo.jpg');
-INSERT INTO public.crm_files
-  (division_id, related_type, related_id, bucket_id, object_path, original_filename, content_type, file_size_bytes, uploaded_by)
-VALUES
-  ('TRD','inspection','00000000-0000-0000-0000-000000000050','roof-doctors-private',
-   'TRD/inspections/00000000-0000-0000-0000-000000000050/inspection-photo.jpg','inspection-photo.jpg','image/jpeg',100,auth.uid())
-RETURNING id AS inspection_file_id \gset
-INSERT INTO public.crm_inspection_photos(inspection_id,file_id)
-VALUES ('00000000-0000-0000-0000-000000000050', :'inspection_file_id');
-
-DO $body$
-BEGIN
-  IF (SELECT count(*) FROM storage.objects
-      WHERE name='TRD/inspections/00000000-0000-0000-0000-000000000050/inspection-photo.jpg') <> 1 THEN
-    RAISE EXCEPTION 'Field inspector could not read a registered inspection photo';
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='storage' AND tablename='objects' AND policyname='crm_private_files_read') THEN
-    RAISE EXCEPTION 'Broad division-wide private file read policy still exists';
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='crm_files' AND policyname='crm_files_insert') THEN
-    RAISE EXCEPTION 'Broad CRM file metadata insert policy still exists';
-  END IF;
-END
-$body$;
-
 RESET ROLE;
-SELECT 'project pipeline migration test passed' AS result;
+SELECT 'project pipeline financial regression test passed' AS result;
