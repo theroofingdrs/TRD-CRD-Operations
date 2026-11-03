@@ -28,6 +28,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -49,6 +51,12 @@ jobs:
             sleep 1
           done
           docker exec --interactive --workdir /workspace/supabase/tests project-pipeline-test-db psql --host 127.0.0.1 --username postgres --dbname postgres --file /workspace/supabase/tests/project_pipeline_migration_test.sql
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+      - name: Install actual PDF regression tooling
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - name: Test security against baseline and ordered migrations
+        run: python3 scripts/test-security.py
       - name: Test editable price book migration in disposable PostgreSQL
         run: |
           docker run --detach --rm --name price-book-test-db --publish 5434:5432 --volume "$GITHUB_WORKSPACE:/workspace:ro" --env POSTGRES_PASSWORD=ci-test postgres:17
@@ -60,14 +68,16 @@ jobs:
             sleep 1
           done
           docker exec --interactive --workdir /workspace/supabase/tests price-book-test-db psql --host 127.0.0.1 --username postgres --dbname postgres --file /workspace/supabase/tests/price_book_migration_test.sql
-      - name: Set up Deno
-        uses: denoland/setup-deno@v2
       - name: Type check Supabase Edge Functions
         run: |
           deno check supabase/functions/crm-invite-employee/index.ts
           deno check supabase/functions/crm-import-website-intake/index.ts
           deno check supabase/functions/crm-public-blog/index.ts
           deno check --node-modules-dir=auto supabase/functions/crm-send-document/index.ts
+      - name: Test document provider and authentication boundaries
+        run: |
+          node --experimental-strip-types supabase/functions/crm-send-document/delivery.test.mjs
+          deno test --allow-env --node-modules-dir=auto supabase/functions/crm-send-document/handler.test.ts
       - name: Build Cloud Run container
         run: |
           docker build \
