@@ -138,6 +138,36 @@ def isolation_checks(docker, env, name, database='postgres', expected_defect=Fal
                 release(writer, 'rollback;')
         return
 
+    # An RC UPDATE statement has ALREADY started before proposal creation.
+    # Pause its first BEFORE STATEMENT trigger, ahead of R3/R2 guards. The
+    # volatile AFTER trigger must use fresh SPI visibility after serialization.
+    for path in ['finish', 'reconcile']:
+        ids = fixture()
+        query("create or replace function security_test.r3_statement_pause() returns trigger language plpgsql as $$ begin perform pg_advisory_xact_lock(937005);return null;end $$;"
+              "create trigger \"000_r3_statement_pause\" before update on public.crm_properties for each statement execute function security_test.r3_statement_pause();")
+        holder = session('select pg_advisory_lock(937005);')
+        try:
+            ready(holder, 937005)
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(query, user('begin isolation level read committed;' + edit(ids, 'property') + 'commit;'))
+                try:
+                    wait_for("exists(select 1 from pg_locks where locktype='advisory' and objid=937005 and not granted)")
+                    op = reserve(ids, path)
+                    query(server(completion(op, path)))
+                    assert state(ids)['proposal'] == 'sent'
+                finally:
+                    release(holder, 'select pg_advisory_unlock(937005);')
+                future.result(timeout=15)
+            result = state(ids)
+            assert result['proposal'] == 'draft' and not result['context_matches'], result
+            assert result['receipt'] == 'accepted' and result['evidence'] == op['_evidence'], result
+            assert all(result[key] for key in ['artifact_ok', 'request_ok', 'snapshot_ok', 'key_ok']), result
+            print(f'PASS R3 RC statement snapshot before new proposal / {path}: committed edit invalidates sent; immutable history retained', flush=True)
+        finally:
+            if holder.poll() is None:
+                release(holder, 'select pg_advisory_unlock(937005);')
+            query('drop trigger "000_r3_statement_pause" on public.crm_properties;')
+
     levels = ['read committed', 'repeatable read', 'serializable']
     for path in ['finish', 'reconcile']:
         for ordering in ['completion_first', 'source_first']:
