@@ -4,6 +4,8 @@
 create trigger security_test_proposal_timestamp before update on public.crm_proposals
 for each row execute function app_private.set_updated_at();
 update public.crm_proposals set status=status where id='40000000-0000-0000-0000-000000000001';
+-- R2 invalidates derived sent state to draft on actual source edits. Revised-context
+-- requests may create a NEW operation, but must never reuse old acceptance.
 -- Exact review reproductions: accepted -> NULL-claim failed; changed sent content -> old accepted.
 do $$ declare accepted uuid; before_row jsonb; after_row jsonb; result jsonb; v timestamptz; begin
  select id,to_jsonb(d) into accepted,before_row from public.crm_document_deliveries d
@@ -26,16 +28,18 @@ do $$ declare accepted uuid; before_row jsonb; after_row jsonb; result jsonb; v 
  update public.crm_proposals set title='Changed after provider acceptance' where id='40000000-0000-0000-0000-000000000001';
  select updated_at into v from public.crm_proposals where id='40000000-0000-0000-0000-000000000001';
  set local role service_role;
- begin perform security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001',v,'{"to":["customer@example.test"],"subject":"Changed content"}',repeat('a',64));
-  raise exception 'Changed content reused stale acceptance'; exception when insufficient_privilege then null; end;
+ result:= security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001',v,'{"to":["customer@example.test"],"subject":"Changed content"}',repeat('a',64));
+ if result->>'action'<>'send' or result->>'id'=accepted::text then raise exception 'Changed content reused stale acceptance'; end if;
+ perform public.crm_finish_document_delivery((result->>'id')::uuid,(result->>'claim')::uuid,'failed',null,'Synthetic explicit revised-context send rejected by provider');
  reset role;
  -- Restore content, then isolate a recipient-only change.
  update public.crm_proposals set title='Synthetic proposal' where id='40000000-0000-0000-0000-000000000001';
  update public.crm_customers set email='changed-recipient@example.test' where id='20000000-0000-0000-0000-000000000001';
  select updated_at into v from public.crm_proposals where id='40000000-0000-0000-0000-000000000001';
  set local role service_role;
- begin perform security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001',v,'{"to":["changed-recipient@example.test"],"subject":"Recipient changed"}',repeat('a',64));
-  raise exception 'Changed recipient reused stale acceptance'; exception when insufficient_privilege then null; end;
+ result:= security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001',v,'{"to":["changed-recipient@example.test"],"subject":"Recipient changed"}',repeat('a',64));
+ if result->>'action'<>'send' or result->>'id'=accepted::text then raise exception 'Changed recipient reused stale acceptance'; end if;
+ perform public.crm_finish_document_delivery((result->>'id')::uuid,(result->>'claim')::uuid,'failed',null,'Synthetic explicit revised-context send rejected by provider');
  reset role;
  update public.crm_customers set email='customer@example.test' where id='20000000-0000-0000-0000-000000000001';
 end $$;
@@ -153,14 +157,15 @@ do $$ declare fingerprint text; doc uuid:=gen_random_uuid(); actor uuid; begin
 end $$;
 
 -- Relevant template/property context changes cannot reuse an accepted proposal.
-do $$ declare kind text; v timestamptz; begin
+do $$ declare kind text; v timestamptz; result jsonb; begin
  foreach kind in array array['property','template'] loop
   if kind='property' then update public.crm_properties set address_line1='Changed after acceptance' where id='30000000-0000-0000-0000-000000000001';
   else update public.crm_proposal_templates set introduction='Changed after acceptance' where division_id='TRD'; end if;
   select updated_at into v from public.crm_proposals where id='40000000-0000-0000-0000-000000000001';
   set local role service_role;
-  begin perform security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001',v,'{"to":["customer@example.test"],"subject":"Context edit"}',repeat('a',64));
-   raise exception 'Changed % reused acceptance',kind; exception when insufficient_privilege then null; end;
+  result:= security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001',v,'{"to":["customer@example.test"],"subject":"Context edit"}',repeat('a',64));
+  if result->>'action'<>'send' then raise exception 'Changed % reused acceptance',kind; end if;
+  perform public.crm_finish_document_delivery((result->>'id')::uuid,(result->>'claim')::uuid,'failed',null,'Synthetic explicit revised-context send rejected by provider');
   reset role;
   if kind='property' then update public.crm_properties set address_line1='Synthetic' where id='30000000-0000-0000-0000-000000000001'; end if;
  end loop;

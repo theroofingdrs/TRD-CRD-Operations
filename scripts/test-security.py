@@ -4,6 +4,7 @@ import os, re, subprocess, time, uuid, json, sys, shutil, tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from postgrest_checks import postgrest_checks
+from completion_race_checks import completion_race_checks
 root = Path(__file__).resolve().parents[1]
 available=[mode for mode in ('delivery','files') if (root/f'supabase/tests/security_{mode}.sql').exists()]
 if len(sys.argv)==1 and len(available)>1:
@@ -96,10 +97,15 @@ rollback;
         if migration.name.startswith('20261103040000'):
             run(['exec',name,'createdb','-h','127.0.0.1','-U','postgres','-T','postgres','r1_before'],stdout=subprocess.DEVNULL)
             render_test('r1_before',historical=True)
+        if migration.name.startswith('20261103050000'):
+            run(['exec',name,'createdb','-h','127.0.0.1','-U','postgres','-T','postgres','r2_before'],stdout=subprocess.DEVNULL)
+            completion_race_checks(docker,env,name,'r2_before',expected_defect=True)
         sql(migration.read_text())
     sql((root/f'supabase/tests/security_{mode}.sql').read_text() + ((root/'supabase/tests/security_delivery_recovery.sql').read_text() if mode=='delivery' else ''))
     if mode=='delivery':
         sql((root/'supabase/tests/security_delivery_artifacts.sql').read_text())
+        sql((root/'supabase/tests/security_delivery_context_epochs.sql').read_text())
+        print('PASS: all six proposal context source writers, epoch authority, irrelevant edits and terminal business states')
         print('PASS: immutable snapshots, forged inputs, cross-document IDs, PDF hash/request tampering and artifact reuse SQL')
         print('PASS: NULL/stale/terminal claims, context binding, expiry, credentials and owner recovery SQL')
         sql("insert into public.crm_proposals(id,division_id,customer_id,property_id,title,updated_at) values('40000000-0000-0000-0000-000000000002','TRD','20000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000001','Concurrent synthetic','2026-11-03T00:00:00Z');")
@@ -130,7 +136,9 @@ rollback;
         sql("do $$ begin if exists(select 1 from public.crm_warranties where document_file_id='"+file_id+"') and not exists(select 1 from storage.objects where name='TRD/concurrent.pdf') then raise exception 'Concurrent deletion left a dangling document'; end if; end $$;")
         print('PASS: concurrent reference/deletion never commits a dangling document')
 
-    if mode=='delivery': render_test()
+    if mode=='delivery':
+        render_test()
+        completion_race_checks(docker,env,name)
     postgrest_checks(docker,env,name,root,run,sql,mode)
     # Keep the pre-existing financial/price-book suites independent of the full
     # baseline fixture; each receives its own empty database.
