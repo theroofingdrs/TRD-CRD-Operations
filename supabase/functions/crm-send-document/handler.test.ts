@@ -14,17 +14,19 @@ const id='40000000-0000-0000-0000-000000000001';
 const customer='20000000-0000-0000-0000-000000000001';
 const property='30000000-0000-0000-0000-000000000001';
 function equal(a: unknown,b: unknown) { if(a!==b) throw new Error(`${a} !== ${b}`); }
-async function request(headers: Record<string,string>, mode: string) {
+async function request(headers: Record<string,string>, mode: string, docType = "proposal") {
   let providerCalls=0;
   globalThis.fetch = async (input: string | URL | Request, options?: RequestInit) => {
     const url=String(input);
     if(url.includes('/auth/v1/user')) return mode==='invalid' ? Response.json({message:'invalid'}, {status:401}) : Response.json({id:'10000000-0000-0000-0000-000000000002',email:'synthetic@example.test'});
-    if(url.includes('/rest/v1/crm_proposals')) {
+    if(url.includes('/rest/v1/crm_proposals?') || url.includes('/rest/v1/crm_inspections?')) {
       if(mode==='unauthorized') return Response.json({message:'not found'}, {status:404});
-      return Response.json({id,division_id:'TRD',updated_at:'2026-11-03T00:00:00Z',customer_id:customer,property_id:property,title:'Synthetic',line_items:[],
+      return Response.json({template_data:mode==='roofrMismatch'?{roofr_report_id:'90000000-0000-0000-0000-000000000001'}:{},id,division_id:'TRD',updated_at:'2026-11-03T00:00:00Z',customer_id:customer,property_id:property,title:'Synthetic',line_items:[],
         crm_customers:mode==='missing'?null:{id:customer,email:'customer@example.test',display_name:'Synthetic'},
         crm_properties:{id:property,customer_id:mode==='mismatch'?'different':customer}});
     }
+    if(url.includes('/rest/v1/crm_files?') || url.includes('/rest/v1/crm_inspection_items?')) return Response.json([]);
+    if(url.includes('/rest/v1/crm_inspection_photos?')) return Response.json([{file_id:'90000000-0000-0000-0000-000000000001',crm_files:{id:'90000000-0000-0000-0000-000000000001',division_id:'TRD',related_type:'inspection',related_id:'another-inspection',bucket_id:'roof-doctors-private',content_type:'image/jpeg'}}]);
     if(url.includes('/crm_proposal_templates')) return Response.json([]);
     if(url.includes('/rpc/crm_claim_document_delivery')) {
       const body=JSON.parse(String(options?.body));
@@ -36,7 +38,7 @@ async function request(headers: Record<string,string>, mode: string) {
     throw new Error('Unexpected outbound fixture path');
   };
   try {
-    const result=await handler(new Request('http://localhost/send',{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify({document_type:'proposal',document_id:id})}));
+    const result=await handler(new Request('http://localhost/send',{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify({document_type:docType,document_id:id})}));
     equal(providerCalls,mode==='accepted'?1:0); return result.status;
   } finally { globalThis.fetch=fetchOriginal; }
 }
@@ -47,3 +49,6 @@ Deno.test('missing customer relation fails closed',async()=>equal(await request(
 Deno.test('mismatched customer/property fails closed',async()=>equal(await request({Authorization:'Bearer synthetic'},'mismatch'),403));
 
 Deno.test('verified caller identity reaches trusted operation and acceptance persists',async()=>equal(await request({Authorization:'Bearer synthetic','x-user-id':'forged-owner'},'accepted'),200));
+
+Deno.test('missing or unauthorized linked Roofr report prevents sending',async()=>equal(await request({Authorization:'Bearer synthetic'},'roofrMismatch'),403));
+Deno.test('cross-inspection photo relationship prevents sending',async()=>equal(await request({Authorization:'Bearer synthetic'},'photoMismatch','inspection'),403));

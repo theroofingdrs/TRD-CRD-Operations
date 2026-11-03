@@ -18,7 +18,7 @@ def run(args, **kw): return subprocess.run(docker+args, env=env, check=True, **k
 def sql(source):
     r=run(['exec','-i',name,'psql','-h','127.0.0.1','-X','-U','postgres','-v','ON_ERROR_STOP=1'], input=source, text=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 try:
-    run(['run','--detach','--name',name,'--network','none','-e','POSTGRES_HOST_AUTH_METHOD=trust','postgres:17-alpine'],stdout=subprocess.DEVNULL)
+    run(['run','--detach','--name',name,'--network','none','--tmpfs','/var/lib/postgresql/data:rw,size=512m','-e','POSTGRES_HOST_AUTH_METHOD=trust','postgres:17-alpine'],stdout=subprocess.DEVNULL)
     for _ in range(100):
         if subprocess.run(docker+['exec',name,'pg_isready','-h','127.0.0.1','-U','postgres'],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0: break
         time.sleep(.1)
@@ -118,4 +118,4 @@ rollback;
 except subprocess.CalledProcessError as error:
     print(error.stderr or str(error)); raise
 finally:
-    subprocess.run(docker+['rm','-f',name],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    subprocess.run(docker+['rm','-f','-v',name],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)

@@ -36,10 +36,12 @@ Coordinate with `security/private-file-attachment-integrity` for attachment poli
 
 - `npm run build`: TypeScript and Vite pass; existing bundle warning.
 - `node --experimental-strip-types supabase/functions/crm-send-document/delivery.test.mjs`: 8 pass.
-- `deno test --allow-env --node-modules-dir=none supabase/functions/crm-send-document/handler.test.ts`: 6 pass with synthetic transport and no network permission.
+- `deno test --allow-env --node-modules-dir=none supabase/functions/crm-send-document/handler.test.ts`: 8 pass with synthetic transport and no network permission.
 - `deno check --node-modules-dir=none supabase/functions/crm-send-document/index.ts`: passes.
 - `python3 scripts/test-security.py`: PostgreSQL 17 baseline + ordered migrations, schema-drift rollback, actual-role SQL authorization (all nine roles / three document types), conditional proposal transition, 8-session concurrency, direct PostgREST JWT/mutation/schema checks and both existing financial/price-book suites pass.
 
 The source snapshot requires only function terminators and PK/UNIQUE ordering normalization for an empty database. Auth/Storage infrastructure is a declared synthetic fixture. The unavailable platform `rls_auto_enable()` implementation is not emulated/applied. PostgREST exposes public only in this fixture; this does not verify deployed exposure/default grants. Provider behavior is mocked to its documented contract. No live provider, hosted Supabase, customer data or secrets were used. H1/H2/H3/H4, production catalog/configuration, end-to-end hosted Storage and independent security review remain release gates.
 
 Remote CI run 41648263041 passed build, baseline/SQL/PostgREST suites and Edge Function typechecks, then failed because Node 22 lacks the unprefixed --test-isolation flag. The test invocation was corrected to direct Node execution with type stripping; no application/security behavior changed. Subsequent CI results are recorded in the PR.
+
+Local fixture reruns exhausted Docker disk because anonymous PostgreSQL volumes survived container removal. Three volumes were removed only after tracing their events to this harness; unrelated volumes/drafts were retained. The harness now uses bounded tmpfs PGDATA and removes its own volumes. Fresh SQL/PostgREST reruns passed. Linked Roofr/photo relationships and required bytes also fail closed before sending; these paths are covered by the Edge tests.

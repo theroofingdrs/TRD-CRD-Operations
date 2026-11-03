@@ -423,7 +423,8 @@ Deno.serve(async (req: Request) => {
       const { data: roofrFile } = await client.from("crm_files")
         .select("original_filename,bucket_id,object_path,metadata")
         .eq("id", roofrReportId).eq("division_id", division).eq("related_type", "property").eq("related_id", propertyId).maybeSingle();
-      if (roofrFile?.metadata?.document_type === "roofr_measurement_report") {
+      if (!roofrFile || roofrFile.metadata?.document_type !== "roofr_measurement_report") return json({ error: "Required Roofr report relationship is unavailable or inconsistent." }, 403);
+      if (roofrFile.metadata.document_type === "roofr_measurement_report") {
         const roofrValues = Array.isArray(roofrFile.metadata?.extracted_measurements) ? roofrFile.metadata.extracted_measurements : [];
         sections.push({ heading: "Roofr measurement report", body: [
           "Source report: " + clean(roofrFile.original_filename),
@@ -431,6 +432,7 @@ Deno.serve(async (req: Request) => {
           "The original Roofr PDF is attached separately to this email."
         ] });
         const { data: roofrPdf } = await client.storage.from(roofrFile.bucket_id).download(roofrFile.object_path);
+        if (!roofrPdf) return json({ error: "Required Roofr report bytes are unavailable." }, 503);
         if (roofrPdf) extraAttachments.push({
           filename: "Roofr-" + clean(roofrFile.original_filename).replace(/[^a-zA-Z0-9._-]/g, "_"),
           content: toBase64(new Uint8Array(await roofrPdf.arrayBuffer()))
@@ -501,8 +503,10 @@ Deno.serve(async (req: Request) => {
       const { data: roofrFile } = await client.from("crm_files")
         .select("original_filename,bucket_id,object_path,metadata")
         .eq("id", inspectionRoofrReportId).eq("division_id", division).eq("related_type", "property").eq("related_id", propertyId).maybeSingle();
-      if (roofrFile?.metadata?.document_type === "roofr_measurement_report") {
+      if (!roofrFile || roofrFile.metadata?.document_type !== "roofr_measurement_report") return json({ error: "Required Roofr report relationship is unavailable or inconsistent." }, 403);
+      if (roofrFile.metadata.document_type === "roofr_measurement_report") {
         const { data: roofrPdf } = await client.storage.from(roofrFile.bucket_id).download(roofrFile.object_path);
+        if (!roofrPdf) return json({ error: "Required Roofr report bytes are unavailable." }, 503);
         if (roofrPdf) extraAttachments.push({
           filename: "Roofr-" + clean(roofrFile.original_filename).replace(/[^a-zA-Z0-9._-]/g, "_"),
           content: toBase64(new Uint8Array(await roofrPdf.arrayBuffer()))
@@ -516,18 +520,25 @@ Deno.serve(async (req: Request) => {
       ["Adjuster phone", claim.adjuster_phone], ["Adjuster email", claim.adjuster_email]
     ].filter((entry: any[]) => entry[1]).map((entry: any[]) => entry[0] + ": " + entry[1]);
     if (claimLines.length) sections.push({ heading: "Insurance and claim information", body: claimLines });
-    const { data: items } = await client.from("crm_inspection_items").select("category,location,observation,severity,recommendation").eq("inspection_id", id).order("created_at");
+    const { data: items, error: itemsError } = await client.from("crm_inspection_items").select("category,location,observation,severity,recommendation").eq("inspection_id", id).order("created_at");
+    if (itemsError) return json({ error: "Inspection checklist is unavailable." }, 503);
     sections.push({ heading: "Checklist findings", body: (items || []).map((item: any) => item.category + (item.location ? " (" + item.location + ")" : "") + ": " + item.observation + (item.severity && item.severity !== "none" ? " | Severity: " + item.severity : "") + (item.recommendation ? " | Recommendation: " + item.recommendation : "")) });
     if (data.roof_sections?.length) sections.push({ heading: "Roof sections", body: data.roof_sections.map((s: any) => s.name || "Section") });
     if (data.summary) sections.push({ heading: "Summary", body: [data.summary] });
     if (data.recommendations) sections.push({ heading: "Recommendations", body: [data.recommendations] });
-    const { data: photos } = await client.from("crm_inspection_photos").select("photo_label,caption,roof_section,crm_files(bucket_id,object_path,content_type)").eq("inspection_id", id).order("created_at");
+    const { data: photos, error: photosError } = await client.from("crm_inspection_photos").select("file_id,photo_label,caption,roof_section,crm_files(id,division_id,related_type,related_id,bucket_id,object_path,content_type)").eq("inspection_id", id).order("created_at");
+    if (photosError) return json({ error: "Inspection photo relationships are unavailable." }, 503);
     if (photos?.length) {
       sections.push({ heading: "Attached inspection photos", body: photos.map((p: any) => [p.photo_label,p.roof_section,p.caption].filter(Boolean).join(" | ")) });
       for (const photo of photos as any[]) {
-        const file = photo.crm_files;
-        if (!file || !["image/jpeg","image/png"].includes(file.content_type)) continue;
+        let file: any;
+        try {
+          file = requiredParent(photo.crm_files, photo.file_id);
+          if (file.division_id !== division || file.related_type !== "inspection" || file.related_id !== id || file.bucket_id !== "roof-doctors-private") throw new Error();
+        } catch { return json({ error: "Inspection photo relationship is inconsistent." }, 403); }
+        if (!["image/jpeg","image/png"].includes(file.content_type)) continue;
         const { data: imageFile } = await client.storage.from(file.bucket_id).download(file.object_path);
+        if (!imageFile) return json({ error: "Required inspection photo bytes are unavailable." }, 503);
         if (imageFile) photoImages.push({
           label: photo.photo_label || "Inspection photo", caption: photo.caption || "",
           section: photo.roof_section || "", bytes: new Uint8Array(await imageFile.arrayBuffer()), contentType: file.content_type
