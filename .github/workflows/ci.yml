@@ -28,6 +28,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -49,6 +51,10 @@ jobs:
             sleep 1
           done
           docker exec --interactive --workdir /workspace/supabase/tests project-pipeline-test-db psql --host 127.0.0.1 --username postgres --dbname postgres --file /workspace/supabase/tests/project_pipeline_migration_test.sql
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+      - name: Install actual PDF regression tooling
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - name: Test security against baseline and ordered migrations
         run: python3 scripts/test-security.py
       - name: Test editable price book migration in disposable PostgreSQL
@@ -62,8 +68,6 @@ jobs:
             sleep 1
           done
           docker exec --interactive --workdir /workspace/supabase/tests price-book-test-db psql --host 127.0.0.1 --username postgres --dbname postgres --file /workspace/supabase/tests/price_book_migration_test.sql
-      - name: Set up Deno
-        uses: denoland/setup-deno@v2
       - name: Type check Supabase Edge Functions
         run: |
           deno check supabase/functions/crm-invite-employee/index.ts

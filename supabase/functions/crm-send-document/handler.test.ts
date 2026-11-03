@@ -19,20 +19,24 @@ async function request(headers: Record<string,string>, mode: string, docType = "
   globalThis.fetch = async (input: string | URL | Request, options?: RequestInit) => {
     const url=String(input);
     if(url.includes('/auth/v1/user')) return mode==='invalid' ? Response.json({message:'invalid'}, {status:401}) : Response.json({id:'10000000-0000-0000-0000-000000000002',email:'synthetic@example.test'});
-    if(url.includes('/rpc/crm_document_delivery_context')) { equal(JSON.parse(String(options?.body)).p_actor,'10000000-0000-0000-0000-000000000002'); return mode==='unauthorized' ? Response.json({message:'denied'},{status:403}) : Response.json('a'.repeat(64)); }
-    if(url.includes('/rest/v1/crm_proposals?') || url.includes('/rest/v1/crm_inspections?')) {
-      if(mode==='unauthorized') return Response.json({message:'not found'}, {status:404});
-      return Response.json({template_data:mode==='roofrMismatch'?{roofr_report_id:'90000000-0000-0000-0000-000000000001'}:{},id,division_id:'TRD',updated_at:'2026-11-03T00:00:00Z',customer_id:customer,property_id:property,title:'Synthetic',line_items:[],
-        crm_customers:mode==='missing'?null:{id:customer,email:'customer@example.test',display_name:'Synthetic'},
-        crm_properties:{id:property,customer_id:mode==='mismatch'?'different':customer}});
+    if(url.includes('/rpc/crm_document_render_inputs')) {
+      if(mode==='unauthorized') return Response.json({message:'denied'},{status:403});
+      return Response.json({renderer:'crm-pdf-v3',type:docType,version:'2026-11-03T00:00:00Z',
+        document:{template_data:mode==='roofrMismatch'?{roofr_report_id:'90000000-0000-0000-0000-000000000001'}:{},id,division_id:'TRD',customer_id:customer,property_id:property,title:'Synthetic',line_items:[]},
+        customer:mode==='missing'?null:{id:customer,email:'customer@example.test',display_name:'Synthetic'},
+        property:{id:property,customer_id:mode==='mismatch'?'different':customer},template:null,items:[],report:null,
+        photos:mode==='photoMismatch'?[{file_id:'90000000-0000-0000-0000-000000000001',crm_files:{id:'90000000-0000-0000-0000-000000000001',division_id:'TRD',related_type:'inspection',related_id:'another-inspection',bucket_id:'roof-doctors-private',content_type:'image/jpeg'}}]:[]});
     }
-    if(url.includes('/rest/v1/crm_files?') || url.includes('/rest/v1/crm_inspection_items?')) return Response.json([]);
-    if(url.includes('/rest/v1/crm_inspection_photos?')) return Response.json([{file_id:'90000000-0000-0000-0000-000000000001',crm_files:{id:'90000000-0000-0000-0000-000000000001',division_id:'TRD',related_type:'inspection',related_id:'another-inspection',bucket_id:'roof-doctors-private',content_type:'image/jpeg'}}]);
-    if(url.includes('/crm_proposal_templates')) return Response.json([]);
+    if(url.includes('/rpc/crm_freeze_document_render')) {
+      const args=JSON.parse(String(options?.body));equal(args.p_actor,'10000000-0000-0000-0000-000000000002');
+      return Response.json({id:'70000000-0000-0000-0000-000000000001',inputs:args.p_inputs,context:'a'.repeat(64),captured_at:'2026-11-03T00:00:00Z',current_version:args.p_inputs.version,cached_body:null});
+    }
     if(url.includes('/rpc/crm_claim_document_delivery')) {
       const body=JSON.parse(String(options?.body));
       equal(body.p_actor,'10000000-0000-0000-0000-000000000002');
       equal(JSON.parse(body.p_body)._crm_context,'a'.repeat(64));
+      equal(JSON.parse(body.p_body)._crm_snapshot,'70000000-0000-0000-0000-000000000001');
+      equal(JSON.parse(body.p_body)._crm_pdf_sha256.length,64);
       return Response.json({action:'send',id:'synthetic-operation',claim:'synthetic-claim',key:'crm-document/synthetic',body:'{"to":["customer@example.test"]}'});
     }
     if(url.includes('/rpc/crm_finish_document_delivery')) return new Response(null,{status:204});
@@ -55,20 +59,20 @@ Deno.test('verified caller identity reaches trusted operation and acceptance per
 Deno.test('missing or unauthorized linked Roofr report prevents sending',async()=>equal(await request({Authorization:'Bearer synthetic'},'roofrMismatch'),403));
 Deno.test('cross-inspection photo relationship prevents sending',async()=>equal(await request({Authorization:'Bearer synthetic'},'photoMismatch','inspection'),403));
 
-for (const mode of ['accepted','legacyAccepted','denied','changedCredential','retrievalFailure','mismatch','persistenceFailure']) {
+for (const mode of ['accepted','boundAccepted','legacyAccepted','denied','changedCredential','retrievalFailure','mismatch','persistenceFailure']) {
  Deno.test('owner recovery boundary: '+mode,async()=>{
   let reads=0,writes=0,gets=0;
   const operationId='50000000-0000-0000-0000-000000000001';
   const providerId='60000000-0000-0000-0000-000000000001';
   const body={to:['customer@example.test'],from:'office@example.test',subject:'Synthetic',html:'Synthetic body'};
-  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(mode==='legacyAccepted'?'synthetic-provider-key':JSON.stringify(['synthetic-provider-key','office@example.test','crm-pdf-v2'])));
+  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(mode==='legacyAccepted'?'synthetic-provider-key':JSON.stringify(['synthetic-provider-key','office@example.test',mode==='boundAccepted'?'crm-pdf-v3':'crm-pdf-v2'])));
   const context=Array.from(new Uint8Array(digest)).map(b=>b.toString(16).padStart(2,'0')).join('');
   globalThis.fetch=async(input: string | URL | Request, options?: RequestInit)=>{
    const url=String(input);
    if(url.includes('/auth/v1/user'))return Response.json({id:'10000000-0000-0000-0000-000000000002'});
    if(url.includes('/rpc/crm_delivery_reconciliation')){
     const args=JSON.parse(String(options?.body));equal(args.p_actor,'10000000-0000-0000-0000-000000000002');
-    if(!args.p_provider){reads++;return mode==='denied'?Response.json({message:'denied'},{status:403}):Response.json({id:operationId,body:JSON.stringify(body),provider_context:mode==='changedCredential'?'old-credential':context,context_fingerprint:mode==='legacyAccepted'?null:'a'.repeat(64),status:'uncertain'});}
+    if(!args.p_provider){reads++;return mode==='denied'?Response.json({message:'denied'},{status:403}):Response.json({id:operationId,body:JSON.stringify(body),provider_context:mode==='changedCredential'?'old-credential':context,context_fingerprint:mode==='legacyAccepted'?null:'a'.repeat(64),render_snapshot_id:mode==='boundAccepted'?'70000000-0000-0000-0000-000000000001':null,status:'uncertain'});}
     writes++;equal(args.p_event,'sent');
     return mode==='persistenceFailure'?Response.json({message:'unavailable'},{status:503}):Response.json({id:operationId,status:'accepted',provider_last_event:'sent'});
    }
@@ -81,10 +85,10 @@ for (const mode of ['accepted','legacyAccepted','denied','changedCredential','re
   };
   try{
    const response=await handler(new Request('http://localhost/send',{method:'POST',headers:{Authorization:'Bearer synthetic','Content-Type':'application/json','x-user-id':'forged-owner'},body:JSON.stringify({action:'reconcile',delivery_id:operationId,provider_id:providerId,evidence:'Synthetic log reference'})}));
-   equal(response.status,['accepted','legacyAccepted'].includes(mode)?200:mode==='denied'?403:409);equal(reads,1);
+   equal(response.status,['accepted','boundAccepted','legacyAccepted'].includes(mode)?200:mode==='denied'?403:409);equal(reads,1);
    equal(gets,['denied','changedCredential'].includes(mode)?0:1);
-   equal(writes,['accepted','legacyAccepted','persistenceFailure'].includes(mode)?1:0);
-   if(['accepted','legacyAccepted'].includes(mode)){const value=await response.json();equal(value.status,'accepted');equal(value.provider_last_event,'sent');equal(value.delivered,undefined);}
+   equal(writes,['accepted','boundAccepted','legacyAccepted','persistenceFailure'].includes(mode)?1:0);
+   if(['accepted','boundAccepted','legacyAccepted'].includes(mode)){const value=await response.json();equal(value.status,'accepted');equal(value.provider_last_event,'sent');equal(value.delivered,undefined);}
   }finally{globalThis.fetch=fetchOriginal;}
  });
 }

@@ -1,10 +1,21 @@
--- Test adapter supplies the actual pre-render snapshot; decisions remain real RPC/SQL.
-create function pg_temp.bound_claim(actor uuid,t text,doc uuid,version timestamptz,body text,context text)
-returns jsonb language plpgsql as $$ declare fingerprint text; begin
- fingerprint:=public.crm_document_delivery_context(actor,t,doc);
- return public.crm_claim_document_delivery(actor,t,doc,version,
-   jsonb_set(body::jsonb,'{_crm_context}',to_jsonb(fingerprint))::text,context);
+-- Synthetic renderer adapter; production snapshot/claim/finish RPC decisions are real.
+create schema security_test;
+grant usage on schema security_test to service_role;
+create function security_test.bound_claim(actor uuid,t text,doc uuid,version timestamptz,body text,context text)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare frame jsonb; payload jsonb; pdf text; begin
+ frame:=public.crm_freeze_document_render(actor,t,doc,public.crm_document_render_inputs(t,doc));
+ if frame->>'cached_body' is not null then payload:=(frame->>'cached_body')::jsonb;
+ else
+  pdf:=encode(convert_to('%PDF-synthetic-fixture-'||(frame->>'context'),'UTF8'),'base64');
+  payload:=body::jsonb||jsonb_build_object('attachments',jsonb_build_array(jsonb_build_object('filename','synthetic.pdf','content',pdf)));
+ end if;
+ payload:=payload||jsonb_build_object('_crm_context',frame->>'context','_crm_snapshot',frame->>'id',
+  '_crm_pdf_sha256',encode(sha256(decode(payload->'attachments'->0->>'content','base64')),'hex'));
+ return public.crm_claim_document_delivery(actor,t,doc,version,payload::text,context);
 end $$;
+revoke all on function security_test.bound_claim(uuid,text,uuid,timestamptz,text,text) from public,anon,authenticated;
+grant execute on function security_test.bound_claim(uuid,text,uuid,timestamptz,text,text) to service_role;
 -- Synthetic identities only. Run after the actual baseline and ordered migrations.
 insert into auth.users(id,email) values
 ('10000000-0000-0000-0000-000000000001','owner@example.test'),
@@ -29,14 +40,14 @@ reset role;
 set role service_role;
 select set_config('request.jwt.claim.role','service_role',false);
 do $$ declare op jsonb; duplicate jsonb; begin
- begin perform pg_temp.bound_claim('10000000-0000-0000-0000-000000000002','proposal','40000000-0000-0000-0000-000000000001','2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"Test"}',repeat('a',64)); raise exception 'Unlinked actor sent'; exception when insufficient_privilege then null; end;
- begin perform pg_temp.bound_claim('10000000-0000-0000-0000-000000000003','proposal','40000000-0000-0000-0000-000000000001','2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"Test"}',repeat('a',64)); raise exception 'Wrong division actor sent'; exception when insufficient_privilege then null; end;
- op:=pg_temp.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001','2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"Test"}',repeat('a',64));
+ begin perform security_test.bound_claim('10000000-0000-0000-0000-000000000002','proposal','40000000-0000-0000-0000-000000000001','2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"Test"}',repeat('a',64)); raise exception 'Unlinked actor sent'; exception when insufficient_privilege then null; end;
+ begin perform security_test.bound_claim('10000000-0000-0000-0000-000000000003','proposal','40000000-0000-0000-0000-000000000001','2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"Test"}',repeat('a',64)); raise exception 'Wrong division actor sent'; exception when insufficient_privilege then null; end;
+ op:=security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001','2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"Test"}',repeat('a',64));
  if op->>'action'<>'send' then raise exception 'No send claim'; end if;
- duplicate:=pg_temp.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001','2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"New bytes ignored"}',repeat('a',64));
+ duplicate:=security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001','2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"New bytes ignored"}',repeat('a',64));
  if duplicate->>'action'<>'busy' then raise exception 'Concurrent claim was not serialized'; end if;
  perform public.crm_finish_document_delivery((op->>'id')::uuid,(op->>'claim')::uuid,'uncertain',null,'Synthetic timeout');
- duplicate:=pg_temp.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001','2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"Different PDF"}',repeat('a',64));
+ duplicate:=security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001','2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"Different PDF"}',repeat('a',64));
  if duplicate->>'key'<>op->>'key' or duplicate->>'body'<>op->>'body' then raise exception 'Retry payload/key changed'; end if;
  perform public.crm_finish_document_delivery((duplicate->>'id')::uuid,(duplicate->>'claim')::uuid,'accepted','synthetic-provider-id',null);
 end $$;
@@ -74,7 +85,7 @@ select set_config('request.jwt.claim.role','service_role',false);
 do $$ declare r record; result jsonb; begin
  for r in select * from pg_temp.delivery_role_cases loop
   begin
-   result:=pg_temp.bound_claim(r.actor,r.type,r.doc,'2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"Role test"}',repeat('a',64));
+   result:=security_test.bound_claim(r.actor,r.type,r.doc,'2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"Role test"}',repeat('a',64));
    if not r.allowed then raise exception 'Unauthorized role sent'; end if;
    perform public.crm_finish_document_delivery((result->>'id')::uuid,(result->>'claim')::uuid,'failed',null,'Synthetic rejection');
   exception when insufficient_privilege then if r.allowed then raise; end if; end;
@@ -84,7 +95,7 @@ reset role;
 -- An eligible version can become declined while the provider request is in flight.
 insert into public.crm_proposals(id,division_id,customer_id,property_id,title,updated_at) values('40000000-0000-0000-0000-000000000003','TRD','20000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000001','Concurrent edit fixture','2026-11-03T00:00:00Z');
 set role service_role;
-select pg_temp.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000003','2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"Version test"}',repeat('a',64)) as claim \gset
+select security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000003','2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"Version test"}',repeat('a',64)) as claim \gset
 reset role;
 update public.crm_proposals set status='declined' where id='40000000-0000-0000-0000-000000000003';
 set role service_role;
@@ -105,7 +116,7 @@ do $$ declare doc uuid:=gen_random_uuid(); op jsonb; begin
  insert into public.crm_proposals(id,division_id,customer_id,property_id,title,updated_at)
  values(doc,'TRD','20000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000001','No timestamp fixture','2026-11-03T00:00:00Z');
  set local role service_role;
- op:=pg_temp.bound_claim('10000000-0000-0000-0000-000000000001','proposal',doc,'2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"Concurrent content"}',repeat('a',64));
+ op:=security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal',doc,'2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"Concurrent content"}',repeat('a',64));
  if (op->>'body')::jsonb ? '_crm_context' then raise exception 'Internal context leaked to provider payload'; end if;
  reset role;
  update public.crm_proposals set title='Changed content without timestamp' where id=doc;
@@ -114,4 +125,22 @@ do $$ declare doc uuid:=gen_random_uuid(); op jsonb; begin
  perform public.crm_finish_document_delivery((op->>'id')::uuid,(op->>'claim')::uuid,'accepted','provider-original-content',null);
  reset role;
  if (select status from public.crm_proposals where id=doc)<>'draft' then raise exception 'Edited content falsely marked sent without timestamp trigger'; end if;
+end $$;
+-- The new snapshot reader must retain each staff role's existing read access;
+-- creation/send authority remains independently checked by trusted freeze/claim.
+do $$ declare r record; captured jsonb; begin
+ for r in select * from pg_temp.delivery_role_cases loop
+  perform set_config('request.jwt.claim.sub',r.actor::text,true);
+  set local role authenticated;
+  captured:=public.crm_document_render_inputs(r.type,r.doc);
+  reset role;
+  if captured->'document'->>'id'<>r.doc::text then raise exception 'Staff snapshot compatibility failure'; end if;
+ end loop;
+ update public.crm_memberships set active=false where user_id='10000000-0000-0000-0000-000000000001' and division_id='TRD';
+ perform set_config('request.jwt.claim.sub','10000000-0000-0000-0000-000000000001',true);
+ set local role authenticated;
+ begin perform public.crm_document_render_inputs('proposal','40000000-0000-0000-0000-000000000001');
+  raise exception 'Removed membership retained caller snapshot access'; exception when insufficient_privilege then null; end;
+ reset role;
+ update public.crm_memberships set active=true where user_id='10000000-0000-0000-0000-000000000001' and division_id='TRD';
 end $$;

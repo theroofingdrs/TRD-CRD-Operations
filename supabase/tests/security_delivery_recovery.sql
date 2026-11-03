@@ -20,13 +20,13 @@ do $$ declare accepted uuid; before_row jsonb; after_row jsonb; result jsonb; v 
  select updated_at into v from public.crm_proposals where id='40000000-0000-0000-0000-000000000001';
  set local role service_role;
  if v='2026-11-03T00:00:00Z'::timestamptz then raise exception 'Real status timestamp trigger did not run'; end if;
- result:=pg_temp.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001',v,'{"to":["customer@example.test"],"subject":"Regenerated PDF bytes"}',repeat('a',64));
+ result:=security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001',v,'{"to":["customer@example.test"],"subject":"Regenerated PDF bytes"}',repeat('a',64));
  if result->>'action'<>'complete' or result->>'id'<>accepted::text or result->>'status'<>'accepted' then raise exception 'Status-trigger update invalidated acceptance'; end if;
  reset role;
  update public.crm_proposals set title='Changed after provider acceptance' where id='40000000-0000-0000-0000-000000000001';
  select updated_at into v from public.crm_proposals where id='40000000-0000-0000-0000-000000000001';
  set local role service_role;
- begin perform pg_temp.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001',v,'{"to":["customer@example.test"],"subject":"Changed content"}',repeat('a',64));
+ begin perform security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001',v,'{"to":["customer@example.test"],"subject":"Changed content"}',repeat('a',64));
   raise exception 'Changed content reused stale acceptance'; exception when insufficient_privilege then null; end;
  reset role;
  -- Restore content, then isolate a recipient-only change.
@@ -34,7 +34,7 @@ do $$ declare accepted uuid; before_row jsonb; after_row jsonb; result jsonb; v 
  update public.crm_customers set email='changed-recipient@example.test' where id='20000000-0000-0000-0000-000000000001';
  select updated_at into v from public.crm_proposals where id='40000000-0000-0000-0000-000000000001';
  set local role service_role;
- begin perform pg_temp.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001',v,'{"to":["changed-recipient@example.test"],"subject":"Recipient changed"}',repeat('a',64));
+ begin perform security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001',v,'{"to":["changed-recipient@example.test"],"subject":"Recipient changed"}',repeat('a',64));
   raise exception 'Changed recipient reused stale acceptance'; exception when insufficient_privilege then null; end;
  reset role;
  update public.crm_customers set email='customer@example.test' where id='20000000-0000-0000-0000-000000000001';
@@ -58,7 +58,7 @@ do $$ declare doc uuid; op jsonb; retry jsonb; oldclaim uuid; v timestamptz; fin
     update public.crm_properties set city='Test' where id='30000000-0000-0000-0000-000000000001';
     continue;
   end if;
-  op:=pg_temp.bound_claim('10000000-0000-0000-0000-000000000001','proposal',doc,'2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"Recovery"}',repeat('a',64));
+  op:=security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal',doc,'2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"Recovery"}',repeat('a',64));
   if op->>'action'<>'send' then raise exception 'Initial send missing'; end if;
   oldclaim:=(op->>'claim')::uuid;
   if scenario='stale' then
@@ -82,7 +82,7 @@ do $$ declare doc uuid; op jsonb; retry jsonb; oldclaim uuid; v timestamptz; fin
   select updated_at into v from public.crm_proposals where id=doc;
   set local role service_role;
   if scenario='context' then
-    begin perform pg_temp.bound_claim('10000000-0000-0000-0000-000000000001','proposal',doc,v,'{"to":["customer@example.test"],"subject":"Edited"}',repeat('a',64));
+    begin perform security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal',doc,v,'{"to":["customer@example.test"],"subject":"Edited"}',repeat('a',64));
       raise exception 'Changed uncertain context resent'; exception when serialization_failure then null; end;
   elsif scenario='terminal' then
     begin perform public.crm_finish_document_delivery((op->>'id')::uuid,oldclaim,'accepted','forged-after-terminal',null);
@@ -109,7 +109,7 @@ do $$ declare doc uuid; op jsonb; retry jsonb; oldclaim uuid; v timestamptz; fin
     begin perform public.crm_delivery_reconciliation('10000000-0000-0000-0000-000000000001',(op->>'id')::uuid,'conflicting-provider','delivered','Synthetic evidence');
       raise exception 'Conflicting provider identity accepted'; exception when raise_exception then if sqlerrm<>'Conflicting provider identity' then raise; end if; end;
   else
-    retry:=pg_temp.bound_claim('10000000-0000-0000-0000-000000000001','proposal',doc,v,'{"to":["customer@example.test"],"subject":"Retry bytes ignored"}',case when scenario='credential' then repeat('b',64) else repeat('a',64) end);
+    retry:=security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal',doc,v,'{"to":["customer@example.test"],"subject":"Retry bytes ignored"}',case when scenario='credential' then repeat('b',64) else repeat('a',64) end);
     if scenario in ('expiry','expiry_margin','credential') then
       if retry->>'action'<>'review' or retry->>'status'<>'uncertain' or retry ? 'body' or retry ? 'key' then raise exception 'Unsafe blind resend: %',scenario; end if;
     elsif scenario='failure' then
@@ -123,7 +123,7 @@ do $$ declare doc uuid; op jsonb; retry jsonb; oldclaim uuid; v timestamptz; fin
       select updated_at into v from public.crm_proposals where id=doc;
       if v='2026-11-03T00:00:00Z'::timestamptz then raise exception 'Delivery transition did not fire synthetic timestamp trigger'; end if;
       set local role service_role;
-      retry:=pg_temp.bound_claim('10000000-0000-0000-0000-000000000001','proposal',doc,v,'{"to":["customer@example.test"],"subject":"Unchanged after sent trigger"}',repeat('a',64));
+      retry:=security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal',doc,v,'{"to":["customer@example.test"],"subject":"Unchanged after sent trigger"}',repeat('a',64));
       if retry->>'action'<>'complete' or retry->>'status'<>'accepted' or retry->>'id'<>op->>'id' then raise exception 'Own status-trigger invalidated acceptance'; end if;
     end if;
   end if;
@@ -159,7 +159,7 @@ do $$ declare kind text; v timestamptz; begin
   else update public.crm_proposal_templates set introduction='Changed after acceptance' where division_id='TRD'; end if;
   select updated_at into v from public.crm_proposals where id='40000000-0000-0000-0000-000000000001';
   set local role service_role;
-  begin perform pg_temp.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001',v,'{"to":["customer@example.test"],"subject":"Context edit"}',repeat('a',64));
+  begin perform security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000001',v,'{"to":["customer@example.test"],"subject":"Context edit"}',repeat('a',64));
    raise exception 'Changed % reused acceptance',kind; exception when insufficient_privilege then null; end;
   reset role;
   if kind='property' then update public.crm_properties set address_line1='Synthetic' where id='30000000-0000-0000-0000-000000000001'; end if;
@@ -171,12 +171,12 @@ do $$ declare doc uuid:=gen_random_uuid(); op jsonb; result jsonb; begin
  insert into public.crm_proposals(id,division_id,customer_id,property_id,title,updated_at)
  values(doc,'TRD','20000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000001','Historical binding fixture','2026-11-03T00:00:00Z');
  set local role service_role;
- op:=pg_temp.bound_claim('10000000-0000-0000-0000-000000000001','proposal',doc,'2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"Historical"}',repeat('a',64));
+ op:=security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal',doc,'2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"Historical"}',repeat('a',64));
  perform public.crm_finish_document_delivery((op->>'id')::uuid,(op->>'claim')::uuid,'uncertain',null,'Synthetic unknown acceptance');
  reset role;
  update delivery_private.operations set context_fingerprint=null where id=(op->>'id')::uuid;
  set local role service_role;
- begin perform pg_temp.bound_claim('10000000-0000-0000-0000-000000000001','proposal',doc,'2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"No invented binding"}',repeat('a',64));
+ begin perform security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal',doc,'2026-11-03T00:00:00Z','{"to":["customer@example.test"],"subject":"No invented binding"}',repeat('a',64));
   raise exception 'Historical operation silently rebound'; exception when serialization_failure then null; end;
  result:=public.crm_delivery_reconciliation('10000000-0000-0000-0000-000000000001',(op->>'id')::uuid);
  if result->>'body'<>op->>'body' or result->>'context_fingerprint' is not null then raise exception 'Historical recovery snapshot lost'; end if;

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Disposable baseline + actual ordered migrations. No production connection options."""
-import os, re, subprocess, time, uuid, json, sys
+import os, re, subprocess, time, uuid, json, sys, shutil, tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from postgrest_checks import postgrest_checks
@@ -17,6 +17,24 @@ docker = ['docker','--host=unix:///var/run/docker.sock']
 def run(args, **kw): return subprocess.run(docker+args, env=env, check=True, **kw)
 def sql(source):
     r=run(['exec','-i',name,'psql','-h','127.0.0.1','-X','-U','postgres','-v','ON_ERROR_STOP=1'], input=source, text=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+def render_test(database='postgres', historical=False):
+    deno=os.environ.get('SECURITY_TEST_DENO') or shutil.which('deno')
+    if not deno or not shutil.which('pdftotext'): raise RuntimeError('Deno and pdftotext are required for actual-PDF security regression')
+    with tempfile.TemporaryDirectory(prefix='crm-r1-render-') as directory:
+        test_env={**env,'SECURITY_TEST_DB_CONTAINER':name,'SECURITY_TEST_DATABASE':database}
+        if historical:
+            for file in ['index.ts','delivery.ts']:
+                source=subprocess.run(['git','show','1b7f8060e0afe66df35f1b281c135a392c6673fb:supabase/functions/crm-send-document/'+file],cwd=root,check=True,capture_output=True,text=True).stdout
+                (Path(directory)/file).write_text(source)
+            test_env['R1_RENDERER_PATH']=(Path(directory)/'index.ts').as_uri()
+        command=[deno,'test','--allow-env','--allow-run=docker,pdftotext','--allow-read='+str(root)+','+directory,'--node-modules-dir=none',str(root/'supabase/tests/render_snapshot.integration.test.ts')]
+        result=subprocess.run(command,env=test_env,capture_output=True,text=True)
+        if historical:
+            if result.returncode==0 or 'R1_ABA_RENDERED_B' not in result.stdout+result.stderr: raise AssertionError('Historical R1 regression did not fail for the reproduced PDF defect: '+result.stdout+result.stderr)
+            print('PASS: actual historical renderer + RPC regression fails with R1_ABA_RENDERED_B (expected)')
+        else:
+            print(result.stdout)
+            if result.returncode: raise RuntimeError(result.stderr)
 try:
     run(['run','--detach','--name',name,'--network','none','--tmpfs','/var/lib/postgresql/data:rw,size=512m','-e','POSTGRES_HOST_AUTH_METHOD=trust','postgres:17-alpine'],stdout=subprocess.DEVNULL)
     for _ in range(100):
@@ -75,12 +93,17 @@ rollback;
         if migration.name.startswith('20261103030000'):
             sql((root/'supabase/tests/security_delivery_defect_reproductions.sql').read_text())
             print('PASS: both original defects reproduced before corrective migration (rolled back)')
+        if migration.name.startswith('20261103040000'):
+            run(['exec',name,'createdb','-h','127.0.0.1','-U','postgres','-T','postgres','r1_before'],stdout=subprocess.DEVNULL)
+            render_test('r1_before',historical=True)
         sql(migration.read_text())
     sql((root/f'supabase/tests/security_{mode}.sql').read_text() + ((root/'supabase/tests/security_delivery_recovery.sql').read_text() if mode=='delivery' else ''))
     if mode=='delivery':
+        sql((root/'supabase/tests/security_delivery_artifacts.sql').read_text())
+        print('PASS: immutable snapshots, forged inputs, cross-document IDs, PDF hash/request tampering and artifact reuse SQL')
         print('PASS: NULL/stale/terminal claims, context binding, expiry, credentials and owner recovery SQL')
         sql("insert into public.crm_proposals(id,division_id,customer_id,property_id,title,updated_at) values('40000000-0000-0000-0000-000000000002','TRD','20000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000001','Concurrent synthetic','2026-11-03T00:00:00Z');")
-        query = "set role service_role; set request.jwt.claim.role='service_role'; select public.crm_claim_document_delivery('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000002','2026-11-03T00:00:00Z',jsonb_build_object('to',jsonb_build_array('customer@example.test'),'subject','Concurrent','_crm_context',public.crm_document_delivery_context('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000002'))::text,repeat('a',64));"
+        query = "set role service_role; set request.jwt.claim.role='service_role'; select security_test.bound_claim('10000000-0000-0000-0000-000000000001','proposal','40000000-0000-0000-0000-000000000002','2026-11-03T00:00:00Z','{\"to\":[\"customer@example.test\"],\"subject\":\"Concurrent\"}',repeat('a',64));"
         def claim(_):
             result=run(['exec',name,'psql','-h','127.0.0.1','-X','-U','postgres','-v','ON_ERROR_STOP=1','-Atq','-c',query],capture_output=True,text=True)
             return json.loads(result.stdout.strip())
@@ -107,6 +130,7 @@ rollback;
         sql("do $$ begin if exists(select 1 from public.crm_warranties where document_file_id='"+file_id+"') and not exists(select 1 from storage.objects where name='TRD/concurrent.pdf') then raise exception 'Concurrent deletion left a dangling document'; end if; end $$;")
         print('PASS: concurrent reference/deletion never commits a dangling document')
 
+    if mode=='delivery': render_test()
     postgrest_checks(docker,env,name,root,run,sql,mode)
     # Keep the pre-existing financial/price-book suites independent of the full
     # baseline fixture; each receives its own empty database.

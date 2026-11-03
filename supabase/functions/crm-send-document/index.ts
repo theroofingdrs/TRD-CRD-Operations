@@ -15,6 +15,13 @@ function json(body: Record<string, unknown>, status = 200) {
 function clean(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
+function immutableInputs(value: any): any {
+  if (value && typeof value === "object") {
+    for (const child of Object.values(value)) immutableInputs(child);
+    Object.freeze(value);
+  }
+  return value;
+}
 function money(value: unknown): string {
   return Number(value || 0).toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
@@ -30,8 +37,10 @@ function wrap(value: string, max = 88): string[] {
   if (line) lines.push(line);
   return lines;
 }
-async function makePdf(brand: string, title: string, sections: { heading: string; body: string[] }[], photos: { label: string; caption: string; section: string; bytes: Uint8Array; contentType: string }[] = []) {
+async function makePdf(brand: string, title: string, sections: { heading: string; body: string[] }[], photos: { label: string; caption: string; section: string; bytes: Uint8Array; contentType: string }[], preparedAt: string) {
   const pdf = await PDFDocument.create();
+  pdf.setCreationDate(new Date(preparedAt));
+  pdf.setModificationDate(new Date(preparedAt));
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const accent = rgb(0.88, 0.34, 0.12);
@@ -67,7 +76,7 @@ async function makePdf(brand: string, title: string, sections: { heading: string
   page.drawRectangle({ x: 0, y: 748, width: 612, height: 44, color: accent });
   page.drawText(brand.toUpperCase(), { x: 48, y: 765, size: 12, font: bold, color: rgb(1, 1, 1), maxWidth: 516 });
   page.drawText(title, { x: 48, y: 718, size: 21, font: bold, color: ink, maxWidth: 516 });
-  page.drawText("Prepared " + new Date().toLocaleDateString("en-US"), { x: 48, y: 700, size: 8, font: regular, color: muted });
+  page.drawText("Prepared " + new Date(preparedAt).toLocaleDateString("en-US", { timeZone: "UTC" }), { x: 48, y: 700, size: 8, font: regular, color: muted });
   y = 670;
   for (const section of sections) {
     if (y < 82) newPage();
@@ -114,9 +123,11 @@ async function makePdf(brand: string, title: string, sections: { heading: string
 async function makeProposalPdf(
   division: string, brand: string, title: string, customerName: string, address: string,
   proposalNumber: string, sections: { heading: string; body: string[] }[], totalAmount: unknown,
-  claimNumber = ""
+  claimNumber: string, preparedAt: string
 ) {
   const pdf = await PDFDocument.create();
+  pdf.setCreationDate(new Date(preparedAt));
+  pdf.setModificationDate(new Date(preparedAt));
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const navy = rgb(0.10, 0.13, 0.17);
@@ -141,7 +152,7 @@ async function makeProposalPdf(
   let y = 0;
   const margin = isResidential ? 48 : 42;
   const width = 612 - margin * 2;
-  const today = new Date().toLocaleDateString("en-US");
+  const today = new Date(preparedAt).toLocaleDateString("en-US", { timeZone: "UTC" });
   const addPage = () => {
     page = pdf.addPage([612, 792]);
     pages.push(page);
@@ -365,7 +376,7 @@ Deno.serve(async (req: Request) => {
     try {
       const { data: operation, error } = await server.rpc("crm_delivery_reconciliation", { p_actor: auth.user.id, p_id: input.delivery_id });
       if (error || !operation) return json({ error: "Exact division owner authorization required." }, 403);
-      const context = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(operation.context_fingerprint == null ? resendKey : JSON.stringify([resendKey, from, "crm-pdf-v2"])));
+      const context = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(operation.context_fingerprint == null ? resendKey : JSON.stringify([resendKey, from, operation.render_snapshot_id ? "crm-pdf-v3" : "crm-pdf-v2"])));
       const fingerprint = Array.from(new Uint8Array(context)).map(b => b.toString(16).padStart(2,"0")).join("");
       if (fingerprint !== operation.provider_context) throw new Error("Provider context changed.");
       const event = await verifyRecovery(operation, input.provider_id, resendKey);
@@ -382,214 +393,214 @@ Deno.serve(async (req: Request) => {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   if (!serviceKey) return json({ error: "Trusted delivery storage is not configured." }, 503);
   const server = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  // Snapshot before reading/rendering; reservation recomputes it to reject changed context.
-  const { data: deliveryContext, error: contextError } = await server.rpc("crm_document_delivery_context", {
-    p_actor: auth.user.id, p_type: type, p_document: id,
+  // Caller-JWT capture is one database snapshot; the trusted boundary freezes it.
+  const { data: inputs, error: inputsError } = await client.rpc("crm_document_render_inputs", { p_type: type, p_document: id });
+  if (inputsError || !inputs) return json({ error: "Document not found or snapshot access denied." }, 404);
+  const { data: snapshot, error: freezeError } = await server.rpc("crm_freeze_document_render", {
+    p_actor: auth.user.id, p_type: type, p_document: id, p_inputs: inputs,
   });
-  if (contextError || typeof deliveryContext !== "string") return json({ error: "Document not found or delivery access denied." }, 404);
-  let division = "";
-  let customerId = "";
-  let propertyId = "";
-  let recipient = "";
-  let documentVersion = "";
-  let customerName = "";
-  let address = "";
-  let title = "";
-  let brand = "";
-  let proposalNumber = "";
-  let proposalTotal: number | null = null;
-  let proposalClaimNumber = "";
-  const sections: { heading: string; body: string[] }[] = [];
-  const photoImages: { label: string; caption: string; section: string; bytes: Uint8Array; contentType: string }[] = [];
-  const extraAttachments: { filename: string; content: string }[] = [];
-  if (type === "proposal") {
-    const { data, error } = await client.from("crm_proposals").select("id,updated_at,division_id,customer_id,property_id,title,proposal_number,pricing_mode,line_items,lump_sum_amount,subtotal,tax_amount,total_amount,scope_of_work,existing_conditions,exclusions,payment_terms,warranty_summary,valid_until,template_data,crm_customers(id,display_name,email),crm_properties(id,customer_id,address_line1,city,state,postal_code)").eq("id", id).single();
-    if (error || !data) return json({ error: "Proposal not found or access denied." }, 404);
-    division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
-    let customer: any; let property: any;
-    try {
-      customer = requiredParent(data.crm_customers, customerId);
-      property = requiredParent(data.crm_properties, propertyId);
-      if (property.customer_id !== customerId) throw new Error();
-    } catch { return json({ error: "Inconsistent document relationship." }, 403); }
-    documentVersion = data.updated_at;
-    recipient = clean(customer.email); customerName = clean(customer.display_name);
-    address = [property.address_line1,property.city,property.state,property.postal_code].filter(Boolean).join(", ");
-    title = data.title;
-    proposalNumber = clean(data.proposal_number);
-    proposalTotal = Number(data.total_amount || 0);
-    proposalClaimNumber = clean(data.template_data?.claim_number);
-    const { data: savedTemplate } = await client.from("crm_proposal_templates")
-      .select("company_name,introduction,default_scope,default_exclusions,payment_terms,warranty_summary,footer_text")
-      .eq("division_id", division).maybeSingle();
-    brand = clean(savedTemplate?.company_name) || (division === "TRD" ? "The ROOF Doctors" : "Commercial ROOF Doctors");
-    if (savedTemplate?.introduction) sections.push({ heading: "Introduction", body: [savedTemplate.introduction] });
-    sections.push({ heading: "Customer and property", body: [customerName, address, data.proposal_number ? "Proposal " + data.proposal_number : ""] });
-    if (data.existing_conditions) sections.push({ heading: "Existing conditions", body: [data.existing_conditions] });
-    const roofrReportId = clean(data.template_data?.roofr_report_id);
-    if (roofrReportId) {
-      const { data: roofrFile } = await client.from("crm_files")
-        .select("original_filename,bucket_id,object_path,metadata")
-        .eq("id", roofrReportId).eq("division_id", division).eq("related_type", "property").eq("related_id", propertyId).maybeSingle();
-      if (!roofrFile || roofrFile.metadata?.document_type !== "roofr_measurement_report") return json({ error: "Required Roofr report relationship is unavailable or inconsistent." }, 403);
-      if (roofrFile.metadata.document_type === "roofr_measurement_report") {
-        const roofrValues = Array.isArray(roofrFile.metadata?.extracted_measurements) ? roofrFile.metadata.extracted_measurements : [];
-        sections.push({ heading: "Roofr measurement report", body: [
-          "Source report: " + clean(roofrFile.original_filename),
-          ...roofrValues.map((item: any) => clean(item.label) + ": " + String(item.value) + " " + clean(item.unit)),
-          "The original Roofr PDF is attached separately to this email."
-        ] });
-        const { data: roofrPdf } = await client.storage.from(roofrFile.bucket_id).download(roofrFile.object_path);
-        if (!roofrPdf) return json({ error: "Required Roofr report bytes are unavailable." }, 503);
-        if (roofrPdf) extraAttachments.push({
-          filename: "Roofr-" + clean(roofrFile.original_filename).replace(/[^a-zA-Z0-9._-]/g, "_"),
-          content: toBase64(new Uint8Array(await roofrPdf.arrayBuffer()))
-        });
-      }
-    }
-    const proposalScope = clean(data.scope_of_work) || clean(savedTemplate?.default_scope);
-    if (proposalScope) sections.push({ heading: "Scope of work", body: [proposalScope] });
-    if (Array.isArray(data.line_items) && data.line_items.length) sections.push({ heading: "Itemized pricing", body: data.line_items.flatMap((item: any) => [
-      String(item.description) + " | Qty " + item.quantity + " " + clean(item.unit),
-      "All-in price (materials and labor): " + money(item.unit_price) + " per " + clean(item.unit),
-      "Billable quantity: " + String(item.billable_quantity ?? item.quantity),
-      "Line total: " + money(item.amount)
-    ]) });
-    const pricingBreakdown = data.template_data?.pricing_breakdown || {};
-    if (data.pricing_mode !== "lump_sum") sections.push({ heading: "Itemized total", body: [
-      "All-in line item subtotal (materials and labor) " + money(pricingBreakdown.raw_item_subtotal ?? pricingBreakdown.base_subtotal ?? data.subtotal),
-      ...(Number(pricingBreakdown.complexity_amount || 0) > 0 ? ["Complexity adjustment (" + String(pricingBreakdown.complexity_rate_percent) + "%) " + money(pricingBreakdown.complexity_amount)] : []),
-      ...(Number(pricingBreakdown.pitch_amount || 0) > 0 ? ["Pitch adjustment (" + String(pricingBreakdown.pitch_rate_percent) + "%) " + money(pricingBreakdown.pitch_amount)] : []),
-      "Subtotal before overhead " + money(pricingBreakdown.base_subtotal ?? data.subtotal),
-      ...(pricingBreakdown.overhead_enabled ? ["Overhead (" + String(pricingBreakdown.overhead_rate_percent ?? 10) + "%) " + money(pricingBreakdown.overhead_amount)] : []),
-      ...(pricingBreakdown.profit_enabled ? ["Profit (" + String(pricingBreakdown.profit_rate_percent ?? 10) + "% of subtotal plus overhead) " + money(pricingBreakdown.profit_amount)] : []),
-      "Subtotal before tax " + money(data.subtotal),
-      "Tax" + (pricingBreakdown.tax_rate_percent != null ? " (" + String(pricingBreakdown.tax_rate_percent) + "%)" : "") + " " + money(data.tax_amount),
-      "Total " + money(data.total_amount)
-    ] });
-    if (data.lump_sum_amount != null) sections.push({ heading: "Lump sum option", body: [
-      "Total including selected overhead, profit and tax " + money(data.lump_sum_amount)
-    ] });
-    const proposalExclusions = clean(data.exclusions) || clean(savedTemplate?.default_exclusions);
-    if (proposalExclusions) sections.push({ heading: "Exclusions", body: [proposalExclusions] });
-    const proposalPaymentTerms = clean(data.payment_terms) || clean(savedTemplate?.payment_terms);
-    if (proposalPaymentTerms) sections.push({ heading: "Payment terms", body: [proposalPaymentTerms] });
-    const proposalWarranty = clean(data.warranty_summary) || clean(savedTemplate?.warranty_summary);
-    if (proposalWarranty) sections.push({ heading: "Warranty", body: [proposalWarranty] });
-    if (data.valid_until) sections.push({ heading: "Valid through", body: [data.valid_until] });
-    if (savedTemplate?.footer_text) sections.push({ heading: "Thank you", body: [savedTemplate.footer_text] });
-  } else if (type === "inspection") {
-    const { data, error } = await client.from("crm_inspections").select("id,updated_at,division_id,customer_id,property_id,inspection_type,inspected_at,weather_conditions,overall_condition,summary,recommendations,measurements,roof_sections,claim_information,crm_customers(id,display_name,email),crm_properties(id,customer_id,address_line1,city,state,postal_code)").eq("id", id).single();
-    if (error || !data) return json({ error: "Inspection not found or access denied." }, 404);
-    division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
-    let customer: any; let property: any;
-    try {
-      customer = requiredParent(data.crm_customers, customerId);
-      property = requiredParent(data.crm_properties, propertyId);
-      if (property.customer_id !== customerId) throw new Error();
-    } catch { return json({ error: "Inconsistent document relationship." }, 403); }
-    documentVersion = data.updated_at;
-    recipient = clean(customer.email); customerName = clean(customer.display_name);
-    address = [property.address_line1,property.city,property.state,property.postal_code].filter(Boolean).join(", ");
-    title = "Roof inspection report"; brand = division === "TRD" ? "The ROOF Doctors" : "Commercial ROOF Doctors";
-    sections.push({ heading: "Customer and property", body: [customerName, address, "Inspection type: " + data.inspection_type, "Inspected: " + (data.inspected_at || "Not recorded"), "Overall condition: " + (data.overall_condition || "Not recorded"), "Weather: " + (data.weather_conditions || "Not recorded")] });
-    const measurements = data.measurements || {};
-    const measurementLines = [
-      "Roof area: " + (measurements.roof_area_sq_ft ?? "Not recorded") + " sq ft",
-      "Roof squares: " + (measurements.roof_squares ?? "Not recorded"),
-      "Pitch / slope: " + (measurements.pitch ?? "Not recorded")
-    ];
-    if (measurements.roofr_report_name) measurementLines.push("Source Roofr report: " + measurements.roofr_report_name);
-    if (Array.isArray(measurements.roofr_measurements) && measurements.roofr_measurements.length) {
-      for (const item of measurements.roofr_measurements) {
-        measurementLines.push("Roofr " + clean(item.label) + ": " + String(item.value) + " " + clean(item.unit));
-      }
-    }
-    sections.push({ heading: "Measurements", body: measurementLines });
-    const inspectionRoofrReportId = clean(measurements.roofr_report_id);
-    if (inspectionRoofrReportId) {
-      const { data: roofrFile } = await client.from("crm_files")
-        .select("original_filename,bucket_id,object_path,metadata")
-        .eq("id", inspectionRoofrReportId).eq("division_id", division).eq("related_type", "property").eq("related_id", propertyId).maybeSingle();
-      if (!roofrFile || roofrFile.metadata?.document_type !== "roofr_measurement_report") return json({ error: "Required Roofr report relationship is unavailable or inconsistent." }, 403);
-      if (roofrFile.metadata.document_type === "roofr_measurement_report") {
-        const { data: roofrPdf } = await client.storage.from(roofrFile.bucket_id).download(roofrFile.object_path);
-        if (!roofrPdf) return json({ error: "Required Roofr report bytes are unavailable." }, 503);
-        if (roofrPdf) extraAttachments.push({
-          filename: "Roofr-" + clean(roofrFile.original_filename).replace(/[^a-zA-Z0-9._-]/g, "_"),
-          content: toBase64(new Uint8Array(await roofrPdf.arrayBuffer()))
-        });
-      }
-    }
-    const claim = data.claim_information || {};
-    const claimLines = [
-      ["Insurance carrier", claim.carrier], ["Policy number", claim.policy_number],
-      ["Claim number", claim.claim_number], ["Adjuster", claim.adjuster_name],
-      ["Adjuster phone", claim.adjuster_phone], ["Adjuster email", claim.adjuster_email]
-    ].filter((entry: any[]) => entry[1]).map((entry: any[]) => entry[0] + ": " + entry[1]);
-    if (claimLines.length) sections.push({ heading: "Insurance and claim information", body: claimLines });
-    const { data: items, error: itemsError } = await client.from("crm_inspection_items").select("category,location,observation,severity,recommendation").eq("inspection_id", id).order("created_at");
-    if (itemsError) return json({ error: "Inspection checklist is unavailable." }, 503);
-    sections.push({ heading: "Checklist findings", body: (items || []).map((item: any) => item.category + (item.location ? " (" + item.location + ")" : "") + ": " + item.observation + (item.severity && item.severity !== "none" ? " | Severity: " + item.severity : "") + (item.recommendation ? " | Recommendation: " + item.recommendation : "")) });
-    if (data.roof_sections?.length) sections.push({ heading: "Roof sections", body: data.roof_sections.map((s: any) => s.name || "Section") });
-    if (data.summary) sections.push({ heading: "Summary", body: [data.summary] });
-    if (data.recommendations) sections.push({ heading: "Recommendations", body: [data.recommendations] });
-    const { data: photos, error: photosError } = await client.from("crm_inspection_photos").select("file_id,photo_label,caption,roof_section,crm_files(id,division_id,related_type,related_id,bucket_id,object_path,content_type)").eq("inspection_id", id).order("created_at");
-    if (photosError) return json({ error: "Inspection photo relationships are unavailable." }, 503);
-    if (photos?.length) {
-      sections.push({ heading: "Attached inspection photos", body: photos.map((p: any) => [p.photo_label,p.roof_section,p.caption].filter(Boolean).join(" | ")) });
-      for (const photo of photos as any[]) {
-        let file: any;
-        try {
-          file = requiredParent(photo.crm_files, photo.file_id);
-          if (file.division_id !== division || file.related_type !== "inspection" || file.related_id !== id || file.bucket_id !== "roof-doctors-private") throw new Error();
-        } catch { return json({ error: "Inspection photo relationship is inconsistent." }, 403); }
-        if (!["image/jpeg","image/png"].includes(file.content_type)) continue;
-        const { data: imageFile } = await client.storage.from(file.bucket_id).download(file.object_path);
-        if (!imageFile) return json({ error: "Required inspection photo bytes are unavailable." }, 503);
-        if (imageFile) photoImages.push({
-          label: photo.photo_label || "Inspection photo", caption: photo.caption || "",
-          section: photo.roof_section || "", bytes: new Uint8Array(await imageFile.arrayBuffer()), contentType: file.content_type
-        });
-      }
-    }
+  if (freezeError || !snapshot) return json({ error: "Rendering snapshot could not be authorized and frozen." }, 409);
+  const frozen = immutableInputs(snapshot.inputs);
+  const deliveryContext = snapshot.context;
+  // No database rendering reads follow this point. Cached retries use the exact body.
+  const data: any = { ...frozen.document, updated_at: snapshot.current_version,
+    crm_customers: frozen.customer, crm_properties: frozen.property };
+  let requestBody: string;
+  if (snapshot.cached_body) {
+    requestBody = snapshot.cached_body;
   } else {
-    const { data, error } = await client.from("crm_warranties").select("id,updated_at,division_id,customer_id,property_id,title,warranty_type,provider_name,roof_system,coverage_summary,exclusions,maintenance_requirements,start_date,end_date,crm_customers(id,display_name,email),crm_properties(id,customer_id,address_line1,city,state,postal_code)").eq("id", id).single();
-    if (error || !data) return json({ error: "Warranty not found or access denied." }, 404);
-    division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
-    let customer: any; let property: any;
-    try {
-      customer = requiredParent(data.crm_customers, customerId);
-      property = requiredParent(data.crm_properties, propertyId);
-      if (property.customer_id !== customerId) throw new Error();
-    } catch { return json({ error: "Inconsistent document relationship." }, 403); }
-    documentVersion = data.updated_at;
-    recipient = clean(customer.email); customerName = clean(customer.display_name);
-    address = [property.address_line1,property.city,property.state,property.postal_code].filter(Boolean).join(", ");
-    title = data.title; brand = division === "TRD" ? "The ROOF Doctors" : "Commercial ROOF Doctors";
-    sections.push({ heading: "Customer and property", body: [customerName, address] });
-    sections.push({ heading: "Warranty details", body: ["Type: " + data.warranty_type, "Provider: " + (data.provider_name || "Not specified"), "Roof system: " + (data.roof_system || "Not specified"), "Start date: " + (data.start_date || "Not specified"), "End date: " + (data.end_date || "Not specified")] });
-    if (data.coverage_summary) sections.push({ heading: "Coverage", body: [data.coverage_summary] });
-    if (data.exclusions) sections.push({ heading: "Exclusions", body: [data.exclusions] });
-    if (data.maintenance_requirements) sections.push({ heading: "Maintenance requirements", body: [data.maintenance_requirements] });
+    let division = "";
+    let customerId = "";
+    let propertyId = "";
+    let recipient = "";
+    let customerName = "";
+    let address = "";
+    let title = "";
+    let brand = "";
+    let proposalNumber = "";
+    let proposalTotal: number | null = null;
+    let proposalClaimNumber = "";
+    const sections: { heading: string; body: string[] }[] = [];
+    const photoImages: { label: string; caption: string; section: string; bytes: Uint8Array; contentType: string }[] = [];
+    const extraAttachments: { filename: string; content: string }[] = [];
+    if (type === "proposal") {
+      division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
+      let customer: any; let property: any;
+      try {
+        customer = requiredParent(data.crm_customers, customerId);
+        property = requiredParent(data.crm_properties, propertyId);
+        if (property.customer_id !== customerId) throw new Error();
+      } catch { return json({ error: "Inconsistent document relationship." }, 403); }
+      recipient = clean(customer.email); customerName = clean(customer.display_name);
+      address = [property.address_line1,property.city,property.state,property.postal_code].filter(Boolean).join(", ");
+      title = data.title;
+      proposalNumber = clean(data.proposal_number);
+      proposalTotal = Number(data.total_amount || 0);
+      proposalClaimNumber = clean(data.template_data?.claim_number);
+      const savedTemplate = frozen.template;
+      brand = clean(savedTemplate?.company_name) || (division === "TRD" ? "The ROOF Doctors" : "Commercial ROOF Doctors");
+      if (savedTemplate?.introduction) sections.push({ heading: "Introduction", body: [savedTemplate.introduction] });
+      sections.push({ heading: "Customer and property", body: [customerName, address, data.proposal_number ? "Proposal " + data.proposal_number : ""] });
+      if (data.existing_conditions) sections.push({ heading: "Existing conditions", body: [data.existing_conditions] });
+      const roofrReportId = clean(data.template_data?.roofr_report_id);
+      if (roofrReportId) {
+        const roofrFile = frozen.report;
+        if (!roofrFile || roofrFile.division_id !== division || roofrFile.related_type !== "property" || roofrFile.related_id !== propertyId || roofrFile.metadata?.document_type !== "roofr_measurement_report") return json({ error: "Required Roofr report relationship is unavailable or inconsistent." }, 403);
+        if (roofrFile.metadata.document_type === "roofr_measurement_report") {
+          const roofrValues = Array.isArray(roofrFile.metadata?.extracted_measurements) ? roofrFile.metadata.extracted_measurements : [];
+          sections.push({ heading: "Roofr measurement report", body: [
+            "Source report: " + clean(roofrFile.original_filename),
+            ...roofrValues.map((item: any) => clean(item.label) + ": " + String(item.value) + " " + clean(item.unit)),
+            "The original Roofr PDF is attached separately to this email."
+          ] });
+          const { data: roofrPdf } = await client.storage.from(roofrFile.bucket_id).download(roofrFile.object_path);
+          if (!roofrPdf) return json({ error: "Required Roofr report bytes are unavailable." }, 503);
+          if (roofrPdf) extraAttachments.push({
+            filename: "Roofr-" + clean(roofrFile.original_filename).replace(/[^a-zA-Z0-9._-]/g, "_"),
+            content: toBase64(new Uint8Array(await roofrPdf.arrayBuffer()))
+          });
+        }
+      }
+      const proposalScope = clean(data.scope_of_work) || clean(savedTemplate?.default_scope);
+      if (proposalScope) sections.push({ heading: "Scope of work", body: [proposalScope] });
+      if (Array.isArray(data.line_items) && data.line_items.length) sections.push({ heading: "Itemized pricing", body: data.line_items.flatMap((item: any) => [
+        String(item.description) + " | Qty " + item.quantity + " " + clean(item.unit),
+        "All-in price (materials and labor): " + money(item.unit_price) + " per " + clean(item.unit),
+        "Billable quantity: " + String(item.billable_quantity ?? item.quantity),
+        "Line total: " + money(item.amount)
+      ]) });
+      const pricingBreakdown = data.template_data?.pricing_breakdown || {};
+      if (data.pricing_mode !== "lump_sum") sections.push({ heading: "Itemized total", body: [
+        "All-in line item subtotal (materials and labor) " + money(pricingBreakdown.raw_item_subtotal ?? pricingBreakdown.base_subtotal ?? data.subtotal),
+        ...(Number(pricingBreakdown.complexity_amount || 0) > 0 ? ["Complexity adjustment (" + String(pricingBreakdown.complexity_rate_percent) + "%) " + money(pricingBreakdown.complexity_amount)] : []),
+        ...(Number(pricingBreakdown.pitch_amount || 0) > 0 ? ["Pitch adjustment (" + String(pricingBreakdown.pitch_rate_percent) + "%) " + money(pricingBreakdown.pitch_amount)] : []),
+        "Subtotal before overhead " + money(pricingBreakdown.base_subtotal ?? data.subtotal),
+        ...(pricingBreakdown.overhead_enabled ? ["Overhead (" + String(pricingBreakdown.overhead_rate_percent ?? 10) + "%) " + money(pricingBreakdown.overhead_amount)] : []),
+        ...(pricingBreakdown.profit_enabled ? ["Profit (" + String(pricingBreakdown.profit_rate_percent ?? 10) + "% of subtotal plus overhead) " + money(pricingBreakdown.profit_amount)] : []),
+        "Subtotal before tax " + money(data.subtotal),
+        "Tax" + (pricingBreakdown.tax_rate_percent != null ? " (" + String(pricingBreakdown.tax_rate_percent) + "%)" : "") + " " + money(data.tax_amount),
+        "Total " + money(data.total_amount)
+      ] });
+      if (data.lump_sum_amount != null) sections.push({ heading: "Lump sum option", body: [
+        "Total including selected overhead, profit and tax " + money(data.lump_sum_amount)
+      ] });
+      const proposalExclusions = clean(data.exclusions) || clean(savedTemplate?.default_exclusions);
+      if (proposalExclusions) sections.push({ heading: "Exclusions", body: [proposalExclusions] });
+      const proposalPaymentTerms = clean(data.payment_terms) || clean(savedTemplate?.payment_terms);
+      if (proposalPaymentTerms) sections.push({ heading: "Payment terms", body: [proposalPaymentTerms] });
+      const proposalWarranty = clean(data.warranty_summary) || clean(savedTemplate?.warranty_summary);
+      if (proposalWarranty) sections.push({ heading: "Warranty", body: [proposalWarranty] });
+      if (data.valid_until) sections.push({ heading: "Valid through", body: [data.valid_until] });
+      if (savedTemplate?.footer_text) sections.push({ heading: "Thank you", body: [savedTemplate.footer_text] });
+    } else if (type === "inspection") {
+      division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
+      let customer: any; let property: any;
+      try {
+        customer = requiredParent(data.crm_customers, customerId);
+        property = requiredParent(data.crm_properties, propertyId);
+        if (property.customer_id !== customerId) throw new Error();
+      } catch { return json({ error: "Inconsistent document relationship." }, 403); }
+      recipient = clean(customer.email); customerName = clean(customer.display_name);
+      address = [property.address_line1,property.city,property.state,property.postal_code].filter(Boolean).join(", ");
+      title = "Roof inspection report"; brand = division === "TRD" ? "The ROOF Doctors" : "Commercial ROOF Doctors";
+      sections.push({ heading: "Customer and property", body: [customerName, address, "Inspection type: " + data.inspection_type, "Inspected: " + (data.inspected_at || "Not recorded"), "Overall condition: " + (data.overall_condition || "Not recorded"), "Weather: " + (data.weather_conditions || "Not recorded")] });
+      const measurements = data.measurements || {};
+      const measurementLines = [
+        "Roof area: " + (measurements.roof_area_sq_ft ?? "Not recorded") + " sq ft",
+        "Roof squares: " + (measurements.roof_squares ?? "Not recorded"),
+        "Pitch / slope: " + (measurements.pitch ?? "Not recorded")
+      ];
+      if (measurements.roofr_report_name) measurementLines.push("Source Roofr report: " + measurements.roofr_report_name);
+      if (Array.isArray(measurements.roofr_measurements) && measurements.roofr_measurements.length) {
+        for (const item of measurements.roofr_measurements) {
+          measurementLines.push("Roofr " + clean(item.label) + ": " + String(item.value) + " " + clean(item.unit));
+        }
+      }
+      sections.push({ heading: "Measurements", body: measurementLines });
+      const inspectionRoofrReportId = clean(measurements.roofr_report_id);
+      if (inspectionRoofrReportId) {
+        const roofrFile = frozen.report;
+        if (!roofrFile || roofrFile.division_id !== division || roofrFile.related_type !== "property" || roofrFile.related_id !== propertyId || roofrFile.metadata?.document_type !== "roofr_measurement_report") return json({ error: "Required Roofr report relationship is unavailable or inconsistent." }, 403);
+        if (roofrFile.metadata.document_type === "roofr_measurement_report") {
+          const { data: roofrPdf } = await client.storage.from(roofrFile.bucket_id).download(roofrFile.object_path);
+          if (!roofrPdf) return json({ error: "Required Roofr report bytes are unavailable." }, 503);
+          if (roofrPdf) extraAttachments.push({
+            filename: "Roofr-" + clean(roofrFile.original_filename).replace(/[^a-zA-Z0-9._-]/g, "_"),
+            content: toBase64(new Uint8Array(await roofrPdf.arrayBuffer()))
+          });
+        }
+      }
+      const claim = data.claim_information || {};
+      const claimLines = [
+        ["Insurance carrier", claim.carrier], ["Policy number", claim.policy_number],
+        ["Claim number", claim.claim_number], ["Adjuster", claim.adjuster_name],
+        ["Adjuster phone", claim.adjuster_phone], ["Adjuster email", claim.adjuster_email]
+      ].filter((entry: any[]) => entry[1]).map((entry: any[]) => entry[0] + ": " + entry[1]);
+      if (claimLines.length) sections.push({ heading: "Insurance and claim information", body: claimLines });
+      const items = frozen.items;
+      sections.push({ heading: "Checklist findings", body: (items || []).map((item: any) => item.category + (item.location ? " (" + item.location + ")" : "") + ": " + item.observation + (item.severity && item.severity !== "none" ? " | Severity: " + item.severity : "") + (item.recommendation ? " | Recommendation: " + item.recommendation : "")) });
+      if (data.roof_sections?.length) sections.push({ heading: "Roof sections", body: data.roof_sections.map((s: any) => s.name || "Section") });
+      if (data.summary) sections.push({ heading: "Summary", body: [data.summary] });
+      if (data.recommendations) sections.push({ heading: "Recommendations", body: [data.recommendations] });
+      const photos = frozen.photos;
+      if (photos?.length) {
+        sections.push({ heading: "Attached inspection photos", body: photos.map((p: any) => [p.photo_label,p.roof_section,p.caption].filter(Boolean).join(" | ")) });
+        for (const photo of photos as any[]) {
+          let file: any;
+          try {
+            file = requiredParent(photo.crm_files, photo.file_id);
+            if (file.division_id !== division || file.related_type !== "inspection" || file.related_id !== id || file.bucket_id !== "roof-doctors-private") throw new Error();
+          } catch { return json({ error: "Inspection photo relationship is inconsistent." }, 403); }
+          if (!["image/jpeg","image/png"].includes(file.content_type)) continue;
+          const { data: imageFile } = await client.storage.from(file.bucket_id).download(file.object_path);
+          if (!imageFile) return json({ error: "Required inspection photo bytes are unavailable." }, 503);
+          if (imageFile) photoImages.push({
+            label: photo.photo_label || "Inspection photo", caption: photo.caption || "",
+            section: photo.roof_section || "", bytes: new Uint8Array(await imageFile.arrayBuffer()), contentType: file.content_type
+          });
+        }
+      }
+    } else {
+      division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
+      let customer: any; let property: any;
+      try {
+        customer = requiredParent(data.crm_customers, customerId);
+        property = requiredParent(data.crm_properties, propertyId);
+        if (property.customer_id !== customerId) throw new Error();
+      } catch { return json({ error: "Inconsistent document relationship." }, 403); }
+      recipient = clean(customer.email); customerName = clean(customer.display_name);
+      address = [property.address_line1,property.city,property.state,property.postal_code].filter(Boolean).join(", ");
+      title = data.title; brand = division === "TRD" ? "The ROOF Doctors" : "Commercial ROOF Doctors";
+      sections.push({ heading: "Customer and property", body: [customerName, address] });
+      sections.push({ heading: "Warranty details", body: ["Type: " + data.warranty_type, "Provider: " + (data.provider_name || "Not specified"), "Roof system: " + (data.roof_system || "Not specified"), "Start date: " + (data.start_date || "Not specified"), "End date: " + (data.end_date || "Not specified")] });
+      if (data.coverage_summary) sections.push({ heading: "Coverage", body: [data.coverage_summary] });
+      if (data.exclusions) sections.push({ heading: "Exclusions", body: [data.exclusions] });
+      if (data.maintenance_requirements) sections.push({ heading: "Maintenance requirements", body: [data.maintenance_requirements] });
+    }
+    if (!recipient || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) return json({ error: "This customer does not have a valid email address on file." }, 400);
+    const subject = brand + ": " + (type === "inspection" ? "Roof inspection report" : title);
+    const pdfBytes = type === "proposal"
+      ? await makeProposalPdf(division, brand, title, customerName, address, proposalNumber, sections, proposalTotal, proposalClaimNumber, snapshot.captured_at)
+      : await makePdf(brand, title, sections, photoImages, snapshot.captured_at);
+    const base64 = toBase64(new Uint8Array(pdfBytes));
+    const fileName = type + "-" + id + ".pdf";
+    requestBody = JSON.stringify({
+      from, to: [recipient], subject,
+      html: "<p>Hello " + customerName.replace(/[&<>"]/g, "") + ",</p><p>Attached is your document from " + brand + ".</p>",
+      attachments: [{ filename: fileName, content: base64 }, ...extraAttachments],
+    });
   }
-  if (!recipient || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) return json({ error: "This customer does not have a valid email address on file." }, 400);
-  const subject = brand + ": " + (type === "inspection" ? "Roof inspection report" : title);
-  const pdfBytes = type === "proposal"
-    ? await makeProposalPdf(division, brand, title, customerName, address, proposalNumber, sections, proposalTotal, proposalClaimNumber)
-    : await makePdf(brand, title, sections, photoImages);
-  const base64 = toBase64(new Uint8Array(pdfBytes));
-  const fileName = type + "-" + id + ".pdf";
-  const requestBody = JSON.stringify({
-    _crm_context: deliveryContext, from, to: [recipient], subject,
-    html: "<p>Hello " + customerName.replace(/[&<>"]/g, "") + ",</p><p>Attached is your document from " + brand + ".</p>",
-    attachments: [{ filename: fileName, content: base64 }, ...extraAttachments],
-  });
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([resendKey, from, "crm-pdf-v2"])));
+  const providerBody = JSON.parse(requestBody);
+  const pdfBytesForHash = Uint8Array.from(atob(providerBody.attachments[0].content), c => c.charCodeAt(0));
+  const artifactDigest = await crypto.subtle.digest("SHA-256", pdfBytesForHash);
+  const artifactHash = Array.from(new Uint8Array(artifactDigest)).map(b => b.toString(16).padStart(2,"0")).join("");
+  const reservationBody = JSON.stringify({ ...providerBody, _crm_context: deliveryContext,
+    _crm_snapshot: snapshot.id, _crm_pdf_sha256: artifactHash });
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([resendKey, from, "crm-pdf-v3"])));
   const providerContext = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
   try {
     const { data: operation, error: claimError } = await server.rpc("crm_claim_document_delivery", {
-      p_actor: auth.user.id, p_type: type, p_document: id, p_version: documentVersion, p_body: requestBody, p_context: providerContext,
+      p_actor: auth.user.id, p_type: type, p_document: id, p_version: snapshot.current_version, p_body: reservationBody, p_context: providerContext,
     });
     if (claimError || !operation) return json({ error: "Delivery authorization or operation reservation failed. Reload the document before retrying." }, 409);
     const result = await deliverOperation(operation, resendKey, async (status, provider, error) => {

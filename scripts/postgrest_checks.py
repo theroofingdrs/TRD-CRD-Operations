@@ -43,6 +43,7 @@ def postgrest_checks(docker, env, db_name, root, run, sql, mode):
             assert http('crm_proposals?id=eq.40000000-0000-0000-0000-000000000002',owner,'PATCH',{'status':'sent'})[0] in [401,403]
             doc='40000000-0000-0000-0000-000000000001'
             operations={
+                'crm_freeze_document_render':{'p_actor':owner,'p_type':'proposal','p_document':doc,'p_inputs':{}},
                 'crm_document_delivery_context':{'p_actor':owner,'p_type':'proposal','p_document':doc},
                 'crm_claim_document_delivery':{'p_actor':owner,'p_type':'proposal','p_document':doc,'p_version':'2026-11-03T00:00:00Z','p_body':'{}','p_context':'a'*64},
                 'crm_finish_document_delivery':{'p_id':doc,'p_claim':None,'p_status':'failed','p_provider':None,'p_error':'forged'},
@@ -52,7 +53,10 @@ def postgrest_checks(docker, env, db_name, root, run, sql, mode):
                 for caller in [owner,customer,other,None]:
                     status,body=http('rpc/'+rpc,caller,'POST',args,{'x-user-id':owner,'x-user-role':'owner'})
                     assert status in [401,403], (rpc,caller,status,body)
-            print('PASS: all four trusted delivery RPCs reject browser/anonymous calls and forged headers')
+            assert http('rpc/crm_document_render_inputs',owner,'POST',{'p_type':'proposal','p_document':doc})[0]==200
+            for caller in [customer,other,None]:
+                assert http('rpc/crm_document_render_inputs',caller,'POST',{'p_type':'proposal','p_document':doc})[0] in [401,403]
+            print('PASS: all five trusted delivery RPCs reject browser/anonymous calls and forged headers')
         # The fixture explicitly exposes public only, not the private schemas.
         assert http(table,owner,extra={'Accept-Profile':'file_private' if table=='crm_files' else 'delivery_private'})[0]==406
         print('PASS: direct PostgREST JWT, anonymous/unlinked/cross-division, mutation and schema boundaries')
