@@ -93,6 +93,16 @@ rollback;
         with ThreadPoolExecutor(max_workers=8) as pool: results=list(pool.map(register,range(8)))
         assert len({r['id'] for r in results})==1, results
         print('PASS: 8 competing registration sessions, one immutable file')
+        file_id=results[0]['id']
+        writer="set role authenticated; set request.jwt.claim.sub='10000000-0000-0000-0000-000000000001'; begin; insert into public.crm_warranties(division_id,customer_id,property_id,title,document_file_id) values('TRD','20000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000001','Delete race','"+file_id+"'); select pg_sleep(0.3); commit;"
+        deleter="set role authenticated; set request.jwt.claim.sub='10000000-0000-0000-0000-000000000001'; delete from storage.objects where name='TRD/concurrent.pdf';"
+        def race(query): return subprocess.run(docker+['exec',name,'psql','-h','127.0.0.1','-X','-U','postgres','-v','ON_ERROR_STOP=1','-Atq','-c',query],env=env,capture_output=True,text=True)
+        with ThreadPoolExecutor(max_workers=2) as pool: outcomes=list(pool.map(race,[writer,deleter]))
+        assert outcomes[1].returncode==0, outcomes[1].stderr
+        if outcomes[0].returncode: assert 'Referenced object is deleted or unavailable' in outcomes[0].stderr, outcomes[0].stderr
+        sql("do $$ begin if exists(select 1 from public.crm_warranties where document_file_id='"+file_id+"') and not exists(select 1 from storage.objects where name='TRD/concurrent.pdf') then raise exception 'Concurrent deletion left a dangling document'; end if; end $$;")
+        print('PASS: concurrent reference/deletion never commits a dangling document')
+
     postgrest_checks(docker,env,name,root,run,sql,mode)
     # Keep the pre-existing financial/price-book suites independent of the full
     # baseline fixture; each receives its own empty database.

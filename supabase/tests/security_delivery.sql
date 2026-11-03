@@ -84,3 +84,11 @@ set role service_role;
 select public.crm_finish_document_delivery((:'claim'::jsonb->>'id')::uuid,(:'claim'::jsonb->>'claim')::uuid,'accepted','synthetic-edited',null);
 reset role;
 do $$ begin if (select status from public.crm_proposals where id='40000000-0000-0000-0000-000000000003')<>'declined' then raise exception 'Concurrent proposal state overwritten'; end if; end $$;
+-- Execution-owner, search_path and private payload boundary assertions.
+do $$ declare f record; begin
+ for f in select p.* from pg_proc p join pg_namespace n on n.oid=p.pronamespace where (n.nspname='delivery_private' and p.prosecdef) or (n.nspname='public' and p.proname in ('crm_claim_document_delivery','crm_finish_document_delivery','crm_delivery_reconciliation')) loop
+  if not f.prosecdef or f.proconfig is distinct from array['search_path=""'] or pg_has_role('authenticated',f.proowner,'MEMBER') then raise exception 'Unsafe execution owner/path'; end if;
+ end loop;
+ if has_schema_privilege('authenticated','delivery_private','USAGE') or has_table_privilege('authenticated','delivery_private.operations','SELECT,INSERT,UPDATE,DELETE') then raise exception 'Private payload access'; end if;
+ if has_function_privilege('authenticated','public.crm_delivery_reconciliation(uuid,uuid,text,text,text)','EXECUTE') then raise exception 'Customer can invoke privileged reconciliation'; end if;
+end $$;
