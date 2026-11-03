@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from postgrest_checks import postgrest_checks
 from completion_race_checks import completion_race_checks
+from isolation_checks import isolation_checks
 root = Path(__file__).resolve().parents[1]
 available=[mode for mode in ('delivery','files') if (root/f'supabase/tests/security_{mode}.sql').exists()]
 if len(sys.argv)==1 and len(available)>1:
@@ -100,11 +101,24 @@ rollback;
         if migration.name.startswith('20261103050000'):
             run(['exec',name,'createdb','-h','127.0.0.1','-U','postgres','-T','postgres','r2_before'],stdout=subprocess.DEVNULL)
             completion_race_checks(docker,env,name,'r2_before',expected_defect=True)
+        if migration.name.startswith('20261103060000'):
+            run(['exec',name,'createdb','-h','127.0.0.1','-U','postgres','-T','postgres','r3_before'],stdout=subprocess.DEVNULL)
+            isolation_checks(docker,env,name,'r3_before',expected_defect=True)
+            sql("revoke execute on function public.crm_freeze_document_render(uuid,text,uuid,jsonb) from service_role;")
+            try:
+                sql(migration.read_text())
+            except subprocess.CalledProcessError:
+                pass
+            else:
+                raise AssertionError('R3 accepted execution-grant drift')
+            sql("do $$ begin if to_regprocedure('delivery_private.require_context_read_committed()') is not null then raise exception 'Partial R3 migration survived'; end if; end $$;grant execute on function public.crm_freeze_document_render(uuid,text,uuid,jsonb) to service_role;")
+            print('PASS: R3 execution-grant drift aborts migration atomically')
         sql(migration.read_text())
     sql((root/f'supabase/tests/security_{mode}.sql').read_text() + ((root/'supabase/tests/security_delivery_recovery.sql').read_text() if mode=='delivery' else ''))
     if mode=='delivery':
         sql((root/'supabase/tests/security_delivery_artifacts.sql').read_text())
         sql((root/'supabase/tests/security_delivery_context_epochs.sql').read_text())
+        sql((root/'supabase/tests/security_delivery_isolation.sql').read_text())
         print('PASS: all six proposal context source writers, epoch authority, irrelevant edits and terminal business states')
         print('PASS: immutable snapshots, forged inputs, cross-document IDs, PDF hash/request tampering and artifact reuse SQL')
         print('PASS: NULL/stale/terminal claims, context binding, expiry, credentials and owner recovery SQL')
@@ -139,6 +153,7 @@ rollback;
     if mode=='delivery':
         render_test()
         completion_race_checks(docker,env,name)
+        isolation_checks(docker,env,name)
     postgrest_checks(docker,env,name,root,run,sql,mode)
     # Keep the pre-existing financial/price-book suites independent of the full
     # baseline fixture; each receives its own empty database.
