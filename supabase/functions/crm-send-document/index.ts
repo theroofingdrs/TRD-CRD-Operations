@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.58.0";
+import { deliverOperation, requiredParent, verifyRecovery } from "./delivery.ts";
 import { PDFDocument, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
 
 const corsHeaders = {
@@ -347,13 +348,9 @@ Deno.serve(async (req: Request) => {
   const from = Deno.env.get("RESEND_FROM_EMAIL") || "";
   if (!url || !key) return json({ error: "Supabase server configuration is missing." }, 500);
   if (!resendKey || !from) return json({ error: "Customer email is not configured. Add RESEND_API_KEY and RESEND_FROM_EMAIL to the Supabase function secrets." }, 503);
-  let input: { document_type?: DocType; document_id?: string };
+  let input: { document_type?: DocType; document_id?: string; action?: string; delivery_id?: string; provider_id?: string; evidence?: string };
   try { input = await req.json(); } catch { return json({ error: "Request body must be valid JSON." }, 400); }
-  const type = input.document_type;
-  const id = clean(input.document_id);
-  if (!["proposal", "inspection", "warranty"].includes(type || "") || !/^[0-9a-f-]{36}$/i.test(id)) {
-    return json({ error: "Select a valid document and document ID." }, 400);
-  }
+  if (!input || typeof input !== "object" || Array.isArray(input)) return json({ error: "Request body must be an object." }, 400);
   const client = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { Authorization: authorization } },
@@ -361,10 +358,32 @@ Deno.serve(async (req: Request) => {
   const { data: auth, error: authError } = await client.auth.getUser(authorization.slice(7));
   if (authError || !auth.user) return json({ error: "Your sign in has expired. Sign in again." }, 401);
 
+  if (input.action === "reconcile") {
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+    if (!serviceKey || !/^[0-9a-f-]{36}$/i.test(input.delivery_id || "") || typeof input.provider_id !== "string" || typeof input.evidence !== "string" || input.evidence.trim().length < 3) return json({ error: "Delivery ID, provider email ID and evidence reference required." }, 400);
+    const server = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+    try {
+      const { data: operation, error } = await server.rpc("crm_delivery_reconciliation", { p_actor: auth.user.id, p_id: input.delivery_id });
+      if (error || !operation) return json({ error: "Exact division owner authorization required." }, 403);
+      const context = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(resendKey));
+      const fingerprint = Array.from(new Uint8Array(context)).map(b => b.toString(16).padStart(2,"0")).join("");
+      if (fingerprint !== operation.provider_context) throw new Error("Provider context changed.");
+      const event = await verifyRecovery(operation, input.provider_id, resendKey);
+      const { data, error: updateError } = await server.rpc("crm_delivery_reconciliation", { p_actor: auth.user.id, p_id: input.delivery_id, p_provider: input.provider_id, p_event: event, p_evidence: input.evidence });
+      if (updateError || !data || data.status !== "accepted") throw new Error("Reconciliation persistence failed.");
+      return json({ success: true, ...data });
+    } catch { return json({ error: "Recovery could not be verified and persisted. No resend was attempted." }, 409); }
+  }
+  const type = input.document_type;
+  const id = clean(input.document_id);
+  if (!["proposal", "inspection", "warranty"].includes(type || "") || !/^[0-9a-f-]{36}$/i.test(id)) {
+    return json({ error: "Select a valid document and document ID." }, 400);
+  }
   let division = "";
   let customerId = "";
   let propertyId = "";
   let recipient = "";
+  let documentVersion = "";
   let customerName = "";
   let address = "";
   let title = "";
@@ -376,11 +395,18 @@ Deno.serve(async (req: Request) => {
   const photoImages: { label: string; caption: string; section: string; bytes: Uint8Array; contentType: string }[] = [];
   const extraAttachments: { filename: string; content: string }[] = [];
   if (type === "proposal") {
-    const { data, error } = await client.from("crm_proposals").select("id,division_id,customer_id,property_id,title,proposal_number,pricing_mode,line_items,lump_sum_amount,subtotal,tax_amount,total_amount,scope_of_work,existing_conditions,exclusions,payment_terms,warranty_summary,valid_until,template_data,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
+    const { data, error } = await client.from("crm_proposals").select("id,updated_at,division_id,customer_id,property_id,title,proposal_number,pricing_mode,line_items,lump_sum_amount,subtotal,tax_amount,total_amount,scope_of_work,existing_conditions,exclusions,payment_terms,warranty_summary,valid_until,template_data,crm_customers(id,display_name,email),crm_properties(id,customer_id,address_line1,city,state,postal_code)").eq("id", id).single();
     if (error || !data) return json({ error: "Proposal not found or access denied." }, 404);
     division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
-    recipient = clean(data.crm_customers?.[0]?.email); customerName = clean(data.crm_customers?.[0]?.display_name);
-    address = [data.crm_properties?.[0]?.address_line1,data.crm_properties?.[0]?.city,data.crm_properties?.[0]?.state,data.crm_properties?.[0]?.postal_code].filter(Boolean).join(", ");
+    let customer: any; let property: any;
+    try {
+      customer = requiredParent(data.crm_customers, customerId);
+      property = requiredParent(data.crm_properties, propertyId);
+      if (property.customer_id !== customerId) throw new Error();
+    } catch { return json({ error: "Inconsistent document relationship." }, 403); }
+    documentVersion = data.updated_at;
+    recipient = clean(customer.email); customerName = clean(customer.display_name);
+    address = [property.address_line1,property.city,property.state,property.postal_code].filter(Boolean).join(", ");
     title = data.title;
     proposalNumber = clean(data.proposal_number);
     proposalTotal = Number(data.total_amount || 0);
@@ -443,11 +469,18 @@ Deno.serve(async (req: Request) => {
     if (data.valid_until) sections.push({ heading: "Valid through", body: [data.valid_until] });
     if (savedTemplate?.footer_text) sections.push({ heading: "Thank you", body: [savedTemplate.footer_text] });
   } else if (type === "inspection") {
-    const { data, error } = await client.from("crm_inspections").select("id,division_id,customer_id,property_id,inspection_type,inspected_at,weather_conditions,overall_condition,summary,recommendations,measurements,roof_sections,claim_information,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
+    const { data, error } = await client.from("crm_inspections").select("id,updated_at,division_id,customer_id,property_id,inspection_type,inspected_at,weather_conditions,overall_condition,summary,recommendations,measurements,roof_sections,claim_information,crm_customers(id,display_name,email),crm_properties(id,customer_id,address_line1,city,state,postal_code)").eq("id", id).single();
     if (error || !data) return json({ error: "Inspection not found or access denied." }, 404);
     division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
-    recipient = clean(data.crm_customers?.[0]?.email); customerName = clean(data.crm_customers?.[0]?.display_name);
-    address = [data.crm_properties?.[0]?.address_line1,data.crm_properties?.[0]?.city,data.crm_properties?.[0]?.state,data.crm_properties?.[0]?.postal_code].filter(Boolean).join(", ");
+    let customer: any; let property: any;
+    try {
+      customer = requiredParent(data.crm_customers, customerId);
+      property = requiredParent(data.crm_properties, propertyId);
+      if (property.customer_id !== customerId) throw new Error();
+    } catch { return json({ error: "Inconsistent document relationship." }, 403); }
+    documentVersion = data.updated_at;
+    recipient = clean(customer.email); customerName = clean(customer.display_name);
+    address = [property.address_line1,property.city,property.state,property.postal_code].filter(Boolean).join(", ");
     title = "Roof inspection report"; brand = division === "TRD" ? "The ROOF Doctors" : "Commercial ROOF Doctors";
     sections.push({ heading: "Customer and property", body: [customerName, address, "Inspection type: " + data.inspection_type, "Inspected: " + (data.inspected_at || "Not recorded"), "Overall condition: " + (data.overall_condition || "Not recorded"), "Weather: " + (data.weather_conditions || "Not recorded")] });
     const measurements = data.measurements || {};
@@ -502,11 +535,18 @@ Deno.serve(async (req: Request) => {
       }
     }
   } else {
-    const { data, error } = await client.from("crm_warranties").select("id,division_id,customer_id,property_id,title,warranty_type,provider_name,roof_system,coverage_summary,exclusions,maintenance_requirements,start_date,end_date,crm_customers(display_name,email),crm_properties(address_line1,city,state,postal_code)").eq("id", id).single();
+    const { data, error } = await client.from("crm_warranties").select("id,updated_at,division_id,customer_id,property_id,title,warranty_type,provider_name,roof_system,coverage_summary,exclusions,maintenance_requirements,start_date,end_date,crm_customers(id,display_name,email),crm_properties(id,customer_id,address_line1,city,state,postal_code)").eq("id", id).single();
     if (error || !data) return json({ error: "Warranty not found or access denied." }, 404);
     division = data.division_id; customerId = data.customer_id; propertyId = data.property_id;
-    recipient = clean(data.crm_customers?.[0]?.email); customerName = clean(data.crm_customers?.[0]?.display_name);
-    address = [data.crm_properties?.[0]?.address_line1,data.crm_properties?.[0]?.city,data.crm_properties?.[0]?.state,data.crm_properties?.[0]?.postal_code].filter(Boolean).join(", ");
+    let customer: any; let property: any;
+    try {
+      customer = requiredParent(data.crm_customers, customerId);
+      property = requiredParent(data.crm_properties, propertyId);
+      if (property.customer_id !== customerId) throw new Error();
+    } catch { return json({ error: "Inconsistent document relationship." }, 403); }
+    documentVersion = data.updated_at;
+    recipient = clean(customer.email); customerName = clean(customer.display_name);
+    address = [property.address_line1,property.city,property.state,property.postal_code].filter(Boolean).join(", ");
     title = data.title; brand = division === "TRD" ? "The ROOF Doctors" : "Commercial ROOF Doctors";
     sections.push({ heading: "Customer and property", body: [customerName, address] });
     sections.push({ heading: "Warranty details", body: ["Type: " + data.warranty_type, "Provider: " + (data.provider_name || "Not specified"), "Roof system: " + (data.roof_system || "Not specified"), "Start date: " + (data.start_date || "Not specified"), "End date: " + (data.end_date || "Not specified")] });
@@ -521,26 +561,25 @@ Deno.serve(async (req: Request) => {
     : await makePdf(brand, title, sections, photoImages);
   const base64 = toBase64(new Uint8Array(pdfBytes));
   const fileName = type + "-" + id + ".pdf";
-  const { data: delivery, error: deliveryError } = await client.from("crm_document_deliveries").insert({
-    division_id: division, document_type: type, document_id: id, customer_id: customerId, property_id: propertyId,
-    recipient_email: recipient, subject, status: "sending", created_by: auth.user.id
-  }).select("id").single();
-  if (deliveryError || !delivery) return json({ error: "Could not create the document delivery record: " + (deliveryError?.message || "unknown error") }, 500);
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: "Bearer " + resendKey, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      from, to: [recipient], subject,
-      html: "<p>Hello " + customerName.replace(/[&<>"]/g, "") + ",</p><p>Attached is your " + (type === "inspection" ? "roof inspection report" : type) + " from " + brand + " for " + address.replace(/[&<>"]/g, "") + ".</p><p>Please contact our office with any questions.</p>",
-      attachments: [{ filename: fileName, content: base64 }, ...extraAttachments]
-    })
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  if (!serviceKey) return json({ error: "Trusted delivery storage is not configured." }, 503);
+  const server = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const requestBody = JSON.stringify({
+    from, to: [recipient], subject,
+    html: "<p>Hello " + customerName.replace(/[&<>"]/g, "") + ",</p><p>Attached is your document from " + brand + ".</p>",
+    attachments: [{ filename: fileName, content: base64 }, ...extraAttachments],
   });
-  const responseBody = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    await client.from("crm_document_deliveries").update({ status: "failed", error_message: JSON.stringify(responseBody).slice(0, 1000) }).eq("id", delivery.id);
-    return json({ error: "Email provider rejected the message.", details: responseBody }, 502);
-  }
-  await client.from("crm_document_deliveries").update({ status: "sent", provider_message_id: responseBody.id || null, sent_at: new Date().toISOString() }).eq("id", delivery.id);
-  if (type === "proposal") await client.from("crm_proposals").update({ status: "sent" }).eq("id", id);
-  return json({ success: true, recipient, delivery_id: delivery.id, provider_message_id: responseBody.id || null });
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(resendKey));
+  const providerContext = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
+  try {
+    const { data: operation, error: claimError } = await server.rpc("crm_claim_document_delivery", {
+      p_actor: auth.user.id, p_type: type, p_document: id, p_version: documentVersion, p_body: requestBody, p_context: providerContext,
+    });
+    if (claimError || !operation) return json({ error: "Delivery authorization or operation reservation failed. Reload the document before retrying." }, 409);
+    const result = await deliverOperation(operation, resendKey, async (status, provider, error) => {
+      const { error: persistenceError } = await server.rpc("crm_finish_document_delivery", { p_id: operation.id, p_claim: operation.claim, p_status: status, p_provider: provider, p_error: error });
+      if (persistenceError) throw new Error("Delivery outcome could not be persisted.");
+    });
+    return json(result, result.success ? 200 : 202);
+  } catch { return json({ error: "Delivery outcome is not confirmed durably. Retry the same document; do not create another send. Contact an owner for reconciliation." }, 503); }
 });

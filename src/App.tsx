@@ -238,7 +238,7 @@ function App() {
       {view === "proposal_templates" && isOwner && <ProposalTemplates division={division} userId={session.user.id} />}
       {view === "price_book" && isOwner && <PriceBook division={division} userId={session.user.id} />}
       {view === "warranties" && <Warranties division={division} userId={session.user.id} canWrite={canWriteProjects} />}
-      {view === "deliveries" && <DocumentDeliveries division={division} />}
+      {view === "deliveries" && <DocumentDeliveries division={division} canReconcile={currentMembership?.role === "owner"} />}
       {view === "projects" && <DataList division={division} view="projects" userId={session.user.id} canWrite={canWriteProjects} />}
       {view === "project_pipeline" && <ProjectPipeline division={division} userId={session.user.id} canWrite={canWriteProjects} canWriteFinancials={canWriteFinancials} availableDivisions={memberships.map(item => item.division_id)} canManageSettings={canManagePipelineSettings} canOverrideGates={canOverrideProjectStageGates} />}
       {view === "completed_map" && isOwner && <CompletedProjectsMap />}
