@@ -1,10 +1,15 @@
+import { chromium } from 'playwright';
+import { existsSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export function findChromium() {
   if (process.env.CHROME_BIN) return process.env.CHROME_BIN;
-  for (const name of ['chromium', 'google-chrome', 'google-chrome-stable']) {
+  const installed = chromium.executablePath();
+  if (existsSync(installed)) return installed;
+  if (process.env.CI) throw new Error('Pinned Chromium is not installed. Run npm exec -- playwright install --with-deps chromium or set CHROME_BIN to the installed test browser.');
+  for (const name of ['google-chrome', 'google-chrome-stable', 'chromium']) {
     const result = spawnSync('which', [name], { encoding: 'utf8' });
     if (result.status === 0 && result.stdout.trim()) return result.stdout.trim();
   }
@@ -12,9 +17,10 @@ export function findChromium() {
 }
 
 export async function startChromium({ executable = findChromium(), profile, timeoutMs = 60000, onStart = () => {} }) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 300000) throw new Error('Chromium startup timeout must be between 1 and 300000 milliseconds.');
   const version = spawnSync(executable, ['--version'], { encoding: 'utf8', timeout: 10000 });
   const versionText = (version.stdout || '').trim();
-  if (version.error || version.status !== 0) throw new Error(`Chromium version check failed: executable=${executable}; status=${version.status}; error=${version.error?.message || 'none'}; stderr=${(version.stderr || '').slice(-8000)}`);
+  if (version.error || version.status !== 0 || !/Chromium|Google Chrome|Chrome for Testing/i.test(versionText)) throw new Error(`Chromium version check failed: executable=${executable}; status=${version.status}; error=${version.error?.message || 'none'}; stderr=${(version.stderr || '').slice(-8000)}`);
   console.log(`Chromium executable: ${executable}\nChromium version: ${versionText}`);
   let stderr = '', launchError;
   const child = spawn(executable, ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--disable-background-networking', '--disable-component-update', '--no-first-run', '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0', '--user-data-dir=' + profile, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
@@ -22,9 +28,10 @@ export async function startChromium({ executable = findChromium(), profile, time
   child.on('error', error => { launchError = error; });
   onStart(child);
   const diagnostic = reason => new Error(`${reason}\nexecutable=${executable}\nversion=${versionText}\npid=${child.pid ?? 'none'} exitCode=${child.exitCode} signal=${child.signalCode}\nlaunchError=${launchError?.message || 'none'}\nBrowser stderr (tail):\n${stderr || '(empty)'}`);
-  const deadline = Date.now() + timeoutMs;
+  const started = Date.now();
+  const deadline = started + timeoutMs;
   let lastError;
-  while (Date.now() < deadline) {
+  try { while (Date.now() < deadline) {
     if (launchError || child.exitCode !== null || child.signalCode !== null) throw diagnostic('Chromium exited before DevTools became ready.');
     try {
       const portFile = await readFile(path.join(profile, 'DevToolsActivePort'), 'utf8');
@@ -34,9 +41,24 @@ export async function startChromium({ executable = findChromium(), profile, time
       const response = await fetch(base + '/json/version', { signal: AbortSignal.timeout(2000) });
       const info = response.ok ? await response.json() : null;
       if (typeof info?.webSocketDebuggerUrl !== 'string') throw Error('Invalid DevTools version response');
+      const debuggerUrl = new URL(info.webSocketDebuggerUrl);
+      if (debuggerUrl.protocol !== 'ws:' || !['127.0.0.1', 'localhost'].includes(debuggerUrl.hostname) || Number(debuggerUrl.port) !== port) throw Error('DevTools endpoint does not match the launched browser');
+      console.log(`Chromium DevTools ready after ${Date.now() - started}ms`);
       return { child, base, version: versionText };
     } catch (error) { lastError = error; }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   throw diagnostic(`Chromium startup timed out after ${timeoutMs}ms. Last readiness error: ${lastError?.message || 'none'}`);
+  } catch (error) { await stopChild(child); throw error; }
+}
+
+/** Bound cleanup so a failed/wedged browser cannot hang the runner indefinitely. */
+export async function stopChild(child) {
+  if (child.exitCode !== null || child.signalCode !== null || !child.pid) return;
+  await new Promise(resolve => {
+    let hardStop;
+    const done = () => { clearTimeout(softStop); clearTimeout(hardStop); child.removeListener('exit', done); resolve(); };
+    const softStop = setTimeout(() => { child.kill('SIGKILL'); hardStop = setTimeout(done, 1000); }, 5000);
+    child.once('exit', done); child.kill('SIGTERM');
+  });
 }

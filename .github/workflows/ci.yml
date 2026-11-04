@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -38,13 +38,21 @@ jobs:
         run: test -f package-lock.json
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
+      - name: Install locked Chromium and Linux dependencies
+        run: |
+          npx --no-install playwright install --with-deps chromium
+          node --input-type=module -e "import { chromium } from 'playwright'; import fs from 'node:fs'; fs.appendFileSync(process.env.GITHUB_ENV, 'CHROME_BIN=' + chromium.executablePath() + '\n');"
       - name: Type check and production build
         run: |
           npm run build
           node scripts/check-public-bundles.mjs dist/assets
           node --experimental-strip-types src/lib/central-time.test.mjs
       - name: Verify CRM responsive layouts in Chromium
-        run: npm run test:responsive
+        env:
+          CHROME_STARTUP_TIMEOUT_MS: 60000
+        run: |
+          node --test scripts/chromium-startup.test.mjs
+          npm run test:responsive
       - name: Test project pipeline migration in disposable PostgreSQL
         run: |
           docker run --detach --rm --name project-pipeline-test-db --publish 5433:5432 --volume "$GITHUB_WORKSPACE:/workspace:ro" --env POSTGRES_PASSWORD=ci-test postgres:17
@@ -156,13 +164,3 @@ jobs:
             --config cloudbuild.yaml \
             --substitutions="_VITE_GOOGLE_MAPS_API_KEY=$VITE_GOOGLE_MAPS_API_KEY" \
             .
-
-  diagnose-original-browser:
-    name: Inspect original runner browser launch
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - run: node scripts/diagnose-runner-browser.mjs
