@@ -339,3 +339,39 @@ th { white-space: nowrap; }
     grid-column: 2;
   }
 }
+
+
+/* Keep customer-detail descendants shrinkable; long saved addresses and nested
+   report/service panels must not establish wider intrinsic grid tracks. */
+.customer-detail-sections,
+.customer-detail-sections > *,
+.customer-detail-summary > *,
+.customer-properties,
+.customer-roofr-section,
+.customer-service-history,
+.roofr-measurements {
+  min-width: 0;
+  max-width: 100%;
+}
+.customer-detail-sections > * { width: 100%; }
+.customer-detail-item p {
+  min-width: 0;
+  max-width: 100%;
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.customer-properties > .panel-heading { min-width: 0; flex-wrap: wrap; }
+.customer-properties > .panel-heading > :first-child { min-width: 0; flex: 1 1 12rem; }
+.customer-properties > .panel-heading > button { flex: 0 1 auto; max-width: 100%; }
+.customer-properties .table-wrap,
+.customer-roofr-section .table-wrap,
+.customer-service-history .table-wrap { min-width: 0; max-width: 100%; }
+
+@media (max-width: 720px) {
+  .customer-detail-sections input:not([type="checkbox"]):not([type="radio"]),
+  .customer-detail-sections select,
+  .customer-detail-sections textarea { font-size: 16px; }
+  .customer-detail-sections .button-row { flex-wrap: wrap; }
+  .customer-detail-sections .button-row > button { max-width: 100%; }
+}
