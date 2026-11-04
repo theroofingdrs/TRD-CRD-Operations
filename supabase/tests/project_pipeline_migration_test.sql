@@ -21,7 +21,13 @@ CREATE TABLE storage.objects (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), buc
 ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 CREATE OR REPLACE FUNCTION storage.foldername(name text)
 RETURNS text[] LANGUAGE sql IMMUTABLE
-AS $$ SELECT (string_to_array(name, '/'))[1:3] $$;
+AS $func$
+  SELECT CASE
+    WHEN array_length(parts, 1) > 1 THEN parts[1:array_length(parts, 1) - 1]
+    ELSE ARRAY[]::text[]
+  END
+  FROM (SELECT string_to_array(name, '/') AS parts) AS path_parts
+$func$;
 
 CREATE TABLE public.crm_divisions (id text PRIMARY KEY);
 CREATE TABLE public.crm_memberships (
@@ -87,6 +93,24 @@ CREATE TABLE public.crm_files (
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 ALTER TABLE public.crm_files ENABLE ROW LEVEL SECURITY;
+CREATE TABLE public.crm_properties (
+  id uuid PRIMARY KEY,
+  customer_id uuid NOT NULL
+);
+CREATE TABLE public.crm_customer_divisions (
+  customer_id uuid NOT NULL,
+  division_id text NOT NULL,
+  PRIMARY KEY (customer_id, division_id)
+);
+CREATE TABLE public.crm_inspections (
+  id uuid PRIMARY KEY,
+  division_id text NOT NULL
+);
+CREATE TABLE public.crm_inspection_photos (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  inspection_id uuid NOT NULL,
+  file_id uuid NOT NULL
+);
 
 CREATE OR REPLACE FUNCTION app_private.has_division_resource_access(p_division_id text, p_resource text, p_write boolean DEFAULT false)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO ''
@@ -95,11 +119,30 @@ AS $$
     SELECT 1 FROM public.crm_memberships m
     WHERE m.user_id = (SELECT auth.uid())
       AND m.division_id = p_division_id AND m.active
-      AND (NOT p_write OR m.role IN ('owner','division_admin','office_manager','project_manager'))
+      AND (
+        NOT p_write
+        OR m.role IN ('owner','division_admin','office_manager','project_manager')
+        OR (m.role = 'sales_rep' AND p_resource IN ('customers','contacts','properties','leads','appointments','tasks','activity','files','claims'))
+        OR (m.role = 'field_inspector' AND p_resource IN ('appointments','inspections','inspection_items','activity','files','maintenance'))
+      )
   );
 $$;
 CREATE POLICY crm_files_read ON public.crm_files FOR SELECT TO authenticated
   USING (app_private.has_division_resource_access(division_id, 'files', false));
+CREATE POLICY crm_files_insert ON public.crm_files FOR INSERT TO authenticated
+  WITH CHECK (app_private.has_division_resource_access(division_id, 'files', true)
+    AND (uploaded_by IS NULL OR uploaded_by = (SELECT auth.uid())));
+CREATE POLICY crm_private_files_insert ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'roof-doctors-private'
+    AND app_private.has_division_resource_access((storage.foldername(name))[1], 'files', true));
+CREATE POLICY crm_private_files_read ON storage.objects FOR SELECT TO authenticated
+  USING (bucket_id = 'roof-doctors-private'
+    AND app_private.has_division_resource_access((storage.foldername(name))[1], 'files', false));
+CREATE POLICY crm_private_files_update ON storage.objects FOR UPDATE TO authenticated
+  USING (bucket_id = 'roof-doctors-private'
+    AND app_private.has_division_resource_access((storage.foldername(name))[1], 'files', true))
+  WITH CHECK (bucket_id = 'roof-doctors-private'
+    AND app_private.has_division_resource_access((storage.foldername(name))[1], 'files', true));
 
 GRANT USAGE ON SCHEMA auth, storage, app_private TO authenticated;
 GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated;
@@ -108,9 +151,15 @@ GRANT EXECUTE ON FUNCTION app_private.has_division_resource_access(text,text,boo
 GRANT ALL ON ALL TABLES IN SCHEMA public, storage, auth TO authenticated;
 
 INSERT INTO public.crm_divisions(id) VALUES ('TRD');
-INSERT INTO auth.users(id) VALUES ('00000000-0000-0000-0000-000000000001'), ('00000000-0000-0000-0000-000000000002'), ('00000000-0000-0000-0000-000000000003');
+INSERT INTO auth.users(id) VALUES ('00000000-0000-0000-0000-000000000001'), ('00000000-0000-0000-0000-000000000002'), ('00000000-0000-0000-0000-000000000003'), ('00000000-0000-0000-0000-000000000004'), ('00000000-0000-0000-0000-000000000005');
 INSERT INTO public.crm_memberships(user_id, division_id, role)
-VALUES ('00000000-0000-0000-0000-000000000001', 'TRD', 'owner'), ('00000000-0000-0000-0000-000000000002', 'TRD', 'project_manager'), ('00000000-0000-0000-0000-000000000003', 'TRD', 'accounting');
+VALUES ('00000000-0000-0000-0000-000000000001', 'TRD', 'owner'), ('00000000-0000-0000-0000-000000000002', 'TRD', 'project_manager'), ('00000000-0000-0000-0000-000000000003', 'TRD', 'accounting'), ('00000000-0000-0000-0000-000000000004', 'TRD', 'sales_rep'), ('00000000-0000-0000-0000-000000000005', 'TRD', 'field_inspector');
+INSERT INTO public.crm_properties(id,customer_id)
+VALUES ('00000000-0000-0000-0000-000000000020','00000000-0000-0000-0000-000000000010');
+INSERT INTO public.crm_customer_divisions(customer_id,division_id)
+VALUES ('00000000-0000-0000-0000-000000000010','TRD');
+INSERT INTO public.crm_inspections(id,division_id)
+VALUES ('00000000-0000-0000-0000-000000000050','TRD');
 INSERT INTO public.crm_leads(id,division_id,customer_id,property_id,service_interest,status)
 VALUES ('00000000-0000-0000-0000-000000000030','TRD','00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000020','Roof replacement','new');
 INSERT INTO public.crm_claims(id,division_id,customer_id,property_id,lead_id,claim_number,insurance_carrier,claim_status)
@@ -122,6 +171,7 @@ VALUES ('00000000-0000-0000-0000-000000000040','TRD','00000000-0000-0000-0000-00
 \ir ../migrations/20261031220200_add_project_transaction_attachments.sql
 \ir ../migrations/20261031220300_add_company_expense_ledger.sql
 \ir ../migrations/20261031220400_recalculate_project_financial_methods.sql
+-- Private-file security is exercised by scripts/test-security.py against the actual baseline.
 
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
 SET ROLE authenticated;
@@ -253,6 +303,10 @@ UPDATE pg_temp.test_ids SET transaction_id = :'test_transaction_id';
 
 INSERT INTO storage.objects(bucket_id,name)
 VALUES ('roof-doctors-private','TRD/' || :'test_project_id' || '/payment-receipt-test.pdf');
+SELECT auth.uid() AS debug_user, app_private.has_division_financial_access('TRD', true) AS debug_financial_write;
+SELECT policyname, cmd, with_check FROM pg_policies
+WHERE schemaname='public' AND tablename='crm_files'
+ORDER BY policyname;
 INSERT INTO public.crm_files
   (division_id,related_type,related_id,bucket_id,object_path,original_filename,content_type,file_size_bytes,uploaded_by,metadata)
 VALUES
@@ -612,4 +666,4 @@ END
 $body$;
 
 RESET ROLE;
-SELECT 'project pipeline migration test passed' AS result;
+SELECT 'project pipeline financial regression test passed' AS result;

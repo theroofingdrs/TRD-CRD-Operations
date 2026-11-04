@@ -1,3 +1,4 @@
+import { registerFile } from "./registerFile";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "./lib/supabase";
 
@@ -359,19 +360,13 @@ export default function ImportCenter({ division, userId, canShareBoth }: { divis
           const objectPath = division + "/" + customerId + "/invoice2go/" + batch.id + "/" + safeName;
           const { error: uploadError } = await supabase.storage.from("roof-doctors-private").upload(objectPath, item.file, { contentType: item.file.type || mimeFor(item.file.name), upsert: false });
           if (uploadError) throw uploadError;
-          const { data: fileRow, error: fileError } = await supabase.from("crm_files").insert({
+          const { error: fileError } = await registerFile(supabase, {
             division_id: division, related_type: "customer", related_id: customerId, bucket_id: "roof-doctors-private",
             object_path: objectPath, original_filename: item.file.name, content_type: item.file.type || mimeFor(item.file.name),
             file_size_bytes: item.file.size, uploaded_by: userId,
             metadata: { source_system: "Invoice2go", import_batch_id: batch.id, historical_document_type: item.type }
-          }).select("id").single();
-          if (fileError) throw fileError;
-          const { error: historyError } = await supabase.from("crm_historical_documents").insert({
-            division_id: division, customer_id: customerId, document_type: item.type === "photo" ? "photo" : item.type,
-            original_filename: item.file.name, storage_file_id: fileRow.id, source_system: "Invoice2go",
-            import_batch_id: batch.id, metadata: { imported_as_attachment: true }, created_by: userId
           });
-          if (historyError) throw historyError;
+          if (fileError) throw fileError;
           uploaded++;
         } catch (error) { failures.push(item.file.name + ": " + (error instanceof Error ? error.message : "upload failed")); }
       }

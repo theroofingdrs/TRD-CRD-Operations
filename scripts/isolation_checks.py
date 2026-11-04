@@ -75,9 +75,9 @@ def isolation_checks(docker, env, name, database='postgres', expected_defect=Fal
 
     def reserve(ids, path):
         d = ids['doc']
-        query(f"insert into public.crm_proposals(id,division_id,customer_id,property_id,title,template_data) "
+        query(user(f"insert into public.crm_proposals(id,division_id,customer_id,property_id,title,template_data) "
               f"values('{d}','TRD','{ids['customer']}','{ids['property']}','Isolation A',"
-              f"jsonb_build_object('roofr_report_id','{ids['file']}'));")
+              f"jsonb_build_object('roofr_report_id','{ids['file']}'));"))
         inputs = json.loads(query(user(f"select public.crm_document_render_inputs('proposal','{d}');")))
         frame = json.loads(query(server(f"select public.crm_freeze_document_render('{actor}','proposal','{d}','{literal(inputs)}'::jsonb);")))
         payload = {'to': [customer_email], 'subject': 'Synthetic isolation',
@@ -99,7 +99,7 @@ def isolation_checks(docker, env, name, database='postgres', expected_defect=Fal
         return f"select public.crm_delivery_reconciliation('{actor}','{operation['id']}','b1000000-0000-0000-0000-000000000001','sent','Synthetic provider GET evidence');"
 
     def edit(ids, source):
-        return {
+        statement = {
             'proposal': f"update public.crm_proposals set title='Isolation B' where id='{ids['doc']}';",
             'customer': f"update public.crm_customers set display_name='Isolation B' where id='{ids['customer']}';",
             'property': f"update public.crm_properties set address_line1='Isolation B' where id='{ids['property']}';",
@@ -107,6 +107,9 @@ def isolation_checks(docker, env, name, database='postgres', expected_defect=Fal
             'file': f"update public.crm_files set metadata=metadata||'{{\"isolation\":\"B\"}}' where id='{ids['file']}';",
             'storage': f"update storage.objects set metadata=metadata||'{{\"version\":\"B\"}}' where name='{ids['path']}';",
         }[source]
+        # Registered files/objects no longer permit browser metadata writes.
+        # Trusted maintenance must still obey the delivery isolation guards.
+        return ("reset role;" if source in ("file", "storage") else "") + statement
 
     def state(ids):
         return json.loads(query(f"select jsonb_build_object('proposal',p.status,'receipt',d.status,'epoch',e.source_epoch,'sent_epoch',e.sent_epoch,"

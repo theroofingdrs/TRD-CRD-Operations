@@ -92,16 +92,16 @@ rollback;
             namespace='delivery_private' if 'server_authoritative' in migration.name else 'file_private'
             sql(f"do $$ begin if to_regnamespace('{namespace}') is not null then raise exception 'Partial migration survived'; end if; end $$; alter table {target} rename column security_test_drift to {column};")
             print('PASS: schema drift aborts migration atomically')
-        if migration.name.startswith('20261103030000'):
+        if mode=='delivery' and migration.name.startswith('20261103030000'):
             sql((root/'supabase/tests/security_delivery_defect_reproductions.sql').read_text())
             print('PASS: both original defects reproduced before corrective migration (rolled back)')
-        if migration.name.startswith('20261103040000'):
+        if mode=='delivery' and migration.name.startswith('20261103040000'):
             run(['exec',name,'createdb','-h','127.0.0.1','-U','postgres','-T','postgres','r1_before'],stdout=subprocess.DEVNULL)
             render_test('r1_before',historical=True)
-        if migration.name.startswith('20261103050000'):
+        if mode=='delivery' and migration.name.startswith('20261103050000'):
             run(['exec',name,'createdb','-h','127.0.0.1','-U','postgres','-T','postgres','r2_before'],stdout=subprocess.DEVNULL)
             completion_race_checks(docker,env,name,'r2_before',expected_defect=True)
-        if migration.name.startswith('20261103060000'):
+        if mode=='delivery' and migration.name.startswith('20261103060000'):
             run(['exec',name,'createdb','-h','127.0.0.1','-U','postgres','-T','postgres','r3_before'],stdout=subprocess.DEVNULL)
             isolation_checks(docker,env,name,'r3_before',expected_defect=True)
             sql("revoke execute on function public.crm_freeze_document_render(uuid,text,uuid,jsonb) from service_role;")

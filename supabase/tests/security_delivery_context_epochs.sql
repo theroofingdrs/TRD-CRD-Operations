@@ -1,9 +1,10 @@
 -- Every database-backed proposal source is covered, without trusting an app caller.
 set request.jwt.claim.role='service_role';
+set request.jwt.claim.sub='10000000-0000-0000-0000-000000000001';
 do $$ declare t text; c uuid; p uuid; f uuid; doc uuid; path text; v timestamptz; op jsonb; before_epoch bigint; original_intro text; begin
  select introduction into original_intro from public.crm_proposal_templates where division_id='TRD';
  foreach t in array array['proposal','customer','property','template','file','storage'] loop
-  c:=gen_random_uuid();p:=gen_random_uuid();f:=gen_random_uuid();doc:=gen_random_uuid();path:='TRD/'||p||'/epoch.pdf';
+  c:=gen_random_uuid();p:=gen_random_uuid();f:=gen_random_uuid();doc:=gen_random_uuid();path:='TRD/'||p||'/roofr-epoch.pdf';
   insert into public.crm_customers(id,customer_type,display_name,email) values(c,'individual','Epoch synthetic','epoch@example.test');
   insert into public.crm_customer_divisions(customer_id,division_id) values(c,'TRD');
   insert into public.crm_properties(id,customer_id,address_line1,city,state) values(p,c,'Epoch A','Test','TX');
@@ -27,6 +28,9 @@ do $$ declare t text; c uuid; p uuid; f uuid; doc uuid; path text; v timestamptz
     or (select status from public.crm_proposals where id=doc)<>'sent' then raise exception 'Non-context edit invalidated sent state'; end if;
   perform set_config('request.jwt.claim.sub','10000000-0000-0000-0000-000000000001',true);
   set local role authenticated;
+  -- Registered file identity and Storage metadata are immutable to browser roles.
+  -- Exercise trusted maintenance edits without reopening those grants.
+  if t in ('file','storage') then reset role; end if;
   case t
    when 'proposal' then update public.crm_proposals set title='Changed epoch' where id=doc;
    when 'customer' then update public.crm_customers set display_name='Changed epoch' where id=c;

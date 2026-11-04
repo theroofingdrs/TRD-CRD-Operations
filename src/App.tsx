@@ -1,3 +1,4 @@
+import { registerFile } from "./registerFile";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./lib/supabase";
@@ -18,7 +19,9 @@ type DivisionId = "TRD" | "CRD";
 type Role = "owner" | "division_admin" | "office_manager" | "sales_rep" | "project_manager" | "field_inspector" | "production_manager" | "accounting" | "read_only";
 type Membership = { division_id: DivisionId; role: Role };
 type View = "overview" | "leads" | "customers" | "import" | "contacts" | "properties" | "claims" | "roofs" | "documents" | "appointments" | "proposals" | "proposal_templates" | "price_book" | "warranties" | "deliveries" | "inspections" | "projects" | "project_pipeline" | "tasks" | "team" | "completed_map" | "blog";
-type Lead = { id: string; service_interest: string | null; status: string; priority: string; source: string | null; description: string | null; created_at: string; assigned_to: string | null };
+type LeadCustomer = { display_name: string; email: string | null; phone: string | null };
+function leadCustomer(lead: Lead): LeadCustomer | null { return (Array.isArray(lead.customer) ? lead.customer[0] : lead.customer) ?? null; }
+type Lead = { customer?: LeadCustomer | LeadCustomer[] | null; id: string; service_interest: string | null; status: string; priority: string; source: string | null; description: string | null; created_at: string; assigned_to: string | null };
 type Customer = { id: string; display_name: string; customer_type: string; email: string | null; phone: string | null; billing_address_line1?: string | null; billing_city?: string | null; billing_state?: string | null; billing_postal_code?: string | null; created_at: string; assigned_to: string | null };
 type GenericRow = Record<string, string | number | null>;
 
@@ -224,7 +227,7 @@ function App() {
       <header className="topbar"><div><p className="eyebrow">{division} DIVISION</p><h1>{view === "overview" ? "Operations overview" : navigation.find((item) => item.id === view)?.label}</h1></div><div className="user-menu"><div className="avatar">{(profileName || "U").slice(0,1).toUpperCase()}</div><div><strong>{profileName || "Employee"}</strong><span>{currentMembership?.role?.replaceAll("_"," ")}</span></div></div></header>
       {workspaceError && <div className="error-banner">{workspaceError}</div>}
       {view === "overview" && <Overview division={division} onNavigate={setView} />}
-      {view === "leads" && <Leads division={division} userId={session.user.id} canWrite={canWriteLeads} canImport={currentMembership?.role === "owner"} isOwner={isOwner} />}
+      {view === "leads" && <Leads key={division + session.user.id} division={division} userId={session.user.id} canWrite={canWriteLeads} canImport={currentMembership?.role === "owner"} isOwner={isOwner} />}
       {view === "customers" && <Customers division={division} userId={session.user.id} canWrite={canWriteCustomers} canWriteMaintenance={canWriteMaintenance} canShareBoth={canShareCustomerAcrossDivisions} canCreateInspection={canWriteInspections} canCreateProposal={canWriteLeads} isOwner={isOwner} onCreateInspection={(customerId, propertyId) => { setWorkflowLaunch({ type: "inspection", customerId, propertyId }); setView("inspections"); }} onCreateProposal={(customerId, propertyId) => { setWorkflowLaunch({ type: "proposal", customerId, propertyId }); setView("proposals"); }} /> }
       {view === "import" && canWriteCustomers && <ImportCenter division={division} userId={session.user.id} canShareBoth={canShareCustomerAcrossDivisions} />}
       {view === "contacts" && <Contacts division={division} canWrite={canWriteContacts} />}
@@ -283,6 +286,9 @@ function Overview({ division, onNavigate }: { division: DivisionId; onNavigate: 
 
 function Leads({ division, userId, canWrite, canImport, isOwner }: { division: DivisionId; userId: string; canWrite: boolean; canImport: boolean; isOwner: boolean }) {
   const [rows, setRows] = useState<Lead[]>([]);
+  const [customers, setCustomers] = useState<{ id: string; display_name: string }[]>([]);
+  const [customerId, setCustomerId] = useState("");
+  const [pendingStatus, setPendingStatus] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [service, setService] = useState("");
   const [source, setSource] = useState("Phone");
@@ -295,17 +301,22 @@ function Leads({ division, userId, canWrite, canImport, isOwner }: { division: D
   const load = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
-    const { data, error } = await supabase.from("crm_leads").select("id,service_interest,status,priority,source,description,created_at,assigned_to").eq("division_id", division).order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("crm_leads").select("id,service_interest,status,priority,source,description,created_at,assigned_to,customer:crm_customers!crm_leads_customer_id_fkey(display_name,email,phone)").eq("division_id", division).order("created_at", { ascending: false });
     if (error) setMessage(error.message);
     setRows((data ?? []) as Lead[]);
+    const customerResult = await supabase.from("crm_customers").select("id,display_name,crm_customer_divisions!inner(division_id)").eq("crm_customer_divisions.division_id", division).order("display_name");
+    if (customerResult.error) setMessage(customerResult.error.message);
+    setCustomers(customerResult.data ?? []);
     setLoading(false);
   }, [division]);
   useEffect(() => { void load(); }, [load]);
   async function updateStatus(id: string, status: string) {
-    if (!supabase) return;
-    const { error } = await supabase.from("crm_leads").update({ status }).eq("id", id);
+    if (!supabase || !canWrite || pendingStatus) return;
+    setPendingStatus(id);
+    const { error } = await supabase.from("crm_leads").update({ status }).eq("id", id).eq("division_id", division);
     if (error) setMessage(error.message);
     else await load();
+    setPendingStatus(null);
   }
   async function importWebsiteLeads() {
     if (!supabase || !canImport) return;
@@ -324,24 +335,25 @@ function Leads({ division, userId, canWrite, canImport, isOwner }: { division: D
   }
   async function createLead(event: FormEvent) {
     event.preventDefault();
-    if (!supabase) return;
+    if (!supabase || !canWrite || saving || !service.trim()) return;
     setSaving(true);
     setMessage("");
-    const { error } = await supabase.from("crm_leads").insert({ division_id: division, service_interest: service.trim() || null, source, priority, description: description.trim() || null, created_by: userId });
+    const { error } = await supabase.from("crm_leads").insert({ division_id: division, customer_id: customerId || null, service_interest: service.trim() || null, source, priority, description: description.trim() || null, created_by: userId });
     if (error) setMessage(error.message);
     else {
       setShowForm(false);
       setService("");
       setDescription("");
+      setCustomerId("");
       setMessage("Lead created.");
       await load();
     }
     setSaving(false);
   }
   return <div className="content-stack"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">OPPORTUNITY MANAGEMENT</p><h2>Lead pipeline</h2><p className="muted">{rows.length} records in this division</p></div><div className="panel-actions">{canImport && <button className="secondary-button" disabled={importing} onClick={() => void importWebsiteLeads()}>{importing ? "Importing..." : "Import website leads"}</button>}{canWrite && <button className="primary-button compact" onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "+ Add lead"}</button>}</div></div>
-    {showForm && <form className="inline-form" onSubmit={createLead}><div className="form-grid"><label>Service requested<input value={service} onChange={(event) => setService(event.target.value)} placeholder="Roof replacement, repair, gutter cleaning..." /></label><label>Lead source<select value={source} onChange={(event) => setSource(event.target.value)}><option>Phone</option><option>Website</option><option>Referral</option><option>Google</option><option>Repeat customer</option><option>Other</option></select></label><label>Priority<select value={priority} onChange={(event) => setPriority(event.target.value)}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label className="wide">Notes<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={2} placeholder="What does the customer need?" /></label></div><button className="primary-button" disabled={saving}>{saving ? "Saving..." : "Save lead"}</button></form>}
+    {showForm && <form className="inline-form" onSubmit={createLead}><div className="form-grid"><label>Customer<select value={customerId} onChange={event => setCustomerId(event.target.value)}><option value="">Select customer (optional)</option>{customers.map(customer => <option key={customer.id} value={customer.id}>{customer.display_name}</option>)}</select></label><label>Service requested<input required value={service} onChange={(event) => setService(event.target.value)} placeholder="Roof replacement, repair, gutter cleaning..." /></label><label>Lead source<select value={source} onChange={(event) => setSource(event.target.value)}><option>Phone</option><option>Website</option><option>Referral</option><option>Google</option><option>Repeat customer</option><option>Other</option></select></label><label>Priority<select value={priority} onChange={(event) => setPriority(event.target.value)}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label className="wide">Notes<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={2} placeholder="What does the customer need?" /></label></div><button className="primary-button" disabled={saving}>{saving ? "Saving..." : "Save lead"}</button></form>}
     {message && <p className="inline-message">{message}</p>}
-    {loading ? <div className="empty-state">Loading leads...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Service</th><th>Source</th><th>Status</th><th>Priority</th><th>Salesperson</th><th>Created</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><strong>{row.service_interest || "Unspecified service"}</strong><span className="subline">{row.description || "No notes"}</span></td><td>{row.source || "—"}</td><td>{canWrite ? <select className="table-select" value={row.status} onChange={(event) => void updateStatus(row.id, event.target.value)}><option value="new">New</option><option value="contacted">Contacted</option><option value="qualified">Qualified</option><option value="appointment_set">Appointment set</option><option value="inspection_pending">Inspection pending</option><option value="estimate_in_progress">Estimate in progress</option><option value="proposal_sent">Proposal sent</option><option value="won">Won</option><option value="lost">Lost</option><option value="on_hold">On hold</option></select> : <span className={"pill " + row.status}>{row.status.replaceAll("_"," ")}</span>}</td><td><span className={"priority " + row.priority}>{row.priority}</span></td><td><SalespersonAssignment entityType="lead" entityId={row.id} division={division} assignedTo={row.assigned_to} isOwner={isOwner} compact /></td><td>{new Date(row.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>Your lead pipeline is ready</strong><span>There are no CRM leads in this division yet. Existing public website submissions have not been copied or changed.</span>{canWrite && <button className="secondary-button" onClick={() => setShowForm(true)}>Add your first lead</button>}</div>}
+    {loading ? <div className="empty-state">Loading leads...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Service</th><th>Customer / contact</th><th>Source</th><th>Status</th><th>Priority</th><th>Salesperson</th><th>Created</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><strong>{row.service_interest || "Unspecified service"}</strong><span className="subline">{row.description || "No notes"}</span></td><td><strong>{leadCustomer(row)?.display_name || "No linked customer"}</strong>{leadCustomer(row)?.phone && <a className="subline" href={"tel:" + leadCustomer(row)!.phone}>{leadCustomer(row)!.phone}</a>}{leadCustomer(row)?.email && <a className="subline" href={"mailto:" + leadCustomer(row)!.email}>{leadCustomer(row)!.email}</a>}</td><td>{row.source || "—"}</td><td>{canWrite ? <select className="table-select" disabled={!!pendingStatus || loading} aria-label={"Status for " + (row.service_interest || "lead")} value={row.status} onChange={(event) => void updateStatus(row.id, event.target.value)}><option value="new">New</option><option value="contacted">Contacted</option><option value="qualified">Qualified</option><option value="appointment_set">Appointment set</option><option value="inspection_pending">Inspection pending</option><option value="estimate_in_progress">Estimate in progress</option><option value="proposal_sent">Proposal sent</option><option value="won">Won</option><option value="lost">Lost</option><option value="on_hold">On hold</option></select> : <span className={"pill " + row.status}>{row.status.replaceAll("_"," ")}</span>}</td><td><span className={"priority " + row.priority}>{row.priority}</span></td><td><SalespersonAssignment entityType="lead" entityId={row.id} division={division} assignedTo={row.assigned_to} isOwner={isOwner} compact /></td><td>{new Date(row.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>Your lead pipeline is ready</strong><span>There are no CRM leads in this division yet. Existing public website submissions have not been copied or changed.</span>{canWrite && <button className="secondary-button" onClick={() => setShowForm(true)}>Add your first lead</button>}</div>}
   </section></div>;
 }
 
@@ -908,13 +920,13 @@ function Documents({ division, userId, canWrite }: { division: DivisionId; userI
     const path=division+"/"+crypto.randomUUID()+"-"+safeName;
     const {error:uploadError}=await supabase.storage.from("roof-doctors-private").upload(path,file,{contentType:file.type,upsert:false});
     if(uploadError){setMessage(uploadError.message);setSaving(false);return;}
-    const {error:metadataError}=await supabase.from("crm_files").insert({
+    const {error:metadataError}=await registerFile(supabase, {
       division_id:division,related_type:"property",related_id:propertyId,bucket_id:"roof-doctors-private",
       object_path:path,original_filename:file.name,content_type:file.type,file_size_bytes:file.size,uploaded_by:userId
     });
     if(metadataError){
-      await supabase.storage.from("roof-doctors-private").remove([path]);
-      setMessage("File upload could not be registered. The uploaded object was rolled back. "+metadataError.message);
+      const { error: cleanupError } = await supabase.storage.from("roof-doctors-private").remove([path]);
+      setMessage("File registration failed. " + (cleanupError ? "Upload cleanup also failed; contact the division owner. " : "Unregistered upload removed. ") + metadataError.message);
     }else{setMessage("File uploaded.");setFile(null);const picker=document.getElementById("crm-file-picker") as HTMLInputElement|null;if(picker)picker.value="";await load();}
     setSaving(false);
   }

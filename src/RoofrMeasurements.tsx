@@ -1,3 +1,4 @@
+import { registerFile } from "./registerFile";
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { supabase } from "./lib/supabase";
@@ -120,12 +121,12 @@ export default function RoofrMeasurements({ division, userId, properties, canWri
     const { error: storageError } = await supabase.storage.from("roof-doctors-private")
       .upload(path, file, { contentType: "application/pdf", upsert: false });
     if (storageError) { setBusy(false); setMessage(storageError.message); return; }
-    const { data, error } = await supabase.from("crm_files").insert({
+    const { data, error } = await registerFile(supabase, {
       division_id: division, related_type: "property", related_id: propertyId,
       bucket_id: "roof-doctors-private", object_path: path, original_filename: file.name,
       content_type: "application/pdf", file_size_bytes: file.size, uploaded_by: userId,
       metadata: { document_type: "roofr_measurement_report", extraction_status: extractionError ? "extraction_failed" : extracted.measurements.length ? "review_required" : "no_text_matches", extraction_error: extractionError || null, extracted_at: new Date().toISOString(), extracted_measurements: extracted.measurements, extracted_structures: extracted.structures, extracted_text: extracted.text.slice(0, 100000) }
-    }).select("id").single();
+    });
     if (error) {
       await supabase.storage.from("roof-doctors-private").remove([path]);
       setBusy(false); setMessage("Report registration failed. Uploaded file was removed. " + error.message); return;
@@ -176,8 +177,7 @@ export default function RoofrMeasurements({ division, userId, properties, canWri
     if (!supabase || !review) return;
     setBusy(true);
     const finalWasteFactor = wasteFactor === "20+" ? Math.max(20, Number(customWasteFactor) || 20) : Number(wasteFactor);
-    const next = { ...(review.metadata || {}), extracted_measurements: measurements, extracted_structures: structures, waste_factor_percent: finalWasteFactor, extraction_status: "reviewed", reviewed_at: new Date().toISOString() };
-    const { error } = await supabase.from("crm_files").update({ metadata: next }).eq("id", review.id);
+    const { error } = await supabase.rpc("crm_review_roofr_measurements", { p_file_id: review.id, p_measurements: measurements, p_structures: structures, p_waste_factor: finalWasteFactor });
     if (error) setMessage(error.message);
     else { setMessage("Reviewed measurements saved. Select this property in a new estimate to enter the confirmed quantities."); setReview(null); await load(); }
     setBusy(false);
