@@ -1189,6 +1189,7 @@ function DataList({ division, view, userId, canWrite }: { division: DivisionId; 
     if (view === "appointments") {
       if(!endsAt || new Date(endsAt)<=new Date(startsAt)){setError("Appointment end must be after its start.");setSaving(false);return;}
       const lead=leadOptions.find(item=>item.id===appointmentLead),property=propertyOptions.find(item=>item.id===propertyId);
+      if((appointmentLead&&!lead)||(propertyId&&!property)){setError("The selected lead or property is no longer available. Refresh the workspace before saving.");setSaving(false);return;}
       if(lead?.customer_id&&property&&lead.customer_id!==property.customer_id){setError("Select a property belonging to this lead customer.");setSaving(false);return;}
       payload = { division_id: division, appointment_type: appointmentType,lead_id:lead?.id||null,property_id:property?.id||null,customer_id:property?.customer_id||lead?.customer_id||null,assigned_to:userId, starts_at: new Date(startsAt).toISOString(),ends_at:new Date(endsAt).toISOString(), internal_notes: description || null, created_by: userId };
     } else if (view === "tasks") {
@@ -1204,7 +1205,7 @@ function DataList({ division, view, userId, canWrite }: { division: DivisionId; 
     const { error: insertError } = await supabase.from(table).insert(payload);
     if (insertError) setError(insertError.message);
     else {
-      setShowForm(false); setTitle(""); setDescription(""); setDueAt(""); setStartsAt("");setEndsAt("");setAppointmentLead(""); setTargetDate("");
+      setShowForm(false); setTitle(""); setDescription(""); setDueAt(""); setStartsAt("");setEndsAt("");setAppointmentLead("");if(view==="appointments")setPropertyId(""); setTargetDate("");
       await load();
     }
     setSaving(false);
