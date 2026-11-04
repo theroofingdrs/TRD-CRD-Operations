@@ -15,12 +15,17 @@ do $$ declare a jsonb;b jsonb; p jsonb:='{"name":"Intake synthetic","email":"int
  -- Strong identity, same division, full address -> reuse only the exact customer/property.
  b:=public.crm_receive_website_lead('TRD','a0000000-0000-4000-8000-000000000003',p||'{"message":"Second distinct inquiry"}');
  if not (b->>'ok')::boolean then raise exception 'Exact match delivery failed: %',b;end if;
+ -- Incomplete addresses without postal codes must remain lead details, not CRM properties.
+ b:=public.crm_receive_website_lead('TRD','a0000000-0000-4000-8000-000000000007',(p-'zip')||'{"name":"Incomplete address","email":"incomplete@example.test","phone":"9035550199"}');
+ if not (b->>'ok')::boolean then raise exception 'Incomplete-address intake failed: %',b;end if;
 end $$;
 reset role;
 do $$ declare a public.crm_leads%rowtype;b public.crm_leads%rowtype;begin
  select * into a from public.crm_leads where source_record_id='website-TRD-a0000000-0000-4000-8000-000000000001';
  select * into b from public.crm_leads where source_record_id='website-TRD-a0000000-0000-4000-8000-000000000003';
  if a.customer_id<>b.customer_id or a.property_id<>b.property_id then raise exception 'Exact matching failed';end if;
+ select * into b from public.crm_leads where source_record_id='website-TRD-a0000000-0000-4000-8000-000000000007';
+ if b.property_id is not null then raise exception 'Incomplete address without postal code created a property';end if;
  if a.assigned_to<>'10000000-0000-0000-0000-000000000001' or a.next_follow_up_at is null then raise exception 'Single operator ownership/follow-up missing';end if;
  if not exists(select 1 from public.crm_tasks where related_id=a.id and assigned_to=a.assigned_to) then raise exception 'Follow-up task missing';end if;
  if not exists(select 1 from intake_private.submissions where lead_id=a.id and payload->>'utmCampaign'='test-campaign' and payload->>'submittedAt'='2026-11-04T12:00:00Z') then raise exception 'Attribution lost';end if;
