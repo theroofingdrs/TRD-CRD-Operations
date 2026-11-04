@@ -32,9 +32,9 @@ type GenericRow = Record<string, string | number | null>;
 // Address autocomplete stores Google's formatted address in line 1 while
 // also storing city/state/postal code in their own fields. Avoid repeating
 // those location components when presenting existing records.
-function formatStoredAddress(line1?: string | null, city?: string | null, state?: string | null, postalCode?: string | null) {
-  const street = (line1 || "").trim();
-  const locationParts = [city, state, postalCode].map(value => (value || "").trim()).filter(Boolean);
+function formatStoredAddress(line1?: string | number | null, city?: string | number | null, state?: string | number | null, postalCode?: string | number | null) {
+  const street = String(line1 ?? "").trim();
+  const locationParts = [city, state, postalCode].map(value => String(value ?? "").trim()).filter(Boolean);
   if (!street) return locationParts.join(", ");
   const normalizedStreet = street.toLocaleLowerCase().replace(/[^a-z0-9]/g, "");
   const missingParts = locationParts.filter(part => !normalizedStreet.includes(part.toLocaleLowerCase().replace(/[^a-z0-9]/g, "")));
