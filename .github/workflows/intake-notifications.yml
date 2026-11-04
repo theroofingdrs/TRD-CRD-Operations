@@ -1,0 +1,24 @@
+name: Approved intake notification worker
+on:
+  workflow_dispatch:
+    inputs:
+      approve_notifications:
+        description: Send pending intake notifications with the verified production sender/provider
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+jobs:
+  worker:
+    if: github.event_name == 'workflow_dispatch' && inputs.approve_notifications == true
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Invoke approved service-authenticated worker
+        env:
+          WORKER_URL: ${{ vars.INTAKE_NOTIFICATION_WORKER_URL }}
+          WORKER_KEY: ${{ secrets.INTAKE_NOTIFICATION_SERVICE_KEY }}
+        run: |
+          test -n "$WORKER_URL" && test -n "$WORKER_KEY"
+          curl --fail --silent --show-error --max-time 120 --request POST --header "Authorization: Bearer $WORKER_KEY" --header 'Content-Type: application/json' --data '{}' "$WORKER_URL"

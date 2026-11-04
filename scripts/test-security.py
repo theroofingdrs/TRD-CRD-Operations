@@ -7,7 +7,7 @@ from postgrest_checks import postgrest_checks
 from completion_race_checks import completion_race_checks
 from isolation_checks import isolation_checks
 root = Path(__file__).resolve().parents[1]
-available=[mode for mode in ('delivery','files') if (root/f'supabase/tests/security_{mode}.sql').exists()]
+available=[mode for mode in ('delivery','files','intake') if (root/f'supabase/tests/security_{mode}.sql').exists()]
 if len(sys.argv)==1 and len(available)>1:
     for candidate in available: subprocess.run([sys.executable,__file__,candidate],check=True)
     sys.exit(0)
@@ -115,6 +115,11 @@ rollback;
             print('PASS: R3 execution-grant drift aborts migration atomically')
         sql(migration.read_text())
     sql((root/f'supabase/tests/security_{mode}.sql').read_text() + ((root/'supabase/tests/security_delivery_recovery.sql').read_text() if mode=='delivery' else ''))
+    if mode=='intake':
+        print('PASS: atomic residential/commercial delivery, matching, rollback, owner recovery, attribution and grants',flush=True)
+        from intake_checks import intake_checks
+        intake_checks(docker,env,name,root,run,sql)
+        sys.exit(0)
     if mode=='delivery':
         sql((root/'supabase/tests/security_delivery_artifacts.sql').read_text())
         sql((root/'supabase/tests/security_delivery_context_epochs.sql').read_text())
