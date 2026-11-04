@@ -186,9 +186,9 @@ export default function RoofrMeasurements({ division, userId, properties, canWri
   return <section className="panel roofr-measurements">
     <div className="panel-heading"><div><p className="eyebrow">ROOFR MEASUREMENTS</p><h3>Roof measurement reports</h3><p className="muted">Upload a Roofr PDF to this property. Extracted quantities are saved with the original report and require review.</p></div></div>
     {properties.length === 0 ? <p className="muted">Add a property before uploading a Roofr report.</p> : <>
-      <label>Property<select value={propertyId} onChange={e => { setPropertyId(e.target.value); setReview(null); }}><option value="">Select property</option>{properties.map(p => <option key={p.id} value={p.id}>{p.address_line1}, {p.city}, {p.state}</option>)}</select></label>
+      <label className="field-label">Property<select value={propertyId} onChange={e => { setPropertyId(e.target.value); setReview(null); }}><option value="">Select property</option>{properties.map(p => <option key={p.id} value={p.id}>{p.address_line1}, {p.city}, {p.state}</option>)}</select></label>
       {canWrite && <form className="inline-form" onSubmit={upload}>
-        <label className="wide">Roofr measurement PDF<input id="roofr-report-picker" type="file" accept="application/pdf,.pdf" onChange={e => setFile(e.target.files?.[0] || null)} /></label>
+        <label className="field-label">Roofr measurement PDF<input id="roofr-report-picker" type="file" accept="application/pdf,.pdf" onChange={e => setFile(e.target.files?.[0] || null)} /></label>
         <button className="primary-button" disabled={busy || !file || !propertyId}>{busy ? "Processing report..." : "Upload and extract measurements"}</button>
         <p className="fine-print">PDF only. Maximum 15 MB. The original report is retained in private property storage.</p>
       </form>}
