@@ -39,7 +39,10 @@ jobs:
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
       - name: Type check and production build
-        run: npm run build
+        run: |
+          npm run build
+          node scripts/check-public-bundles.mjs dist/assets
+          node --experimental-strip-types src/lib/central-time.test.mjs
       - name: Test project pipeline migration in disposable PostgreSQL
         run: |
           docker run --detach --rm --name project-pipeline-test-db --publish 5433:5432 --volume "$GITHUB_WORKSPACE:/workspace:ro" --env POSTGRES_PASSWORD=ci-test postgres:17
@@ -74,12 +77,14 @@ jobs:
           deno check supabase/functions/crm-import-website-intake/index.ts
           deno check supabase/functions/crm-public-blog/index.ts
           deno check --node-modules-dir=none supabase/functions/crm-intake-notifications/index.ts
+          deno check --node-modules-dir=none supabase/functions/crm-notification-receipts/index.ts
           deno check --node-modules-dir=auto supabase/functions/crm-send-document/index.ts
       - name: Test document provider and authentication boundaries
         run: |
           node --experimental-strip-types supabase/functions/crm-send-document/delivery.test.mjs
           deno test --allow-env --node-modules-dir=auto supabase/functions/crm-send-document/handler.test.ts
           node --experimental-strip-types supabase/functions/crm-intake-notifications/worker.test.mjs
+          node --experimental-strip-types supabase/functions/crm-intake-notifications/operations.test.mjs
       - name: Build Cloud Run container
         run: |
           docker build \

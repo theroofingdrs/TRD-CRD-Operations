@@ -1,0 +1,5 @@
+// Fail on server credential bindings reaching shipped JavaScript. Never print values.
+import {readdir,readFile} from 'node:fs/promises';import path from 'node:path';
+const forbidden=['SUPABASE_SERVICE_ROLE_KEY','RESEND_API_KEY','GOOGLE_CALENDAR_CLIENT_SECRET','GOOGLE_CALENDAR_REFRESH_TOKEN','RESEND_WEBHOOK_SECRET'];
+async function scan(dir){let count=0;for(const item of await readdir(dir,{withFileTypes:true})){const file=path.join(dir,item.name);if(item.isDirectory())count+=await scan(file);else if(/\.(js|html)$/.test(item.name)){const source=await readFile(file,'utf8');for(const name of forbidden){if(source.includes(name)||(process.env[name]?.length>=16&&source.includes(process.env[name])))throw Error('Server credential binding found in a public bundle: '+name);}if(/sb_secret_[a-zA-Z0-9_-]{15,}/.test(source))throw Error('Secret-key pattern found in public bundle.');count++;}}return count;}
+let count=0;for(const dir of process.argv.slice(2))count+=await scan(dir);if(!count)throw Error('No public bundles checked.');console.log('PASS public bundle credential boundary ('+count+' files checked)');

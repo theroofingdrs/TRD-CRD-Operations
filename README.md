@@ -72,7 +72,7 @@ The workflow deliberately does not apply Supabase migrations, change database re
 
 Owner, Division Admin, Office Manager, Sales Rep, Project Manager, Field Inspector, Production Manager, Accounting, and Read Only.
 
-Permissions are enforced in Postgres Row Level Security, not just hidden in the interface. The owner can access both divisions. Employee accounts cannot self register or assign their own role.
+Permissions are enforced in Postgres Row Level Security, not just hidden in the interface. The owner can access both divisions. The interface offers no self-registration or self-assignment of roles. Hosted Auth signup settings must be verified separately; the current public inspection reports signup enabled. See `docs/lead-to-crm-readiness.md` for the approval boundary.
 
 ## Local development
 

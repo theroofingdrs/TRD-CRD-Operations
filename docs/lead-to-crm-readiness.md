@@ -32,7 +32,7 @@ Claims freeze the exact body and provider idempotency key. Concurrent claims are
 
 The database store and server engine are prepared, isolated and disabled. The approved draft retains America/Chicago and Monday–Saturday 08:30–18:00; Sunday is closed. Calendars, operator bindings, durations, buffers, notice/horizon and customer URL bindings stay unset. Service-only reservations serialize operator capacity across divisions and check existing CRM appointments. Confirmed bookings create/update CRM appointments; confirmed cancellations cancel them. Manual appointment writers and booking operations share a statement-before-row capacity lock and require READ COMMITTED once booking is introduced. Existing workflows are not capacity-gated while booking is disabled and no booking records exist. Unknown appointment end times conservatively block later slots until staff supplies an end time. Uncertain rescheduling blocks both old and proposed slots. Browser roles cannot invoke the store.
 
-The Google adapter supports FreeBusy, deterministic event IDs, create, cancel and patch with provider notifications suppressed. Tests use injected HTTP only. Availability/access failure closes booking. Overlapping rescheduling needs staff calendar review because FreeBusy cannot safely distinguish the existing appointment from another overlapping event. Uncertain provider operations retain reservations and need reconciliation; there is no automatic claim that absence proves rejection. Confirmation/reminder dispatch, external-calendar race behavior, OAuth/access, hosted cancellation/rescheduling and authenticated staff management remain release gates. There is no public booking endpoint and no real booking activation.
+The Google adapter supports FreeBusy, deterministic event IDs, create, cancel and patch with provider notifications suppressed. Tests use injected HTTP only. Availability/access failure closes booking. Overlapping rescheduling needs staff calendar review because FreeBusy cannot safely distinguish the existing appointment from another overlapping event. Uncertain provider operations retain reservations and need reconciliation; there is no automatic claim that absence proves rejection. Hosted verification of confirmation/reminder dispatch, external-calendar race behavior, OAuth/access, cancellation/rescheduling and authenticated staff management remains a release gate; the default-off source implementations below are covered by synthetic tests. There is no public booking endpoint and no real booking activation.
 
 ## Production observations (read-only, November 4, 2026)
 
@@ -52,3 +52,92 @@ Use `scripts/production-readiness.sql` later with approved administrative read-o
 6. Separately approve notification scheduling and booking activation after their missing dependencies and failover procedures are verified.
 
 Local/synthetic tests establish implementation behavior, not hosted readiness or production approval. Exact local/remote results and commit IDs belong in the final run report.
+
+## Continued readiness work (November 4, 2026)
+
+The access model is invitation-only employee authorization. Evidence: login uses
+`shouldCreateUser: false`, there is no signup UI, the Auth trigger creates only a
+profile, and CRM authority comes from active database memberships, never editable
+Auth metadata. The historical owner is intentionally a full CRM administrator;
+ordinary operational reads/writes and the new service operations remain scoped to
+division. The repository does not configure hosted Auth signup, so its enabled
+state cannot be attributed to a particular change without hosted audit access.
+The login copy now describes the access requirement without falsely promising that
+the hosted signup API is disabled. **Owner decision:** approve disabling public
+signup after confirming that the shared Supabase project has no other approved
+self-service consumers. No live Auth setting or access policy was changed.
+
+New additive source migrations `20261104050000` through `20261104080000`:
+
+- Reject mismatched lead/contact/customer/property associations, including trusted
+  writes across divisions. Existing rows are not rewritten. Provider-bound
+  appointments cannot be reassociated independently of their booking.
+- Reconcile uncertain calendar operations only from positive, claim-bound provider
+  evidence. Absence never releases uncertain creation/move capacity. Cancellation
+  can be settled after verified writable-calendar absence. Reconciliation reuses
+  the atomic CRM appointment finalizer; it never repeats provider creation.
+- Provide a read-only scheduling status RPC without calendar IDs or claim tokens.
+  The CRM offers staff booking, rescheduling, cancellation and evidence checks only
+  when database booking is enabled; manual appointments remain available. Manual
+  start/end entry and display explicitly use Central Time, independent of browser
+  timezone. DST gaps and ambiguous folds are rejected.
+- Add a separate, default-off operational outbox for assignment notifications,
+  appointment updates, reminders and project-completion updates. Capture and
+  delivery are independent disabled database gates. Reminder lead time stays null
+  until approved; no default was invented. Rescheduling invalidates pending old
+  reminders. Claims check current appointment/assignment state. Failed sends need
+  exact-division owner recovery; uncertain outcomes cannot be blindly retried.
+- Verify raw signed Resend/Svix callbacks before recording delivered/bounced
+  evidence. Replayed callbacks are idempotent; callbacks arriving before HTTP
+  acceptance are retained. Bounce evidence cannot regress to delivered. Intake
+  acknowledgements share these receipts while retaining `sent = provider accepted`.
+- Invitation assignments use a service-only, exact-owner RPC and cannot demote an
+  existing owner or create owner access. Existing-account lookup paginates instead
+  of treating the first 1,000 users as the complete directory.
+
+Manual tasks now receive the creating operator as owner and can be progressed or
+completed in the task list. Manual appointment status can also be maintained; a
+provider-bound cancellation still requires the verified calendar workflow.
+
+### Default-off runtime bindings
+
+The website's `/commercial/api/staff/booking` is mounted but returns disabled
+before any network work unless `BOOKING_ENABLED=true` and runtime preflight passes.
+It verifies Auth sessions server-side and derives the actor independently of JSON;
+`crm_booking_staff_context` checks exact active scheduling membership and record
+ownership. Cross-origin access is limited to the exact HTTPS
+`BOOKING_STAFF_ORIGIN`. The runtime needs existing server Supabase bindings,
+`BOOKING_POLICY_JSON`, `BOOKING_PROVIDER_VERIFIED`, and server-only
+`GOOGLE_CALENDAR_CLIENT_ID`, `GOOGLE_CALENDAR_CLIENT_SECRET`, and
+`GOOGLE_CALENDAR_REFRESH_TOKEN`. OAuth refresh is bounded and transport-injected in
+tests. No credentials are stored in booking policy or exposed to Vite.
+
+`OPERATIONAL_NOTIFICATIONS_ENABLED` separately gates the existing service-authenticated
+worker. `NOTIFICATION_RECEIPTS_ENABLED` and `RESEND_WEBHOOK_SECRET` gate the new
+`crm-notification-receipts` function. A future deployment of that webhook must let
+signed provider requests reach the handler without requiring a Supabase user JWT;
+its raw-body signature check is mandatory. No function or scheduler was deployed,
+no callback endpoint was registered, and all provider calls used test transports.
+
+### Updated hosted observations and remaining gates
+
+A fresh public GET-only inspection on November 4 confirmed signup enabled and
+email autoconfirm disabled. Anonymous limit-zero requests for leads, customers,
+properties, files and legacy intake were denied (401/42501). The financial
+transactions endpoint returned 404/PGRST205: it may be absent or unexposed; this is
+not evidence that financial migrations are installed. Bucket metadata remains
+unverifiable anonymously. No customer rows were requested.
+
+`python3 scripts/inspect-public-readiness.py` repeats these bounded observations
+using only the existing local public binding. `scripts/production-readiness.sql`
+is a read-only administrative inventory of migrations, policies including their
+expressions, grants/default grants, private schemas, disabled gates, bucket
+metadata and aggregate association/capacity anomalies. It was not run against
+production because no administrative database binding is available.
+
+See [production operations](production-operations.md) for the cutover, rollback,
+monitoring and backup verification requirements. Source tests do not establish
+hosted backup/PITR, restore success, provider OAuth authority, live configuration,
+external-calendar race controls, notification sender approval, approved reminder
+intervals, or deployment status. Those remain release gates; booking and real
+notification delivery must remain off until approved.

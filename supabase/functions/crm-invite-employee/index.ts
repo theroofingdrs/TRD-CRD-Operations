@@ -63,6 +63,7 @@ Deno.serve(async (req: Request) => {
   let body: { email?: string; division_id?: string; role?: string; display_name?: string };
   try {
     body = await req.json();
+    if (!body || typeof body !== "object" || Array.isArray(body) || (body.email !== undefined && typeof body.email !== "string") || (body.display_name !== undefined && typeof body.display_name !== "string")) return json({ error: "Invalid employee fields." }, 400);
   } catch {
     return json({ error: "Request body must be valid JSON." }, 400);
   }
@@ -101,10 +102,15 @@ Deno.serve(async (req: Request) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const { data: usersData, error: usersError } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  if (usersError) return json({ error: "Unable to check existing employee accounts." }, 500);
-
-  let employee = usersData.users.find((user) => user.email?.toLowerCase() === email);
+  let employee: {id:string;email?:string}|undefined;
+  // Search all pages. A bounded failure never falls through to a duplicate invite.
+  for (let page=1;page<=100;page++) {
+    const {data,error}=await admin.auth.admin.listUsers({page,perPage:1000});
+    if(error)return json({error:"Unable to check existing employee accounts."},503);
+    employee=data.users.find(user=>user.email?.toLowerCase()===email);
+    if(employee||data.users.length<1000)break;
+    if(page===100)return json({error:"Employee directory search requires administrative review."},503);
+  }
   let invited = false;
 
   if (!employee) {
@@ -119,24 +125,15 @@ Deno.serve(async (req: Request) => {
     invited = true;
   }
 
-  const { error: upsertError } = await admin
-    .from("crm_memberships")
-    .upsert(
-      {
-        user_id: employee.id,
-        division_id: divisionId,
-        role,
-        active: true,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id,division_id" },
-    );
+  const { error: upsertError } = await admin.rpc("crm_assign_employee_access", {
+    p_actor: authData.user.id, p_employee: employee.id, p_division: divisionId, p_role: role,
+  });
 
   if (upsertError) {
     return json({
       error: invited
         ? "The invitation was sent, but the CRM role could not be saved. Retry the assignment from Team Access."
-        : "The account exists, but the CRM role could not be saved.",
+        : "The account exists, but the CRM role could not be saved. Existing owner access cannot be changed through invitations.",
     }, 500);
   }
 

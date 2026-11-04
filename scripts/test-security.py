@@ -116,6 +116,12 @@ rollback;
         sql(migration.read_text())
     sql((root/f'supabase/tests/security_{mode}.sql').read_text() + ((root/'supabase/tests/security_delivery_recovery.sql').read_text() if mode=='delivery' else ''))
     if mode=='intake':
+        sql((root/'supabase/tests/security_operational_links.sql').read_text())
+        sql((root/'supabase/tests/security_booking_recovery.sql').read_text())
+        print('PASS: positive booking recovery, stale/forged evidence denials, move/cancel recovery and private staff status',flush=True)
+        sql((root/'supabase/tests/security_notification_operations.sql').read_text())
+        print('PASS: default-off operations, appointment/reminder invalidation, durable delivery receipts, owner isolation and safe invitations',flush=True)
+        print('PASS: same-division mismatched lead/customer/property/contact links rejected; valid scheduling retained',flush=True)
         print('PASS: atomic residential/commercial delivery, matching, rollback, owner recovery, attribution and grants',flush=True)
         from intake_checks import intake_checks
         intake_checks(docker,env,name,root,run,sql)

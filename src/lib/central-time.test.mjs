@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import{centralInstant,centralLabel}from'./central-time.ts';
+test('Central scheduling does not depend on the employee browser timezone',()=>{assert.equal(centralInstant('2027-01-04T08:30'),'2027-01-04T14:30:00.000Z');assert.equal(centralInstant('2027-03-15T08:30'),'2027-03-15T13:30:00.000Z');assert(centralLabel('2027-03-15T13:30Z').includes('8:30 AM'));});
+test('nonexistent, ambiguous and invalid calendar times are rejected',()=>{for(const value of ['2027-03-14T02:30','2027-11-07T01:30','2027-02-30T09:00','invalid'])assert.throws(()=>centralInstant(value));});

@@ -1,0 +1,32 @@
+begin;
+select set_config('fixture.lead',(select id::text from public.crm_leads where source_record_id='website-TRD-a0000000-0000-4000-8000-000000000001'),true);
+insert into public.crm_leads(id,division_id,customer_id,property_id) select 'c2000000-0000-4000-8000-000000000001','TRD',customer_id,property_id from public.crm_leads where id=current_setting('fixture.lead')::uuid;
+set local role service_role;set local request.jwt.claim.role='service_role';
+do $$declare r jsonb;k uuid:='c1000000-0000-4000-8000-000000000001';l uuid;event text:='roofc1000000000040008000000000000001';begin
+ l:=current_setting('fixture.lead')::uuid;
+ r:=public.crm_booking_operation('reserve',jsonb_build_object('key',k,'division','TRD','operator','10000000-0000-0000-0000-000000000001','lead',l,'calendar','synthetic','starts','2099-02-02T15:00Z','ends','2099-02-02T16:00Z','context',jsonb_build_object('before',0,'after',0)));
+ perform public.crm_booking_operation('finish',jsonb_build_object('key',k,'claim',r->>'claim','status','uncertain'));
+ begin perform public.crm_reconcile_booking(k,null,'confirmed',event,'2099-02-02T15:00Z','2099-02-02T16:00Z');raise exception 'Null recovery claim';exception when insufficient_privilege then null;end;
+ begin perform public.crm_reconcile_booking(k,(r->>'claim')::uuid,'cancelled',event,null,null);raise exception 'Absent create released';exception when insufficient_privilege then null;end;
+ begin perform public.crm_reconcile_booking(k,(r->>'claim')::uuid,'confirmed',event,'2099-02-02T17:00Z','2099-02-02T18:00Z');raise exception 'Wrong evidence interval';exception when insufficient_privilege then null;end;
+ r:=public.crm_reconcile_booking(k,(r->>'claim')::uuid,'confirmed',event,'2099-02-02T15:00Z','2099-02-02T16:00Z');
+ if r->>'status'<>'confirmed' or r->>'appointment_id' is null then raise exception 'Recovery omitted CRM appointment';end if;
+ r:=public.crm_booking_operation('begin_change',jsonb_build_object('key',k,'starts','2099-02-03T15:00Z','ends','2099-02-03T16:00Z'));
+ if r->>'operation'<>'move' then raise exception 'Pending move kind lost';end if;
+ perform public.crm_booking_operation('finish',jsonb_build_object('key',k,'claim',r->>'claim','status','uncertain'));
+ r:=public.crm_reconcile_booking(k,(r->>'claim')::uuid,'confirmed',event,'2099-02-03T15:00Z','2099-02-03T16:00Z');
+ r:=public.crm_booking_operation('begin_change',jsonb_build_object('key',k));
+ if r->>'operation'<>'cancel' then raise exception 'Pending cancellation lost';end if;
+ perform public.crm_booking_operation('finish',jsonb_build_object('key',k,'claim',r->>'claim','status','uncertain'));
+ r:=public.crm_reconcile_booking(k,(r->>'claim')::uuid,'cancelled',event,null,null);
+ if r->>'status'<>'cancelled' then raise exception 'Cancellation recovery failed';end if;
+ begin perform public.crm_booking_staff_context('10000000-0000-0000-0000-000000000003','TRD',k);raise exception 'Cross division staff';exception when insufficient_privilege then null;end;
+end $$;
+set local role authenticated;set local request.jwt.claim.role='authenticated';set local request.jwt.claim.sub='10000000-0000-0000-0000-000000000001';
+do $$declare r jsonb;begin
+ r:=public.crm_staff_booking_status('TRD');
+ begin update public.crm_appointments set lead_id='c2000000-0000-4000-8000-000000000001' where id=(select (b->>'appointment_id')::uuid from jsonb_array_elements(r->'bookings')b where b->>'request_key'='c1000000-0000-4000-8000-000000000001');raise exception 'Bound appointment reassociated';exception when insufficient_privilege then null;end;
+ if (r::text like '%claim%') or (r::text like '%calendar_id%') then raise exception 'Staff status exposed service authority';end if;
+ begin perform public.crm_reconcile_booking('c1000000-0000-4000-8000-000000000001',gen_random_uuid(),'confirmed','forged',now(),now());raise exception 'Browser injected evidence';exception when insufficient_privilege then null;end;
+end $$;
+rollback;
