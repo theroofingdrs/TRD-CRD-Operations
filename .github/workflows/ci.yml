@@ -156,3 +156,13 @@ jobs:
             --config cloudbuild.yaml \
             --substitutions="_VITE_GOOGLE_MAPS_API_KEY=$VITE_GOOGLE_MAPS_API_KEY" \
             .
+
+  diagnose-original-browser:
+    name: Inspect original runner browser launch
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/diagnose-runner-browser.mjs
