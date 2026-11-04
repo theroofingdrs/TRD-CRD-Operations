@@ -52,6 +52,7 @@ jobs:
           CHROME_STARTUP_TIMEOUT_MS: 60000
         run: |
           node --test scripts/chromium-startup.test.mjs
+          node --test scripts/verify-responsive-assets.test.mjs
           npm run test:responsive
       - name: Test project pipeline migration in disposable PostgreSQL
         run: |
