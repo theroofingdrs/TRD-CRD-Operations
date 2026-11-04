@@ -3,13 +3,13 @@ import subprocess,json,os
 from concurrent.futures import ThreadPoolExecutor
 
 def intake_checks(docker,env,name,root,run,sql):
-    statement="set role service_role;set request.jwt.claim.role='service_role';select public.crm_receive_website_lead('TRD','a0000000-0000-4000-8000-000000000007','{\"name\":\"Concurrent fixture\",\"phone\":\"9035550100\"}');"
+    statement="set role service_role;set request.jwt.claim.role='service_role';select public.crm_receive_website_lead('TRD','a1000000-0000-4000-8000-000000000007','{\"name\":\"Concurrent fixture\",\"phone\":\"9035550100\"}');"
     def call(_):
         r=run(['exec',name,'psql','-h','127.0.0.1','-U','postgres','-Atq','-v','ON_ERROR_STOP=1','-c',statement],capture_output=True,text=True)
         return json.loads(r.stdout.strip())
     with ThreadPoolExecutor(max_workers=8) as pool: receipts=list(pool.map(call,range(8)))
     assert all(r['ok'] for r in receipts) and len({r['lead_id'] for r in receipts})==1,receipts
-    sql("do $$ begin if (select count(*) from public.crm_leads where source_record_id='website-TRD-a0000000-0000-4000-8000-000000000007')<>1 then raise exception 'Concurrent duplicate';end if;end $$;")
+    sql("do $$ begin if (select count(*) from public.crm_leads where source_record_id='website-TRD-a1000000-0000-4000-8000-000000000007')<>1 then raise exception 'Concurrent duplicate';end if;end $$;")
     print('PASS: 8 concurrent submissions, one lead and one transactional follow-up/outbox',flush=True)
     # Ordinary appointment writers participate in the same capacity protocol.
     appointment_sql="set role authenticated;set request.jwt.claim.role='authenticated';set request.jwt.claim.sub='10000000-0000-0000-0000-000000000001';insert into public.crm_appointments(division_id,assigned_to,starts_at,ends_at) values('TRD','10000000-0000-0000-0000-000000000001','2027-01-18T15:00:00Z','2027-01-18T16:00:00Z');"
