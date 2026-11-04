@@ -26,6 +26,8 @@ Supabase project: `gubvelngdohrfvqeeabu` in the TRDCRD organization.
 
 See [consolidation status](docs/consolidation-status.md) for the current integration and validation results. Historical implementation notes are retained for context.
 
+Current lead workflow: [automatic intake and production-readiness gates](docs/lead-to-crm-readiness.md). No new intake migration, notification worker or booking engine has been activated in production.
+
 ## Current implementation
 
 - React, TypeScript, and Vite application shell
@@ -39,7 +41,7 @@ See [consolidation status](docs/consolidation-status.md) for the current integra
 - Invoice2go Import Center for CSV, TSV, JSON, and ZIP exports, including customer matching, property association, historical invoice and estimate archiving, and private PDF/photo attachment storage
 - Private property file and photo upload with signed file access
 - Owner only employee invitations and division role assignment through a JWT protected Supabase Edge Function
-- Owner controlled website lead import for TRD and CRD, using the original website record IDs to skip records already imported
+- Legacy owner controlled website lead import for TRD and CRD, using the original website record IDs to skip records already imported
 - Automated GitHub Actions checks for React production build, Supabase Edge Function types, database migration test, and Cloud Run container build and smoke test
 - Explicitly approved production deployment from validated `main` through Cloud Build to Cloud Run
 - Google Cloud authentication from GitHub Actions uses Workload Identity Federation; no long lived Google service account key is stored in GitHub

@@ -1,5 +1,7 @@
 # Consolidation status — November 3, 2026 (Central)
 
+For subsequent automatic intake work, see [lead-to-CRM readiness](lead-to-crm-readiness.md). This document records the earlier consolidation.
+
 ## Repository inventory
 
 Source inspected: local working tree, all remote branch tips, commit history, migrations, application modules and CI. Original CRM main was `a330498`. The only pre-existing untracked file was `tsconfig.tsbuildinfo`; it was preserved. Original feature branches remain intact.

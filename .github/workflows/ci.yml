@@ -73,11 +73,13 @@ jobs:
           deno check supabase/functions/crm-invite-employee/index.ts
           deno check supabase/functions/crm-import-website-intake/index.ts
           deno check supabase/functions/crm-public-blog/index.ts
+          deno check --node-modules-dir=none supabase/functions/crm-intake-notifications/index.ts
           deno check --node-modules-dir=auto supabase/functions/crm-send-document/index.ts
       - name: Test document provider and authentication boundaries
         run: |
           node --experimental-strip-types supabase/functions/crm-send-document/delivery.test.mjs
           deno test --allow-env --node-modules-dir=auto supabase/functions/crm-send-document/handler.test.ts
+          node --experimental-strip-types supabase/functions/crm-intake-notifications/worker.test.mjs
       - name: Build Cloud Run container
         run: |
           docker build \
