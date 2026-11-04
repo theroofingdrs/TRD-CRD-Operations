@@ -98,7 +98,7 @@ begin
     insert into public.crm_contacts(customer_id,full_name,email,phone,is_primary)
     values(customer,coalesce(nullif(name,''),company),nullif(email,''),nullif(phone,''),not exists(select 1 from public.crm_contacts where customer_id=customer and is_primary)) returning id into contact;
    end if;
-   if address<>'' and city<>'' and state<>'' then
+   if address<>'' and city<>'' and state<>'' and postal<>'' then
     select array_agg(id) into candidates from public.crm_properties where customer_id=customer
      and lower(btrim(address_line1))=lower(address) and lower(btrim(crm_properties.city))=lower(city)
      and upper(btrim(crm_properties.state))=state and postal<>'' and btrim(postal_code)=postal;
