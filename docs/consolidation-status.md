@@ -22,7 +22,7 @@ The public website is the separate `theroofingdrs/TheRoofingDrs-Combined` reposi
 - Delivery provider unit tests: 9 passed; actual Edge handler tests: 16 passed.
 - Combined security harness passes baseline and ordered migrations, historical defect reproductions, actual PDF tests (4), delivery/isolation races, registration races, direct PostgREST boundaries, financial and price-book suites.
 - The file suite was rerun with the new review migration: permitted review, immutable identity, invalid waste allowance, cross-division denial, restricted grants and audit assertions pass.
-- Container build/smoke results are recorded with the final repository commit; local logs are scratch files under ignored `work/`.
+- CRM container build and smoke checks pass for the application shell, private robots rules and PNG branding. The smoke check found restrictive copied public-asset permissions; the final image explicitly grants static-file read access to Nginx. CI now checks branding as well as HTML. Local logs are scratch files under ignored `work/`.
 
 ## Live boundaries and remaining work
 

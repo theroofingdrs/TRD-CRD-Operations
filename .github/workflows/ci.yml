@@ -96,6 +96,8 @@ jobs:
           done
           grep -q '<div id="root"></div>' /tmp/crm-index.html
           curl --fail --silent http://localhost:8080/robots.txt | grep -q 'Disallow: /'
+          curl --fail --silent http://localhost:8080/brand-assets/the-roof-doctors.png --output /tmp/trd-logo.png
+          test -s /tmp/trd-logo.png
           docker stop trd-crm-ci
 
   deploy:
