@@ -78,3 +78,39 @@ No production deployment, migration, secret change or customer-data mutation was
 performed. The serving build at `www.operations.theroofingdrs.com` was not identified
 from this environment; the source verification does not claim the live iPhone
 page has changed. That requires a separately approved deployment and device check.
+
+## Reproducible CI browser startup
+
+The failing main run `41871213259` used the mutable `ubuntu-latest` image, which
+resolved to Ubuntu 26.04. There was no browser installation step or locked browser
+dependency. The old launcher selected the first command found by `which`, ignored
+its stderr, and polled a fixed port for only 15 seconds. Consequently the original
+log does not establish whether that particular process exited or was still starting.
+
+A controlled hosted probe in run `41874756050` captured the original command:
+`/usr/bin/chromium`, Chromium 156.0.8078.0, ready after **12,605 ms**, with no prior
+listener on port 19422 and nonfatal D-Bus warnings. A separate successful probe in
+run `41873872623` selected `/usr/bin/google-chrome`, Google Chrome 156.0.8078.47.
+This establishes variable ambient-browser selection and a cold start close to the
+15-second cutoff; it does not prove a missing binary or missing shared library.
+The discarded stderr from the exact original failure cannot be reconstructed.
+
+The build job now uses Ubuntu 24.04 and exact `playwright@1.64.1` from the lockfile.
+`playwright install --with-deps chromium` installs the matching browser revision
+and Linux dependencies (Chromium 156.0.8078.4, revision 1248 for this lockfile). Its executable path is explicitly exported as `CHROME_BIN`.
+CI never silently falls back to a preinstalled system browser. No Playwright browser
+or dependency is added to the shipped frontend bundle.
+
+The launcher verifies the executable/version, captures bounded stderr, fails fast
+on launch error/early exit, allows 60 seconds for hosted startup, and reports the
+actual readiness delay. Each browser gets a private profile and OS-assigned debug
+port; readiness uses its own `DevToolsActivePort` file and validates the local
+DevTools endpoint. Failed processes are terminated with bounded cleanup. Missing
+binary, early exit, stalled startup and wrong-endpoint diagnostics have automated
+tests. The viewport and overflow assertions remain unchanged.
+
+For local machines with a working system browser, use
+`CHROME_BIN=/absolute/path/to/chromium npm run test:responsive`, or install the
+locked browser with `npm exec -- playwright install chromium`. Never put credentials
+in browser arguments or diagnostics. These changes affect test infrastructure only;
+no production configuration, deployment or customer record is changed.

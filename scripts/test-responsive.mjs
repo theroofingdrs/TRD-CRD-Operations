@@ -1,11 +1,12 @@
+import {findChromium,startChromium,stopChild} from './chromium-startup.mjs';
 // Actual React/Vite + Chromium. All external traffic is intercepted; synthetic data only.
-import {spawn,spawnSync} from 'node:child_process';
+import {spawn} from 'node:child_process';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
 import path from 'node:path';import os from 'node:os';import assert from 'node:assert/strict';
 const widths=[320,360,375,390,430,768,1024,1440],baseline=process.argv.includes('--baseline');
 const capture=process.env.RESPONSIVE_CAPTURE_DIR;const root=process.cwd();
 const temp=await mkdtemp(path.join(os.tmpdir(),'crm-responsive-'));
-const chrome=process.env.CHROME_BIN||['chromium','google-chrome','google-chrome-stable'].find(bin=>spawnSync('which',[bin]).status===0);
+const chrome=findChromium();
 if(!chrome)throw Error('Chromium is required.');
 const children=[],sockets=[];const results=[];let failures=0;
 const user='10000000-0000-4000-8000-000000000001',customer='20000000-0000-4000-8000-000000000001',property='30000000-0000-4000-8000-000000000001';
@@ -36,9 +37,8 @@ try{
   const status=await new Promise(resolve=>build.once('exit',resolve));assert.equal(status,0,'Production fixture build failed');
   start(process.execPath,['node_modules/vite/bin/vite.js','preview','--outDir',dist,'--host','127.0.0.1','--port','19400','--strictPort']);
  }
- start(chrome,['--headless=new','--no-sandbox','--disable-dev-shm-usage','--disable-background-networking','--disable-component-update','--no-first-run','--remote-debugging-port=19422','--user-data-dir='+temp,'about:blank']);
- await wait(async()=> (await fetch('http://127.0.0.1:19422/json/version')).ok,'Chromium');
- const target=await(await fetch('http://127.0.0.1:19422/json/new?about:blank',{method:'PUT'})).json();
+ const browser=await startChromium({executable:chrome,profile:path.join(temp,'chrome'),timeoutMs:Number(process.env.CHROME_STARTUP_TIMEOUT_MS||60000),onStart:child=>children.push(child)});
+ const target=await(await fetch(browser.base+'/json/new?about:blank',{method:'PUT'})).json();
  const ws=new WebSocket(target.webSocketDebuggerUrl);sockets.push(ws);await new Promise(r=>ws.addEventListener('open',r,{once:true}));
  let seq=0;const pending=new Map();let populated=false;const errors=[],requests=[];
  const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq;pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}));});
@@ -133,6 +133,6 @@ try{
  if(!baseline)assert.equal(failures,0,failures+' responsive checks failed');
  console.log('Rendered '+results.length+' scenarios/widths; '+failures+' failing checks'+(baseline?' (baseline diagnostic)':''));
 }finally{
- for(const ws of sockets)ws.close();await Promise.all(children.map(p=>new Promise(r=>{if(p.exitCode!==null)return r();p.once('exit',r);p.kill('SIGTERM');})));
+ for(const ws of sockets)ws.close();await Promise.all(children.map(stopChild));
  await rm(temp,{recursive:true,force:true,maxRetries:10,retryDelay:100});
 }
