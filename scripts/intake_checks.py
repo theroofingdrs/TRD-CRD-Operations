@@ -11,6 +11,17 @@ def intake_checks(docker,env,name,root,run,sql):
     assert all(r['ok'] for r in receipts) and len({r['lead_id'] for r in receipts})==1,receipts
     sql("do $$ begin if (select count(*) from public.crm_leads where source_record_id='website-TRD-a0000000-0000-4000-8000-000000000007')<>1 then raise exception 'Concurrent duplicate';end if;end $$;")
     print('PASS: 8 concurrent submissions, one lead and one transactional follow-up/outbox',flush=True)
+    # Ordinary appointment writers participate in the same capacity protocol.
+    appointment_sql="set role authenticated;set request.jwt.claim.role='authenticated';set request.jwt.claim.sub='10000000-0000-0000-0000-000000000001';insert into public.crm_appointments(division_id,assigned_to,starts_at,ends_at) values('TRD','10000000-0000-0000-0000-000000000001','2027-01-18T15:00:00Z','2027-01-18T16:00:00Z');"
+    def appointment(statement):
+        return subprocess.run(docker+['exec',name,'psql','-h','127.0.0.1','-U','postgres','-Atq','-v','ON_ERROR_STOP=1','-v','VERBOSITY=verbose','-c',statement],env=env,capture_output=True,text=True)
+    with ThreadPoolExecutor(max_workers=2) as pool: outcomes=list(pool.map(appointment,[appointment_sql,appointment_sql]))
+    assert sum(r.returncode==0 for r in outcomes)==1,[(r.returncode,r.stderr) for r in outcomes]
+    assert any('23P01' in r.stderr for r in outcomes)
+    rejected=appointment('begin isolation level repeatable read;'+appointment_sql)
+    assert rejected.returncode and '25001' in rejected.stderr,rejected.stderr
+    print('PASS: competing manual appointment writers cannot double-book; stale-isolation writes fail closed',flush=True)
+
     import base64,hashlib,hmac,time
     secret='synthetic-intake-jwt-secret-at-least-32-characters'
     api=name+'-intake-rest'

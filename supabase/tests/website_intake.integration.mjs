@@ -28,3 +28,25 @@ try{
  await Promise.all(children.map(child=>new Promise(resolve=>{child.once('exit',resolve);child.kill('SIGTERM');})));
  await rm(directory,{recursive:true,force:true});
 }
+// Booking also traverses the actual SQL store; the provider remains synthetic.
+const {BookingEngine,createApprovedBookingDraft,createRpcBookingStore}=await import(path.join(process.env.WEBSITE_SOURCE_DIR,'booking/engine.ts'));
+const {SERVICES,MODES}=await import(path.join(process.env.WEBSITE_SOURCE_DIR,'booking/readiness.ts'));
+const query=statement=>execFileSync('docker',['--host=unix:///var/run/docker.sock','exec','-i',process.env.INTAKE_TEST_DB_CONTAINER,'psql','-h','127.0.0.1','-U','postgres','-Atq','-v','ON_ERROR_STOP=1'],{input:statement,encoding:'utf8'}).trim();
+const rpc=async(name,args)=>{
+ const json=v=>"'"+JSON.stringify(v).replaceAll("'","''")+"'::jsonb";
+ const response=query("set role service_role;set request.jwt.claim.role='service_role';select public.crm_booking_operation('"+args.p_action+"',"+json(args.p_request)+");");
+ return{data:JSON.parse(response),error:null};
+};
+const config=createApprovedBookingDraft();config.enabled=true;config.confirmation={approved:true,after:'durable-reservation',channel:'email'};
+for(const [division,d]of Object.entries(config.divisions)){d.calendar={division,id:'synthetic-'+division};d.publicUrl='https://'+division.toLowerCase()+'.example.test/book';d.buffers={beforeMinutes:0,afterMinutes:0};for(const service of SERVICES)for(const mode of MODES)d.durationsMinutes[service][mode]=30;}
+const lead=query("select id from public.crm_leads where source_record_id='website-TRD-a0000000-0000-4000-8000-000000000001';");let creates=0;
+const provider={busy:async()=>false,create:async()=>{creates++;return'synthetic-booking-provider';},move:async()=>{},cancel:async()=>{}};
+const engine=new BookingEngine({enabled:true,providerVerified:true,booking:config,operators:{TRD:'10000000-0000-0000-0000-000000000001',CRD:'10000000-0000-0000-0000-000000000003'},minNoticeMinutes:0,maxAdvanceDays:60},createRpcBookingStore(rpc),provider,()=>Date.parse('2027-01-01T00:00:00Z'));
+const request={key:'f0000000-0000-4000-8000-000000000001',division:'TRD',lead,service:SERVICES[0],mode:MODES[0],start:'2027-01-08T15:00:00Z'};
+assert.equal((await engine.book(request)).status,'confirmed');assert.equal((await engine.book({...request})).status,'confirmed');assert.equal(creates,1);
+assert.equal(query("select count(*) from public.crm_appointments where internal_notes='Website booking: "+request.key+"';"),'1');
+await engine.reschedule(request.key,'2027-01-09T15:00:00Z');
+assert(query("select starts_at from public.crm_appointments where internal_notes='Website booking: "+request.key+"';").startsWith('2027-01-09 15:00:00'));
+await engine.cancel(request.key);
+assert.equal(query("select status from public.crm_appointments where internal_notes='Website booking: "+request.key+"';"),'cancelled');
+console.log('PASS actual booking engine -> real SQL store: replay, linked CRM appointment, reschedule and cancellation; synthetic provider only');
