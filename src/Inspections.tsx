@@ -1,3 +1,4 @@
+import { deliveryMessage } from "./deliveryMessage";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { supabase } from "./lib/supabase";
 
@@ -140,7 +141,7 @@ export default function Inspections({ division, userId, canWrite, initialCustome
     if (!supabase) return;
     setSendingId(id); setMessage("");
     const { data, error } = await supabase.functions.invoke("crm-send-document", { body: { document_type: "inspection", document_id: id } });
-    setMessage(error?.message || data?.error || (data?.success ? "PDF emailed to " + data.recipient : "Document email could not be sent."));
+    setMessage(error?.message || data?.error || deliveryMessage(data));
     setSendingId("");
   }
   async function save(event: FormEvent) {
