@@ -1,4 +1,6 @@
 import {findChromium,startChromium,stopChild} from './chromium-startup.mjs';
+import {measureCustomerLayout,customerLayoutErrors} from './customer-layout-check.mjs';
+import {verifyResponsiveAssets} from './verify-responsive-assets.mjs';
 // Actual React/Vite + Chromium. All external traffic is intercepted; synthetic data only.
 import {spawn} from 'node:child_process';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
@@ -36,11 +38,13 @@ try{
   const dist=path.join(temp,'fixture-dist');const build=start(process.execPath,['node_modules/vite/bin/vite.js','build','--outDir',dist],{env:fixtureEnv});
   const status=await new Promise(resolve=>build.once('exit',resolve));assert.equal(status,0,'Production fixture build failed');
   start(process.execPath,['node_modules/vite/bin/vite.js','preview','--outDir',dist,'--host','127.0.0.1','--port','19400','--strictPort']);
+  await wait(async()=>{try{return(await fetch('http://127.0.0.1:19400/')).ok;}catch{return false;}},'production preview');
+  assert((await verifyResponsiveAssets({dist,url:'http://127.0.0.1:19400/'})).stylesheetMatch,'Rendered CSS must match the tested build');
  }
  const browser=await startChromium({executable:chrome,profile:path.join(temp,'chrome'),timeoutMs:Number(process.env.CHROME_STARTUP_TIMEOUT_MS||60000),onStart:child=>children.push(child)});
  const target=await(await fetch(browser.base+'/json/new?about:blank',{method:'PUT'})).json();
  const ws=new WebSocket(target.webSocketDebuggerUrl);sockets.push(ws);await new Promise(r=>ws.addEventListener('open',r,{once:true}));
- let seq=0;const pending=new Map();let populated=false;const errors=[],requests=[];
+ let seq=0;const pending=new Map();let populated=false,ordinary=true;const errors=[],requests=[];
  const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq;pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}));});
  ws.addEventListener('message',async event=>{
   const m=JSON.parse(event.data);if(m.id){const p=pending.get(m.id);if(p){pending.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result);}return;}
@@ -53,6 +57,10 @@ try{
    if(request.method!=='OPTIONS')requests.push(table);
    if(request.method==='POST'&&!url.pathname.includes('/rpc/'))throw Error('Responsive tests must not mutate records.');
    data=fixtures[table]??[];
+   if(ordinary){
+    if(['crm_roofs','crm_claims','crm_contacts','crm_projects','crm_leads','crm_appointments','crm_inspections','crm_files'].includes(table))data=[];
+    else data=JSON.parse(JSON.stringify(data).replaceAll(long,'Lot 12'));
+   }
    if(table==='crm_maintenance_records')data=populated?[{id:'service',property_id:property,service_type:'roof_repair',status:'completed',priority:'normal',description:long,work_performed:long,findings:long,service_cost:100}]:[];
    if(table==='crm_website_lead_attachments')data=[{id:'attachment',filename:'synthetic.png',mime:'image/png',size_bytes:8}];
    if(table==='crm_website_attachment')data={filename:'synthetic.png',mime:'image/png',data_base64:'iVBORw0KGgo='};
@@ -81,6 +89,17 @@ try{
  const clickText=async(text,scope='document')=>clickElement(`[...${scope}.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(text)})`);
 
  await clickText('Responsive Test Customer');await wait(()=>evaluate('!!document.querySelector(".customer-service-history")'),'customer details');
+ // Prove the stricter browser assertion catches the old test's blind spot:
+ // a description can escape its section while remaining inside page margins.
+ if(!baseline){
+  const initial=await evaluate(`(${measureCustomerLayout.toString()})(390)`);
+  assert.deepEqual(customerLayoutErrors(initial,{empty:true,action:true}),[]);
+  await evaluate(`document.querySelector('.customer-service-history .panel-heading .muted').style.transform='translateX(8px)'`);
+  const escaped=await evaluate(`(${measureCustomerLayout.toString()})(390)`);
+  assert(escaped.violations.length>0,'Regression probe must detect a shifted service description');
+  assert(escaped.documentWidth<=390,'Probe should not rely on document-level overflow');
+  await evaluate(`document.querySelector('.customer-service-history .panel-heading .muted').style.removeProperty('transform')`);
+ }
  async function inspect(name,width){
   await new Promise(r=>setTimeout(r,60));
   const data=await evaluate(`(()=>{
@@ -95,14 +114,24 @@ try{
    const tallHeaders=[...main.querySelectorAll('.customer-detail-sections th, .customer-service-history ~ div th')].filter(e=>e.getBoundingClientRect().height>96).length;
    return {width:w,cellControls,layoutViewport:innerWidth,serviceHeadingInset:inset,tallHeaders,nested,document:document.documentElement.scrollWidth,bodyOverflow:getComputedStyle(document.body).overflowX,main:{left:mr.left,right:mr.right,contentLeft:left,contentRight:right},service:sr?{left:sr.left,right:sr.right,width:sr.width}:null,bad:bad.slice(0,25)};
   })()`);
-  const result={scenario:name,...data};results.push(result);
-  const fail=data.document>data.width+1||data.bad.length||data.cellControls.length||data.nested.length||data.serviceHeadingInset!==0||data.tallHeaders||(!baseline&&['hidden','clip'].includes(data.bodyOverflow));
+  const customerData=await evaluate(`(${measureCustomerLayout.toString()})(${width})`);
+  const customerErrors=customerData.missing?[]:customerLayoutErrors(customerData,{empty:!populated,action:true});
+  if(name.startsWith('customer-'))assert(!customerData.missing,'Customer/service section must be rendered');
+  const result={scenario:name,...data,customer:customerData,customerErrors};results.push(result);
+  const fail=data.document>data.width+1||data.bad.length||data.cellControls.length||data.nested.length||data.serviceHeadingInset!==0||data.tallHeaders||customerErrors.length||(!baseline&&['hidden','clip'].includes(data.bodyOverflow));
   if(fail){failures++;console.log('LAYOUT FAILURE '+JSON.stringify(result));}
   else console.log('PASS '+name+' @ '+data.width+'px');
  }
  async function matrix(name,screenshot=false,interaction=null){for(const width of widths){await call('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<768});await inspect(name,width);if(interaction)await interaction();if(capture&&screenshot){await mkdir(capture,{recursive:true});await evaluate(`document.querySelector('.customer-service-history')?.scrollIntoView({block:'center',behavior:'instant'})`);const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(path.join(capture,name+'-'+width+'.png'),Buffer.from(shot.data,'base64'));}}}
  // Expose any content previously concealed by body-level clipping. No source CSS is changed.
- if(baseline){if(process.env.RESPONSIVE_BASELINE_CSS){const css=await readFile(process.env.RESPONSIVE_BASELINE_CSS,'utf8');await evaluate(`(()=>{const s=document.querySelector('style[data-vite-dev-id$="/src/styles.css"]');if(!s)throw Error('Stylesheet missing');s.textContent=${JSON.stringify(css)};})()`);}await evaluate(`document.body.style.overflowX='visible'`);}
+ async function applyBaselineStyles(){if(baseline){if(process.env.RESPONSIVE_BASELINE_CSS){const css=await readFile(process.env.RESPONSIVE_BASELINE_CSS,'utf8');await evaluate(`(()=>{const s=document.querySelector('style[data-vite-dev-id$="/src/styles.css"]');if(!s)throw Error('Stylesheet missing');s.textContent=${JSON.stringify(css)};})()`);}await evaluate(`document.body.style.overflowX='visible'`);}}
+ await applyBaselineStyles();
+ await matrix('customer-ordinary',true);
+ ordinary=false;await evaluate('window.__ordinaryLayoutFixture=true');await call('Page.reload');
+ await wait(()=>evaluate('!window.__ordinaryLayoutFixture&&[...document.querySelectorAll("button")].some(e=>e.textContent.trim()==="Responsive Test Customer")'),'stress customer list');
+ await applyBaselineStyles();
+ await clickText('Responsive Test Customer');await wait(()=>evaluate('!!document.querySelector(".customer-service-history")'),'stress customer details');
+ assert(await evaluate(`document.querySelector('.customer-detail-summary').textContent.includes(${JSON.stringify(long)})`),'Stress fixture must retain long billing/address data');
  await matrix('customer-empty',true);
  await clickText('Review',"document.querySelector('.roofr-measurements')");await matrix('roofr-review');await clickText('20%+',"document.querySelector('.roofr-measurements')");await matrix('roofr-custom-waste');await clickText('Close review',"document.querySelector('.roofr-measurements')");
  await clickText('+ Add service record');await matrix('service-form');
