@@ -183,7 +183,7 @@ export default function RoofrMeasurements({ division, userId, properties, canWri
     setBusy(false);
   }
 
-  return <section className="panel">
+  return <section className="panel roofr-measurements">
     <div className="panel-heading"><div><p className="eyebrow">ROOFR MEASUREMENTS</p><h3>Roof measurement reports</h3><p className="muted">Upload a Roofr PDF to this property. Extracted quantities are saved with the original report and require review.</p></div></div>
     {properties.length === 0 ? <p className="muted">Add a property before uploading a Roofr report.</p> : <>
       <label>Property<select value={propertyId} onChange={e => { setPropertyId(e.target.value); setReview(null); }}><option value="">Select property</option>{properties.map(p => <option key={p.id} value={p.id}>{p.address_line1}, {p.city}, {p.state}</option>)}</select></label>
