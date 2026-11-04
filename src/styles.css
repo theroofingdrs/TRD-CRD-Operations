@@ -288,3 +288,103 @@ body {
     max-width: 100%;
   }
 }
+
+
+/* Customer detail: constrain nested grids, long text, property tables and Roofr tools */
+.content-stack {
+  grid-template-columns: minmax(0, 1fr);
+}
+.content-stack > *,
+.customer-detail-summary,
+.customer-detail-item,
+.customer-properties,
+.customer-roofr-section,
+.roofr-measurements {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.customer-detail-summary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+.customer-detail-item {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.customer-detail-item p {
+  max-width: 100%;
+  margin: 8px 0 0;
+  line-height: 1.55;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.customer-properties .panel-heading {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.customer-properties .table-wrap,
+.customer-roofr-section .panel,
+.roofr-measurements .table-wrap {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.customer-properties table {
+  min-width: 620px;
+}
+.customer-properties td,
+.customer-properties th {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.customer-properties td:first-child {
+  min-width: 190px;
+}
+.customer-properties .button-row {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.roofr-measurements .panel-heading,
+.roofr-measurements form,
+.roofr-measurements .form-grid,
+.roofr-measurements > * {
+  min-width: 0;
+  max-width: 100%;
+}
+@media (max-width: 720px) {
+  .customer-detail-summary {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .customer-detail-item {
+    padding: 12px;
+    border: 1px solid #eceef0;
+    border-radius: 8px;
+  }
+  .customer-properties .panel-heading {
+    align-items: flex-start;
+  }
+  .customer-properties .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .customer-properties table {
+    min-width: 620px;
+  }
+  .customer-properties td,
+  .customer-properties th {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .customer-properties .button-row button {
+    white-space: normal;
+  }
+  .customer-roofr-section,
+  .roofr-measurements {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+}
