@@ -206,3 +206,85 @@ input:focus,select:focus,textarea:focus{border-color:#e8895c;box-shadow:0 0 0 3p
 
 .project-pipeline .company-expense-panel{margin-top:16px}
 .project-pipeline .form-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+
+/* Mobile viewport containment and text wrapping — CRM-wide */
+html, body, #root {
+  width: 100%;
+  max-width: 100%;
+}
+body {
+  overflow-x: hidden;
+}
+.app-shell,
+.main-area,
+.content-stack,
+.panel,
+.panel-heading,
+.welcome-panel,
+.stat-card,
+.inline-form,
+.form-grid,
+.blog-manager,
+.blog-editor,
+.blog-editor-grid,
+.blog-editor-main,
+.blog-editor-aside,
+.project-pipeline,
+.project-pipeline .pipeline-card,
+.project-pipeline .pipeline-card-main {
+  min-width: 0;
+  max-width: 100%;
+}
+.app-shell *,
+.main-area *,
+.panel *,
+.content-stack *,
+.project-pipeline * {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.table-wrap,
+.project-pipeline .kanban-board,
+.project-pipeline .history-list pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+@media (max-width: 720px) {
+  .main-area {
+    width: 100%;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .topbar,
+  .panel-heading,
+  .welcome-panel,
+  .blog-manager-hero {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .topbar h1,
+  .welcome-panel h2,
+  .panel-heading h2,
+  .stat-card strong,
+  td,
+  th,
+  .subline,
+  .muted,
+  .blog-preview-body,
+  .project-pipeline .pipeline-card-main strong {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+  .panel-actions,
+  .blog-manager-actions,
+  .form-actions {
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+  input, select, textarea, button {
+    max-width: 100%;
+  }
+}

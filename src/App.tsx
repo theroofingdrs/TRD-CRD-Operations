@@ -83,20 +83,25 @@ function App() {
     // Do not unmount the active workspace while refreshing membership metadata.
     // The initial app load already starts with loading=true.
     setWorkspaceError("");
-    const [membershipResult, profileResult] = await Promise.all([
-      supabase.from("crm_memberships").select("division_id,role").eq("user_id", activeSession.user.id).eq("active", true),
-      supabase.from("crm_profiles").select("display_name").eq("user_id", activeSession.user.id).maybeSingle()
-    ]);
-    if (membershipResult.error) {
-      setWorkspaceError(membershipResult.error.message);
-      setMemberships([]);
-    } else {
+    try {
+      const [membershipResult, profileResult] = await Promise.all([
+        supabase.from("crm_memberships").select("division_id,role").eq("user_id", activeSession.user.id).eq("active", true),
+        supabase.from("crm_profiles").select("display_name").eq("user_id", activeSession.user.id).maybeSingle()
+      ]);
+      if (membershipResult.error) throw membershipResult.error;
       const rows = (membershipResult.data ?? []) as Membership[];
       setMemberships(rows);
       setDivision((current) => rows.length && !rows.some((item) => item.division_id === current) ? rows[0].division_id : current);
+      setProfileName(profileResult.data?.display_name ?? activeSession.user.email ?? "");
+    } catch (error) {
+      console.error("Could not load the employee workspace:", error);
+      setMemberships([]);
+      setProfileName(activeSession.user.email ?? "");
+      setWorkspaceError(error instanceof Error ? error.message : "The workspace could not be loaded. Check your connection and try again.");
+    } finally {
+      // Never leave the production app on an endless loading screen after a failed request.
+      setLoading(false);
     }
-    setProfileName(profileResult.data?.display_name ?? activeSession.user.email ?? "");
-    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -105,10 +110,17 @@ function App() {
       return;
     }
     let alive = true;
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(({ data, error }) => {
       if (!alive) return;
+      if (error) throw error;
       setSession(data.session);
       void loadMemberships(data.session);
+    }).catch((error: unknown) => {
+      if (!alive) return;
+      console.error("Could not restore the employee session:", error);
+      setSession(null);
+      setAuthMessage(error instanceof Error ? error.message : "Sign-in could not be restored. Please sign in again.");
+      setLoading(false);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
@@ -216,6 +228,7 @@ function App() {
   }
 
   if (loading) return <div className="center-state">Loading your workspace...</div>;
+  if (workspaceError && !memberships.length) return <div className="center-state"><div className="setup-card"><h2>Workspace could not be loaded</h2><p>{workspaceError}</p><p>Please check your connection and try again. Your records have not been changed.</p><button className="primary-button" onClick={() => { setLoading(true); void loadMemberships(session); }}>Try again</button><button className="secondary-button" onClick={signOut}>Sign out</button></div></div>;
   if (!memberships.length) return <div className="center-state"><div className="setup-card"><h2>Access has not been assigned</h2><p>Your account is signed in, but it does not yet have an active division membership. Ask the CRM owner to assign your role.</p><button className="secondary-button" onClick={signOut}>Sign out</button></div></div>;
 
   return <div className="app-shell">
