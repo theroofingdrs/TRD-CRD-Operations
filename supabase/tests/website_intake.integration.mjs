@@ -12,15 +12,16 @@ try{
   for(let i=0;i<80;i++){try{if((await fetch(`http://127.0.0.1:${ports[division]}/api/health`)).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
  }
  const cases=[['TRD','/api/v1/leads',{name:'HTTP Residential',email:'http-trd@example.test',phone:'9035550111',address:'HTTP Fixture',city:'Test',state:'TX',zip:'00000',serviceRequested:'Inspection',utmCampaign:'test-campaign'}],['CRD','/api/leads',{firstName:'HTTP',lastName:'Commercial',companyName:'HTTP Facility',phone:'9035550122',email:'http-crd@example.test',propertyAddress:'HTTP Facility',city:'Test',state:'AR',zip:'00000'}],['CRD','/api/emergency',{name:'HTTP Emergency',phone:'9035550133'}],['CRD','/api/calculator',{contactName:'HTTP Calculator',phone:'9035550144',email:'http-calc@example.test',address:'HTTP Site',squareFootage:12000,desiredWork:'Replacement',submitLead:true}]];
+ cases.push(['CRD','/api/leads',{name:'HTTP photo',phone:'9035550155',photos:[{name:'synthetic.jpg',dataUrl:'data:image/jpeg;base64,'+Buffer.concat([Buffer.from([255,216,255]),Buffer.alloc(300000)]).toString('base64')}]}]);
  for(let i=0;i<cases.length;i++){
   const [division,route,payload]=cases[i],key=`b0000000-0000-4000-8000-00000000000${i+1}`;
   const send=()=>fetch(`http://127.0.0.1:${ports[division]}${route}`,{method:'POST',headers:{'content-type':'application/json','Idempotency-Key':key},body:JSON.stringify(payload)});
   const a=await send(),result=await a.json();assert.equal(a.ok,true,JSON.stringify(result));
   const b=await send(),replayed=await b.json();assert.equal(b.ok,true,JSON.stringify(replayed));
   const source=result.id||result.leadId;assert.equal(replayed.id||replayed.leadId,source);
-  const sql=`select jsonb_build_object('count',count(*),'division',min(division_id),'followups',(select count(*) from public.crm_tasks where related_id in(select id from public.crm_leads where source_record_id='${source}'))) from public.crm_leads where source_record_id='${source}';`;
+  const sql=`select jsonb_build_object('count',count(*),'division',min(division_id),'attachments',(select count(*) from intake_private.attachments where lead_id in(select id from public.crm_leads where source_record_id='${source}')),'followups',(select count(*) from public.crm_tasks where related_id in(select id from public.crm_leads where source_record_id='${source}'))) from public.crm_leads where source_record_id='${source}';`;
   const saved=JSON.parse(execFileSync('docker',['--host=unix:///var/run/docker.sock','exec','-i',process.env.INTAKE_TEST_DB_CONTAINER,'psql','-h','127.0.0.1','-U','postgres','-Atq'],{input:sql,encoding:'utf8'}));
-  assert.deepEqual(saved,{count:1,division,followups:1});
+  assert.deepEqual(saved,{count:1,division,followups:1,attachments:payload.photos?.length||0});
   console.log('PASS actual website HTTP -> real CRM SQL:',division,route,'lost response + replay -> one lead/one follow-up');
  }
 }finally{

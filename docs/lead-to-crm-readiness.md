@@ -16,6 +16,10 @@ An owner can inspect failed receipts and retry their saved payload from Leads â†
 
 One active salesperson is assigned when available; otherwise one active division owner receives the lead and follow-up. Multiple candidates are not guessed. The existing assignment UI supports later staffing changes.
 
+## Incoming photographs and documents
+
+Intake receipts retain bounded original photo bytes privately (up to 25 MB for the request, 15 MB per supported file, 10 files). The public form caps raw photograph selection at 18 MB to allow base64 overhead. MIME signatures and sizes are checked inside the transaction. Lead/source lists contain metadata, not binary content. Transient file-picker IDs/times are excluded from retry identity, so reselecting identical files does not generate a new inquiry. Authorized lead readers can download an attachment through exact-division RPC checks; anonymous/cross-division readers cannot. Original attachment bytes are covered by the immutable receipt and per-file SHA-256. These incoming files use private receipt storage, not the existing Storage bucket; existing CRM Storage workflows remain unchanged. Production database retention, encrypted backups and size limits must be verified before cutover.
+
 ## Notifications
 
 Internal alerts and valid-email customer acknowledgements have separate durable jobs. `crm-intake-notifications` is service-authenticated and default-off (`INTAKE_NOTIFICATIONS_ENABLED` must explicitly be true). It requires a verified sender, internal recipient and Resend credential. No real worker or scheduler was enabled.

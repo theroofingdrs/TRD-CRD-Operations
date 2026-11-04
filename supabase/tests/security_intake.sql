@@ -60,6 +60,7 @@ set request.jwt.claim.sub='10000000-0000-0000-0000-000000000001';
 do $$ declare r jsonb;begin
  r:=public.crm_retry_website_lead('TRD','a0000000-0000-4000-8000-000000000006');
  if not (r->>'ok')::boolean then raise exception 'Owner recovery failed: %',r;end if;
+ if public.crm_website_intake_details('TRD','a0000000-0000-4000-8000-000000000006')->>'name'<>'Rollback fixture' then raise exception 'Failed inquiry details lost';end if;
  if jsonb_array_length(public.crm_website_intake_status('TRD'))<1 then raise exception 'Owner inbox empty';end if;
 end $$;
 reset role;
@@ -123,3 +124,21 @@ do $$ declare lead public.crm_leads%rowtype; appointment uuid; inspection uuid; 
  if not exists(select 1 from public.crm_inspections where id=inspection) or not exists(select 1 from public.crm_proposals where id=proposal) then raise exception 'Operational workflow links unavailable';end if;
 end $$;
 reset role;
+-- Public photos larger than 256 KiB remain private and readable only with lead authority.
+do $$ declare p jsonb; r jsonb; lead uuid; photo uuid; listing jsonb; fixture_bytes bytea:=decode('ffd8ff','hex')||convert_to(repeat('synthetic',40000),'UTF8');begin
+ p:=jsonb_build_object('name','Attachment fixture','phone','9035550100','photos',jsonb_build_array(jsonb_build_object('name','synthetic.jpg','dataUrl','data:image/jpeg;base64,'||encode(fixture_bytes,'base64'))));
+ set local role service_role;set local request.jwt.claim.role='service_role';
+ r:=public.crm_receive_website_lead('TRD','d0000000-0000-4000-8000-000000000001',p);
+ if not (r->>'ok')::boolean then raise exception 'Photo intake failed: %',r;end if;
+ lead:=(r->>'lead_id')::uuid;
+ reset role;
+ if exists(select 1 from public.crm_leads where id=lead and description like '%base64%') then raise exception 'Binary content leaked into lead list';end if;
+ if exists(select 1 from public.trd_records where id=r->>'source_id' and payload->'photos'->0->>'dataUrl' is not null) then raise exception 'Binary content leaked into source list';end if;
+ set local role authenticated;set local request.jwt.claim.role='authenticated';set local request.jwt.claim.sub='10000000-0000-0000-0000-000000000001';
+ listing:=public.crm_website_lead_attachments(lead);photo:=(listing->0->>'id')::uuid;
+ if jsonb_array_length(listing)<>1 or decode(public.crm_website_attachment(photo)->>'data_base64','base64')<>fixture_bytes then raise exception 'Authorized photo bytes changed';end if;
+ set local request.jwt.claim.sub='10000000-0000-0000-0000-000000000003';
+ begin perform public.crm_website_attachment(photo);raise exception 'Cross-division photo exposed';exception when insufficient_privilege then null;end;
+ reset role;
+ if has_function_privilege('anon','public.crm_website_attachment(uuid)','EXECUTE') or has_table_privilege('service_role','intake_private.attachments','SELECT') then raise exception 'Photo access grant exposed';end if;
+end $$;

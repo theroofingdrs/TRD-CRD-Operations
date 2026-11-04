@@ -15,6 +15,14 @@ create table intake_private.attempts (
  attempted_at timestamptz not null default clock_timestamp(), actor_id uuid, outcome text not null, error_code text, error_message text,
  foreign key(division_id,submission_key) references intake_private.submissions
 );
+create table intake_private.attachments (
+ id uuid primary key default gen_random_uuid(),division_id text not null,submission_key uuid not null,
+ lead_id uuid not null references public.crm_leads(id) on delete restrict,ordinal integer not null,
+ filename text not null,mime text not null,size_bytes integer not null,sha256 text not null,
+ foreign key(division_id,submission_key) references intake_private.submissions,
+ unique(division_id,submission_key,ordinal)
+);
+alter table intake_private.attachments enable row level security;
 create table intake_private.notifications (
  id uuid primary key default gen_random_uuid(), division_id text not null, submission_key uuid not null,
  recipient_kind text not null check(recipient_kind in ('internal','customer')),
@@ -48,7 +56,7 @@ language plpgsql security definer set search_path='' as $$
 #variable_conflict use_variable
 declare r intake_private.submissions%rowtype; p jsonb; customer uuid; contact uuid; property uuid; lead uuid; operator uuid;
  name text; email text; phone text; company text; address text; city text; state text; postal text; service text;
- candidates uuid[]; matched text:='new'; code text; detail text; replay boolean;
+ candidates uuid[]; matched text:='new'; code text; detail text; replay boolean; photo jsonb; photo_position integer; media text; bytes bytea; manifest jsonb:='[]';
 begin
  select * into strict r from intake_private.submissions where division_id=d and submission_key=k for update;
  replay:=r.status='delivered';
@@ -109,11 +117,20 @@ begin
    insert into public.crm_leads(division_id,customer_id,contact_id,property_id,source,service_interest,status,priority,assigned_to,next_follow_up_at,description,source_record_id,created_at)
    values(d,customer,contact,property,coalesce(nullif(p->>'source',''),'Website'),service,'new',
     case when p->>'emergencyFlag'='true' or lower(p->>'priority')='emergency' or lower(p->>'leadType')='emergency' then 'urgent' else 'normal' end,
-    operator,r.received_at,concat_ws(E'\n',nullif(p->>'message',''),nullif(p->>'notes',''),'Website details: '||p::text),r.source_id,r.received_at) returning id into lead;
+    operator,r.received_at,concat_ws(E'\n',nullif(p->>'message',''),nullif(p->>'notes',''),'Website details: '||(p-'photos')::text||case when jsonb_array_length(coalesce(p->'photos','[]'))>0 then E'\nPrivate attachments are available from this lead.' else '' end),r.source_id,r.received_at) returning id into lead;
+   if jsonb_typeof(coalesce(p->'photos','[]'))<>'array' or jsonb_array_length(coalesce(p->'photos','[]'))>10 then raise exception 'Invalid photo manifest' using errcode='22023';end if;
+   for photo,photo_position in select value,ordinality::integer-1 from jsonb_array_elements(coalesce(p->'photos','[]')) with ordinality loop
+    media:=substring(photo->>'dataUrl' from '^data:([^;]+);base64,');
+    if media not in ('image/jpeg','image/png','image/webp','application/pdf') or media is null then raise exception 'Unsupported attachment format' using errcode='22023';end if;
+    bytes:=decode(substring(photo->>'dataUrl' from ',(.*)$'),'base64');
+    if octet_length(bytes)<4 or octet_length(bytes)>15728640 or (media='image/jpeg' and encode(substring(bytes from 1 for 3),'hex')<>'ffd8ff') or (media='image/png' and encode(substring(bytes from 1 for 8),'hex')<>'89504e470d0a1a0a') or (media='application/pdf' and substring(bytes from 1 for 5)<>convert_to('%PDF-','UTF8')) or (media='image/webp' and (substring(bytes from 1 for 4)<>convert_to('RIFF','UTF8') or substring(bytes from 9 for 4)<>convert_to('WEBP','UTF8'))) then raise exception 'Attachment content/size mismatch' using errcode='22023';end if;
+    insert into intake_private.attachments(division_id,submission_key,lead_id,ordinal,filename,mime,size_bytes,sha256) values(d,k,lead,photo_position,left(coalesce(nullif(photo->>'name',''),'attachment'),255),media,octet_length(bytes),encode(sha256(bytes),'hex'));
+   end loop;
+   select coalesce(jsonb_agg(jsonb_build_object('id',id,'name',filename,'type',mime,'size',size_bytes)),'[]') into manifest from intake_private.attachments where lead_id=lead;
    insert into public.crm_tasks(division_id,title,description,assigned_to,due_at,related_type,related_id)
     values(d,'Follow up: '||left(service,150),'New website inquiry. Review source details and contact the customer.',operator,r.received_at,'lead',lead);
    insert into public.trd_records(id,record_type,payload,created_at,updated_at)
-    values(r.source_id,'lead',p||jsonb_build_object('id',r.source_id,'leadId',case when d='CRD' then r.source_id else null end,'division',case when d='CRD' then 'commercial' else 'RESIDENTIAL' end,'crmLeadId',lead,'createdAt',r.received_at),r.received_at,r.received_at);
+    values(r.source_id,'lead',(p-'photos')||jsonb_build_object('photos',manifest)||jsonb_build_object('id',r.source_id,'leadId',case when d='CRD' then r.source_id else null end,'division',case when d='CRD' then 'commercial' else 'RESIDENTIAL' end,'crmLeadId',lead,'createdAt',r.received_at),r.received_at,r.received_at);
    insert into public.crm_activity_events(division_id,actor_id,entity_type,entity_id,action,summary,details)
     values(d,auth.uid(),'lead',lead,'website_intake','Website inquiry delivered to CRM',jsonb_build_object('submission_key',k,'source_id',r.source_id,'matching',matched));
    insert into intake_private.notifications(division_id,submission_key,recipient_kind) values(d,k,'internal');
@@ -138,7 +155,7 @@ language plpgsql security definer set search_path='' as $$
 declare fingerprint text; existing text;
 begin
  if auth.role() is distinct from 'service_role' then raise exception 'Trusted website server required' using errcode='42501';end if;
- if p_division is null or p_division not in ('TRD','CRD') or p_key is null or jsonb_typeof(p_payload) is distinct from 'object' or octet_length(p_payload::text)>262144 then raise exception 'Invalid inquiry envelope' using errcode='22023';end if;
+ if p_division is null or p_division not in ('TRD','CRD') or p_key is null or jsonb_typeof(p_payload) is distinct from 'object' or octet_length(p_payload::text)>26214400 then raise exception 'Invalid inquiry envelope' using errcode='22023';end if;
  if not exists(select 1 from public.crm_divisions where id=p_division and active) then raise exception 'Division unavailable' using errcode='22023';end if;
  fingerprint:=encode(sha256(convert_to(p_payload::text,'UTF8')),'hex');
  insert into intake_private.submissions(division_id,submission_key,payload,fingerprint,source_id)
@@ -161,9 +178,34 @@ begin
  if not exists(select 1 from public.crm_memberships where division_id=p_division and user_id=auth.uid() and role='owner' and active) then raise exception 'Active division owner required' using errcode='42501';end if;
  return coalesce((select jsonb_agg(to_jsonb(s)) from (select submission_key,received_at,status,attempts,lead_id,matching,error_code,error_message,(select jsonb_object_agg(recipient_kind,status) from intake_private.notifications n where n.division_id=intake_private.submissions.division_id and n.submission_key=intake_private.submissions.submission_key) as notifications from intake_private.submissions where division_id=p_division order by case status when 'failed' then 0 when 'pending' then 1 else 2 end,received_at desc limit 100 offset greatest(0,p_offset)) s),'[]');
 end $$;
+create function public.crm_website_intake_details(p_division text,p_key uuid) returns jsonb language plpgsql security definer set search_path='' as $$
+declare p jsonb;begin
+ if not exists(select 1 from public.crm_memberships where division_id=p_division and user_id=auth.uid() and role='owner' and active) then raise exception 'Active division owner required' using errcode='42501';end if;
+ select payload into p from intake_private.submissions where division_id=p_division and submission_key=p_key;
+ if not found then raise exception 'Receipt not found' using errcode='22023';end if;
+ return (p-'photos')||jsonb_build_object('attachments',case when jsonb_typeof(p->'photos')='array' then (select coalesce(jsonb_agg(jsonb_build_object('name',value->>'name','type',value->>'type','size',value->'size')),'[]') from jsonb_array_elements(p->'photos')) else '[]'::jsonb end);
+end $$;
+create function public.crm_website_lead_attachments(p_lead uuid) returns jsonb language plpgsql security definer set search_path='' as $$
+declare d text;begin
+ select division_id into d from public.crm_leads where id=p_lead;
+ if not exists(select 1 from public.crm_memberships where user_id=auth.uid() and division_id=d and active) or not app_private.has_division_resource_access(d,'leads',false) then raise exception 'Lead access required' using errcode='42501';end if;
+ return coalesce((select jsonb_agg(jsonb_build_object('id',id,'filename',filename,'mime',mime,'size_bytes',size_bytes,'sha256',sha256)) from intake_private.attachments where lead_id=p_lead),'[]');
+end $$;
+create function public.crm_website_attachment(p_id uuid) returns jsonb language plpgsql security definer set search_path='' as $$
+declare f intake_private.attachments%rowtype;data text;begin
+ select * into f from intake_private.attachments where id=p_id;
+ if not found then raise exception 'Lead attachment access required' using errcode='42501';end if;
+ if not exists(select 1 from public.crm_memberships where user_id=auth.uid() and division_id=f.division_id and active) or not app_private.has_division_resource_access(f.division_id,'leads',false) or not exists(select 1 from public.crm_leads where id=f.lead_id and division_id=f.division_id) then raise exception 'Lead attachment access required' using errcode='42501';end if;
+ select substring(payload->'photos'->f.ordinal->>'dataUrl' from ',(.*)$') into data from intake_private.submissions where division_id=f.division_id and submission_key=f.submission_key;
+ if encode(sha256(decode(data,'base64')),'hex')<>f.sha256 then raise exception 'Attachment integrity mismatch';end if;
+ insert into intake_private.attempts(division_id,submission_key,actor_id,outcome) values(f.division_id,f.submission_key,auth.uid(),'attachment_read:'||f.id);
+ return jsonb_build_object('filename',f.filename,'mime',f.mime,'data_base64',data,'sha256',f.sha256);
+end $$;
+revoke all on function public.crm_website_lead_attachments(uuid),public.crm_website_attachment(uuid) from public,anon,service_role;
+grant execute on function public.crm_website_lead_attachments(uuid),public.crm_website_attachment(uuid) to authenticated;
 revoke all on all functions in schema intake_private from public,anon,authenticated,service_role;
 revoke all on function public.crm_receive_website_lead(text,uuid,jsonb) from public,anon,authenticated;
 grant execute on function public.crm_receive_website_lead(text,uuid,jsonb) to service_role;
-revoke all on function public.crm_retry_website_lead(text,uuid),public.crm_website_intake_status(text,integer) from public,anon,service_role;
-grant execute on function public.crm_retry_website_lead(text,uuid),public.crm_website_intake_status(text,integer) to authenticated;
+revoke all on function public.crm_retry_website_lead(text,uuid),public.crm_website_intake_status(text,integer),public.crm_website_intake_details(text,uuid) from public,anon,service_role;
+grant execute on function public.crm_retry_website_lead(text,uuid),public.crm_website_intake_status(text,integer),public.crm_website_intake_details(text,uuid) to authenticated;
 commit;
