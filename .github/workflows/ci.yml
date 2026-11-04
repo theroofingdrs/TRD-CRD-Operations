@@ -40,7 +40,7 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Install locked Chromium and Linux dependencies
         run: |
-          npx --no-install playwright install --with-deps chromium
+          npx --no-install playwright install chromium
           node --input-type=module -e "import { chromium } from 'playwright'; import fs from 'node:fs'; fs.appendFileSync(process.env.GITHUB_ENV, 'CHROME_BIN=' + chromium.executablePath() + '\n');"
       - name: Type check and production build
         run: |

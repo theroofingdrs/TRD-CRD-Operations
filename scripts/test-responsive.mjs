@@ -10,7 +10,7 @@ const chrome=findChromium();
 if(!chrome)throw Error('Chromium is required.');
 const children=[],sockets=[];const results=[];let failures=0;
 const user='10000000-0000-4000-8000-000000000001',customer='20000000-0000-4000-8000-000000000001',property='30000000-0000-4000-8000-000000000001';
-const long='UnbrokenReference'.repeat(18),address='12345 Synthetic Roofing Service Road '+long;
+const long='UnbrokenReference'.repeat(18),address='12345 Synthetic Roofing Service Road '+long+', Synthetic City, TX 00000, USA';
 const fixtures={
  crm_memberships:[{user_id:user,division_id:'TRD',role:'owner',active:true},{user_id:user,division_id:'CRD',role:'owner',active:true}],
  crm_profiles:[{user_id:user,display_name:'Layout Test Operator',email:'operator@example.test'}],
@@ -88,6 +88,11 @@ try{
    const permitted=e=>!!e.parentElement?.closest('.table-wrap,.kanban-board,.history-list pre');
    const bad=[...main.querySelectorAll('*')].filter(e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&!permitted(e)&&(r.left<left-1||r.right>right+1);}).map(e=>{const r=e.getBoundingClientRect();return {tag:e.tagName,class:e.className,text:e.textContent.slice(0,65),left:Math.round(r.left),right:Math.round(r.right),width:Math.round(r.width),min:getComputedStyle(e).minWidth};});
    const service=document.querySelector('.customer-service-history'),sr=service?.getBoundingClientRect();
+    const billingText=document.querySelector('.customer-detail-item p')?.textContent||'';
+    const propertyText=document.querySelector('.customer-properties tbody tr td:first-child strong')?.textContent||'';
+    const billingCityCount=(billingText.match(/Synthetic City/g)||[]).length;
+    const propertyCityCount=(propertyText.match(/Synthetic City/g)||[]).length;
+    const viewportMeta=document.querySelector('meta[name="viewport"]')?.content||'';
    const nested=[...main.querySelectorAll('.panel,.panel-heading,.button-row,.form-grid,.inline-form,.customer-service-history,.table-wrap,input,select,textarea')].filter(e=>!permitted(e)&&e.getBoundingClientRect().width>0).flatMap(e=>{const p=e.parentElement,r=e.getBoundingClientRect(),pr=p.getBoundingClientRect(),ps=getComputedStyle(p);if(!['block','grid','flex'].includes(ps.display))return [];const l=pr.left+parseFloat(ps.borderLeftWidth)+parseFloat(ps.paddingLeft),right=pr.right-parseFloat(ps.borderRightWidth)-parseFloat(ps.paddingRight);return r.left<l-1||r.right>right+1?[{tag:e.tagName,class:e.className,left:Math.round(r.left),right:Math.round(r.right),parent:p.className,allowedLeft:Math.round(l),allowedRight:Math.round(right)}]:[];});
    const cellControls=[...main.querySelectorAll('td button,td input,td select,td textarea')].filter(e=>e.getBoundingClientRect().width>0).flatMap(e=>{const cell=e.closest('td'),r=e.getBoundingClientRect(),c=cell.getBoundingClientRect(),s=getComputedStyle(cell);const left=c.left+parseFloat(s.paddingLeft),right=c.right-parseFloat(s.paddingRight);return r.left<left-1||r.right>right+1?[{tag:e.tagName,text:e.textContent.slice(0,40),left:r.left,right:r.right,cellLeft:left,cellRight:right}]:[];});
    const tableOverflows=[...main.querySelectorAll('.customer-detail-sections .table-wrap')].filter(e=>e.scrollWidth>e.clientWidth+1).map(e=>({scrollWidth:e.scrollWidth,clientWidth:e.clientWidth,table:e.querySelector('table')?.className||''}));
@@ -95,10 +100,10 @@ try{
    const heading=service?.querySelector('h3')?.getBoundingClientRect(),reference=service?.parentElement.querySelector('.customer-properties h3')?.getBoundingClientRect();
    const inset=heading&&reference?Math.round(heading.left-reference.left):0;
    const tallHeaders=[...main.querySelectorAll('.customer-detail-sections th, .customer-service-history ~ div th')].filter(e=>e.getBoundingClientRect().height>96).length;
-   return {width:w,cellControls,tableOverflows,missingCellLabels,layoutViewport:innerWidth,serviceHeadingInset:inset,tallHeaders,nested,document:document.documentElement.scrollWidth,bodyOverflow:getComputedStyle(document.body).overflowX,main:{left:mr.left,right:mr.right,contentLeft:left,contentRight:right},service:sr?{left:sr.left,right:sr.right,width:sr.width}:null,bad:bad.slice(0,25)};
+   return {width:w,cellControls,tableOverflows,missingCellLabels,billingCityCount,propertyCityCount,viewportMeta,layoutViewport:innerWidth,serviceHeadingInset:inset,tallHeaders,nested,document:document.documentElement.scrollWidth,bodyOverflow:getComputedStyle(document.body).overflowX,main:{left:mr.left,right:mr.right,contentLeft:left,contentRight:right},service:sr?{left:sr.left,right:sr.right,width:sr.width}:null,bad:bad.slice(0,25)};
   })()`);
   const result={scenario:name,...data};results.push(result);
-  const fail=data.document>data.width+1||data.bad.length||data.cellControls.length||data.nested.length||data.tableOverflows.length||data.missingCellLabels||data.serviceHeadingInset!==0||data.tallHeaders||(!baseline&&['hidden','clip'].includes(data.bodyOverflow));
+  const fail=data.document>data.width+1||data.bad.length||data.cellControls.length||data.nested.length||data.tableOverflows.length||data.missingCellLabels||data.billingCityCount>1||data.propertyCityCount>1||!data.viewportMeta.includes('width=device-width')||data.serviceHeadingInset!==0||data.tallHeaders||(!baseline&&['hidden','clip'].includes(data.bodyOverflow));
   if(fail){failures++;console.log('LAYOUT FAILURE '+JSON.stringify(result));}
   else console.log('PASS '+name+' @ '+data.width+'px');
  }
