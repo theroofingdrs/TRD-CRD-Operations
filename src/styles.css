@@ -528,3 +528,110 @@ body {
     word-break: break-word;
   }
 }
+
+
+/* Customer service history: prevent intrinsic content and action controls from widening the customer panel. */
+.customer-service-history {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.customer-service-history > *,
+.customer-service-history .panel-heading,
+.customer-service-history .panel-heading > *,
+.customer-service-history .inline-form,
+.customer-service-history .form-grid,
+.customer-service-history .empty-state,
+.customer-service-history .table-wrap {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.customer-service-history .panel-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.customer-service-history .panel-heading > div {
+  flex: 1 1 240px;
+}
+.customer-service-history h3,
+.customer-service-history .muted,
+.customer-service-history .empty-state,
+.customer-service-history .empty-state span {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.customer-service-history .secondary-button,
+.customer-service-history .button-row button {
+  white-space: normal;
+  max-width: 100%;
+}
+.customer-service-history .table-wrap {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+.customer-service-history table {
+  width: max-content;
+  min-width: 760px;
+  max-width: none;
+}
+.customer-service-history th,
+.customer-service-history td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+@media (max-width: 720px) {
+  .customer-service-history {
+    padding: 12px;
+    border: 1px solid #eceef0;
+    border-radius: 9px;
+    gap: 10px;
+  }
+  .customer-service-history .panel-heading {
+    flex-direction: column;
+    align-items: stretch;
+    margin-bottom: 8px;
+  }
+  .customer-service-history .panel-heading > div,
+  .customer-service-history .panel-heading > button {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+  }
+  .customer-service-history .inline-form {
+    padding: 12px;
+  }
+  .customer-service-history .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .customer-service-history .form-grid .wide {
+    grid-column: auto;
+  }
+  .customer-service-history .button-row {
+    display: flex;
+    flex-wrap: wrap;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .customer-service-history .button-row button {
+    flex: 1 1 130px;
+  }
+  .customer-service-history .empty-state {
+    padding: 14px 6px;
+    text-align: left;
+    align-items: flex-start;
+  }
+}
