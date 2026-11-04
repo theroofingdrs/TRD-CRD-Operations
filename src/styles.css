@@ -388,3 +388,143 @@ body {
     min-width: 0;
   }
 }
+
+
+/* Customer record mobile containment: keep long details inside the card and scroll wide tables locally. */
+@media (max-width: 720px) {
+  .app-shell,
+  .main-area,
+  .main-area > *,
+  .content-stack,
+  .content-stack > *,
+  .panel,
+  .customer-detail-summary,
+  .customer-detail-item,
+  .customer-properties,
+  .customer-roofr-section,
+  .roofr-measurements {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .panel-heading {
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .panel-heading > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .panel-heading > :first-child {
+    flex: 1 1 100%;
+  }
+  .panel-heading > .button-row,
+  .panel-heading > .panel-actions {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+
+  .customer-detail-summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .customer-detail-item {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .customer-detail-item strong,
+  .customer-detail-item p {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .customer-properties .panel-heading {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .customer-properties .panel-heading > div,
+  .customer-properties .panel-heading > button {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .customer-properties .table-wrap,
+  .roofr-measurements .table-wrap {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+  .customer-properties table {
+    width: max-content;
+    min-width: 620px;
+    max-width: none;
+    table-layout: auto;
+  }
+  .customer-properties th,
+  .customer-properties td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .customer-properties td:first-child {
+    min-width: 150px;
+  }
+  .customer-properties .button-row {
+    display: flex;
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .customer-properties .button-row button {
+    flex: 1 1 135px;
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .roofr-measurements .panel-heading {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .roofr-measurements form,
+  .roofr-measurements .inline-form,
+  .roofr-measurements .inline-form > *,
+  .roofr-measurements label,
+  .roofr-measurements input,
+  .roofr-measurements select,
+  .roofr-measurements button {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .roofr-measurements input[type="file"] {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    font-size: 11px;
+  }
+  .roofr-measurements table {
+    width: max-content;
+    min-width: 620px;
+    max-width: none;
+  }
+  .roofr-measurements th,
+  .roofr-measurements td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+}
