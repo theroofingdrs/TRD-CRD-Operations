@@ -462,7 +462,7 @@ th { white-space: nowrap; }
   .customer-roofr-section,
   .roofr-measurements,
   .customer-service-history {
-    overflow: clip;
+    overflow-wrap: anywhere;
   }
 
   .customer-roofr-section > *,
