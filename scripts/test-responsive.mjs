@@ -3,7 +3,7 @@ import {findChromium,startChromium,stopChild} from './chromium-startup.mjs';
 import {spawn} from 'node:child_process';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
 import path from 'node:path';import os from 'node:os';import assert from 'node:assert/strict';
-const widths=[320,360,375,390,430,768,1024,1440],baseline=process.argv.includes('--baseline');
+const widths=[320,360,375,390,414,667,768,1024,1280,1440],baseline=process.argv.includes('--baseline');
 const capture=process.env.RESPONSIVE_CAPTURE_DIR;const root=process.cwd();
 const temp=await mkdtemp(path.join(os.tmpdir(),'crm-responsive-'));
 const chrome=findChromium();
