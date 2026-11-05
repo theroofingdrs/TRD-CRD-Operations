@@ -26,6 +26,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "GET") return json({ error: "Method not allowed." }, 405);
 
+  try {
   const requestUrl = new URL(req.url);
   const division = requestUrl.searchParams.get("division");
   const slug = requestUrl.searchParams.get("slug");
@@ -80,4 +81,9 @@ Deno.serve(async (req: Request) => {
   }));
 
   return json({ posts: visible });
+  } catch (error) {
+    const diagnostic = error instanceof Error ? { name: error.name, message: error.message.slice(0, 300) } : { name: "UnknownError" };
+    console.error("crm-public-blog request failed", diagnostic);
+    return json({ error: "Unable to load blog articles." }, 500);
+  }
 });
