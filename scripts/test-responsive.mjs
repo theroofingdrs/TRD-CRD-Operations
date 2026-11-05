@@ -59,7 +59,9 @@ try{
     data=data.filter(row=>(!division||row.division_id===division)&&(!customerId||row.customer_id===customerId));
    }
    if(table==='crm_customers'){
-    const division=url.searchParams.get('crm_customer_divisions.division_id')?.replace(/^eq\./,'');
+    const divisionFilter=url.searchParams.get('crm_customer_divisions.division_id')||url.searchParams.get('division_id');
+    const division=divisionFilter?.replace(/^eq\./,'');
+    console.log('CRM customer query filter',url.search,division);
     const linked=division?new Set(fixtures.crm_customer_divisions.filter(row=>row.division_id===division).map(row=>row.customer_id)):null;
     const idFilter=url.searchParams.get('id');
     const ids=idFilter?.startsWith('in.(')?new Set(idFilter.slice(4,-1).split(',')):null;
