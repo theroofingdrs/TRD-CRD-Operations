@@ -375,3 +375,109 @@ th { white-space: nowrap; }
   .customer-detail-sections .button-row { flex-wrap: wrap; }
   .customer-detail-sections .button-row > button { max-width: 100%; }
 }
+
+
+/* iPhone customer-detail containment: keep nested service/report widgets and
+   action controls inside the customer card instead of widening the page. */
+@media (max-width: 720px) {
+  .customer-detail-sections,
+  .customer-detail-sections > *,
+  .customer-detail-summary,
+  .customer-detail-item,
+  .customer-properties,
+  .customer-roofr-section,
+  .customer-service-history,
+  .roofr-measurements,
+  .customer-detail-sections .panel,
+  .customer-detail-sections .panel-heading,
+  .customer-detail-sections .inline-form {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .customer-detail-summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .customer-detail-item {
+    overflow-wrap: anywhere;
+  }
+
+  .customer-detail-item strong,
+  .customer-detail-item p {
+    display: block;
+    max-width: 100%;
+    font-size: 12px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  .customer-properties > .panel-heading {
+    display: flex;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .customer-properties > .panel-heading > :first-child {
+    flex: 1 1 100%;
+  }
+
+  .customer-properties > .panel-heading > button {
+    flex: 0 1 auto;
+    width: auto;
+    max-width: 100%;
+  }
+
+  .customer-properties .table-wrap,
+  .customer-roofr-section .table-wrap,
+  .customer-service-history .table-wrap {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .customer-detail-sections .button-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    min-width: 0;
+    max-width: 100%;
+    gap: 6px;
+  }
+
+  .customer-detail-sections .button-row > button,
+  .customer-detail-sections .button-row > a {
+    flex: 1 1 9rem;
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .customer-roofr-section,
+  .roofr-measurements,
+  .customer-service-history {
+    overflow-wrap: anywhere;
+  }
+
+  .customer-roofr-section > *,
+  .roofr-measurements > *,
+  .customer-service-history > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .customer-detail-sections input:not([type="checkbox"]):not([type="radio"]),
+  .customer-detail-sections select,
+  .customer-detail-sections textarea {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    font-size: 16px;
+  }
+}
