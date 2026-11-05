@@ -132,13 +132,13 @@ try{
  // Reload fixture to exercise a populated service table and the rest of the workspace.
  populated=true;await clickText('Close details');await clickText('Responsive Test Customer');await matrix('customer-populated');
  await clickText('Commercial CRD');
- await clickText('Customers');
+ await clickElement(`[...document.querySelectorAll('.main-nav button')].find(e=>e.textContent.includes('Customers'))`);
  await wait(()=>evaluate('document.body.innerText.includes("CRD Commercial Test Account")'),'CRD customer list');
  assert(await evaluate('!document.body.innerText.includes("Responsive Test Customer")'),'CRD list must not include the TRD-only customer');
  assert(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'));
  console.log('PASS CRM CRD customer list: division-scoped results and bounded mobile width');
  await clickText('Residential TRD');
- await clickText('Customers');
+ await clickElement(`[...document.querySelectorAll('.main-nav button')].find(e=>e.textContent.includes('Customers'))`);
  await wait(()=>evaluate('document.body.innerText.includes("Responsive Test Customer")'),'TRD customer list restore');
  const nav=await evaluate(`[...document.querySelectorAll('.main-nav button')].map(e=>e.textContent.replace(/^[^A-Za-z]+/,'').trim())`);
  for(const label of nav){await clickElement(`[...document.querySelectorAll('.main-nav button')].find(e=>e.textContent.replace(/^[^A-Za-z]+/,'').trim()===${JSON.stringify(label)})`);await new Promise(r=>setTimeout(r,150));await matrix('workspace-'+label.replaceAll(' ','-').toLowerCase());
