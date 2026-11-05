@@ -7,7 +7,9 @@ export async function runNotifications(config:{enabled:boolean;apiKey?:string;fr
   const p=job.payload;const recipient=job.recipient_kind==='internal'?config.internalTo:p.contactRecord?.email||p.email;
   if(!email(recipient))continue;
   const brand=job.division_id==='TRD'?'The Roof Doctors':'Commercial Roof Doctors';
-  const body={from:config.from,to:[recipient],subject:job.recipient_kind==='internal'?brand+': new roofing inquiry':brand+': inquiry received',text:job.recipient_kind==='internal'?'A new inquiry is in Operations. Review its contact details and follow-up task. Reference: '+job.submission_key:'Your inquiry has reached our Operations team. We will contact you to confirm your needs and availability. No appointment has been booked. Reference: '+job.submission_key};
+  const estimateRequest=[p.source,p.landingPage,p.serviceRequested,p.leadType].some(value=>typeof value==='string'&&/estimate/i.test(value))||Boolean(p.estimateDetails&&typeof p.estimateDetails==='object');
+  const subject=job.recipient_kind==='internal'?brand+(estimateRequest?': new estimate request':': new lead'):brand+': inquiry received';
+  const body={from:config.from,to:[recipient],subject,text:job.recipient_kind==='internal'?'A new inquiry is in Operations. Review its contact details and follow-up task. Reference: '+job.submission_key:'Your inquiry has reached our Operations team. We will contact you to confirm your needs and availability. No appointment has been booked. Reference: '+job.submission_key};
   const operation=await rpc('crm_claim_intake_notification',{p_id:job.id,p_body:body});
   if(operation.action!=='send')continue;
   let state='uncertain',provider:null|string=null,error:null|string=null;
