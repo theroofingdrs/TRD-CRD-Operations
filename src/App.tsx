@@ -438,24 +438,26 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
   const [serviceCost, setServiceCost] = useState("");
   const [detailLoading, setDetailLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     if (!supabase) {
-      setMessage("CRM database connection is not configured.");
+      setLoadError("CRM database connection is not configured.");
       setRows([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     setMessage("");
+    setLoadError("");
     const { data, error } = await supabase.from("crm_customers")
       .select("id,display_name,customer_type,email,phone,billing_address_line1,billing_city,billing_state,billing_postal_code,created_at,assigned_to,crm_customer_divisions!inner(division_id)")
       .eq("crm_customer_divisions.division_id", division)
       .order("created_at", { ascending: false });
     if (error) {
-      setMessage("Customers could not be loaded: " + error.message);
+      setLoadError(error.message);
       setRows([]);
     } else {
       setRows((data ?? []) as Customer[]);
@@ -758,7 +760,7 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
         {canShareBoth && <label className="check-field"><span><input type="checkbox" checked={shareWithBoth} onChange={(event) => setShareWithBoth(event.target.checked)} /> Share this customer across both TRD and CRD</span></label>}
       </div><div className="button-row"><button className="primary-button" disabled={saving}>{saving ? "Saving..." : editingId ? "Save customer changes" : "Save customer"}</button>{editingId && <button type="button" className="secondary-button" onClick={() => { setEditingId(""); setShowForm(false); }}>Cancel</button>}</div></form>}
       {message && <p className="inline-message">{message}</p>}
-      {loading ? <div className="empty-state">Loading customers...</div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Customer / organization</th><th>Type</th><th>Email</th><th>Phone</th><th>Billing address</th><th>Salesperson</th><th>Added</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><button className="text-button" onClick={() => void loadCustomerDetails(row.id)}><strong>{row.display_name}</strong></button></td><td>{row.customer_type.replaceAll("_"," ")}</td><td>{row.email || "—"}</td><td>{row.phone || "—"}</td><td>{formatStoredAddress(row.billing_address_line1,row.billing_city,row.billing_state,row.billing_postal_code) || "—"}</td><td><SalespersonAssignment entityType="customer" entityId={row.id} division={division} assignedTo={row.assigned_to} isOwner={isOwner} compact /></td><td>{new Date(row.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No customer records yet</strong><span>Add a customer to start building the shared customer and property history.</span>{canWrite && <button className="secondary-button" onClick={() => setShowForm(true)}>Add first customer</button>}</div>}
+      {loading ? <div className="empty-state">Loading customers...</div> : loadError ? <div className="empty-state"><strong>Customer records could not be loaded</strong><span>{loadError}</span><button className="secondary-button" onClick={() => void load()}>Retry</button></div> : rows.length ? <div className="table-wrap"><table><thead><tr><th>Customer / organization</th><th>Type</th><th>Email</th><th>Phone</th><th>Billing address</th><th>Salesperson</th><th>Added</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><button className="text-button" onClick={() => void loadCustomerDetails(row.id)}><strong>{row.display_name}</strong></button></td><td>{row.customer_type.replaceAll("_"," ")}</td><td>{row.email || "—"}</td><td>{row.phone || "—"}</td><td>{formatStoredAddress(row.billing_address_line1,row.billing_city,row.billing_state,row.billing_postal_code) || "—"}</td><td><SalespersonAssignment entityType="customer" entityId={row.id} division={division} assignedTo={row.assigned_to} isOwner={isOwner} compact /></td><td>{new Date(row.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <div className="empty-state"><strong>No customer records yet</strong><span>Add a customer to start building the shared customer and property history.</span>{canWrite && <button className="secondary-button" onClick={() => setShowForm(true)}>Add first customer</button>}</div>}
     </section>
     {selected && <section className="panel">
       <div className="panel-heading"><div><p className="eyebrow">CENTRAL CUSTOMER RECORD</p><h2>{selected.display_name}</h2><p className="muted">{selected.customer_type.replaceAll("_"," ")} · {selected.email || "No email"} · {selected.phone || "No phone"}</p><div className="form-grid"><div><strong>Assigned salesperson</strong><SalespersonAssignment entityType="customer" entityId={selected.id} division={division} assignedTo={selected.assigned_to} isOwner={isOwner} /></div></div></div><div className="button-row">{canWrite && <button className="secondary-button compact" onClick={beginEditCustomer}>Edit customer</button>}<button className="secondary-button compact" onClick={() => setSelectedId("")}>Close details</button></div></div>
