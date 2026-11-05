@@ -442,17 +442,22 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
-    if (!supabase) return;
+    if (!supabase) {
+      setMessage("CRM database connection is not configured.");
+      setRows([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    const { data: links, error: linkError } = await supabase.from("crm_customer_divisions").select("customer_id").eq("division_id", division);
-    if (linkError) setMessage(linkError.message);
-    const ids = (links ?? []).map((item: { customer_id: string }) => item.customer_id);
-    if (!ids.length) setRows([]);
-    else {
-      const { data, error } = await supabase.from("crm_customers")
-        .select("id,display_name,customer_type,email,phone,billing_address_line1,billing_city,billing_state,billing_postal_code,created_at,assigned_to")
-        .in("id", ids).order("created_at", { ascending: false });
-      if (error) setMessage(error.message);
+    setMessage("");
+    const { data, error } = await supabase.from("crm_customers")
+      .select("id,display_name,customer_type,email,phone,billing_address_line1,billing_city,billing_state,billing_postal_code,created_at,assigned_to,crm_customer_divisions!inner(division_id)")
+      .eq("crm_customer_divisions.division_id", division)
+      .order("created_at", { ascending: false });
+    if (error) {
+      setMessage("Customers could not be loaded: " + error.message);
+      setRows([]);
+    } else {
       setRows((data ?? []) as Customer[]);
     }
     setLoading(false);
