@@ -9,13 +9,13 @@ const temp=await mkdtemp(path.join(os.tmpdir(),'crm-responsive-'));
 const chrome=findChromium();
 if(!chrome)throw Error('Chromium is required.');
 const children=[],sockets=[];const results=[];let failures=0;
-const user='10000000-0000-4000-8000-000000000001',customer='20000000-0000-4000-8000-000000000001',property='30000000-0000-4000-8000-000000000001';
+const user='10000000-0000-4000-8000-000000000001',customer='20000000-0000-4000-8000-000000000001',customerCRD='20000000-0000-4000-8000-000000000002',property='30000000-0000-4000-8000-000000000001';
 const long='UnbrokenReference'.repeat(18),address='12345 Synthetic Roofing Service Road '+long+', Synthetic City, TX 00000, USA';
 const fixtures={
  crm_memberships:[{user_id:user,division_id:'TRD',role:'owner',active:true},{user_id:user,division_id:'CRD',role:'owner',active:true}],
  crm_profiles:[{user_id:user,display_name:'Layout Test Operator',email:'operator@example.test'}],
- crm_customer_divisions:[{customer_id:customer,division_id:'TRD'}],
- crm_customers:[{id:customer,customer_type:'individual',display_name:'Responsive Test Customer',email:long+'@example.test',phone:'9035550100',billing_address_line1:address,billing_city:'Synthetic City',billing_state:'TX',billing_postal_code:'00000',created_at:'2026-01-01T12:00Z',assigned_to:null}],
+ crm_customer_divisions:[{customer_id:customer,division_id:'TRD'},{customer_id:customerCRD,division_id:'CRD'}],
+ crm_customers:[{id:customer,customer_type:'individual',display_name:'Responsive Test Customer',email:long+'@example.test',phone:'9035550100',billing_address_line1:address,billing_city:'Synthetic City',billing_state:'TX',billing_postal_code:'00000',created_at:'2026-01-01T12:00Z',assigned_to:null},{id:customerCRD,customer_type:'commercial',display_name:'CRD Commercial Test Account',email:'crd@example.test',phone:'9035550199',billing_address_line1:'500 Commercial Way',billing_city:'Texarkana',billing_state:'TX',billing_postal_code:'75501',created_at:'2026-01-02T12:00Z',assigned_to:null}],
  crm_properties:[{id:property,customer_id:customer,address_line1:address,city:'Synthetic City',state:'TX',postal_code:'00000',property_type:'residential',county:'Test County',parcel_number:long,building_name:'Synthetic Building'}],
  crm_contacts:[{id:'contact',customer_id:customer,full_name:'Synthetic contact',email:long+'@example.test',phone:'9035550100',title:long,is_primary:true}],
  crm_leads:[{id:'lead',division_id:'TRD',customer_id:customer,property_id:property,service_interest:'Roof inspection '+long,status:'new',priority:'normal',description:long,source_record_id:'website-TRD-fixture',customer:{display_name:'Responsive Test Customer',email:long+'@example.test'},created_at:'2026-01-01T12:00Z'}],
@@ -53,6 +53,20 @@ try{
    if(request.method!=='OPTIONS')requests.push(table);
    if(request.method==='POST'&&!url.pathname.includes('/rpc/'))throw Error('Responsive tests must not mutate records.');
    data=fixtures[table]??[];
+   if(table==='crm_customer_divisions'){
+    const division=url.searchParams.get('division_id')?.replace(/^eq\./,'');
+    const customerId=url.searchParams.get('customer_id')?.replace(/^eq\./,'');
+    data=data.filter(row=>(!division||row.division_id===division)&&(!customerId||row.customer_id===customerId));
+   }
+   if(table==='crm_customers'){
+    const divisionFilter=url.searchParams.get('crm_customer_divisions.division_id')||url.searchParams.get('division_id');
+    const division=divisionFilter?.replace(/^eq\./,'');
+    const linked=division?new Set(fixtures.crm_customer_divisions.filter(row=>row.division_id===division).map(row=>row.customer_id)):null;
+    const idFilter=url.searchParams.get('id');
+    const ids=idFilter?.startsWith('in.(')?new Set(idFilter.slice(4,-1).split(',')):null;
+    const exactId=idFilter?.startsWith('eq.')?idFilter.slice(3):null;
+    data=data.filter(row=>(!linked||linked.has(row.id))&&(!ids||ids.has(row.id))&&(!exactId||row.id===exactId));
+   }
    if(table==='crm_maintenance_records')data=populated?[{id:'service',property_id:property,service_type:'roof_repair',status:'completed',priority:'normal',description:long,work_performed:long,findings:long,service_cost:100}]:[];
    if(table==='crm_website_lead_attachments')data=[{id:'attachment',filename:'synthetic.png',mime:'image/png',size_bytes:8}];
    if(table==='crm_website_attachment')data={filename:'synthetic.png',mime:'image/png',data_base64:'iVBORw0KGgo='};
@@ -117,6 +131,18 @@ try{
  await clickText('Edit customer');await matrix('customer-edit');
  // Reload fixture to exercise a populated service table and the rest of the workspace.
  populated=true;await clickText('Close details');await clickText('Responsive Test Customer');await matrix('customer-populated');
+ await call('Emulation.setDeviceMetricsOverride',{width:1024,height:900,deviceScaleFactor:1,mobile:false});
+ await clickText('Commercial CRD');
+ await clickElement(`[...document.querySelectorAll('.main-nav button')].find(e=>e.textContent.includes('Customers'))`);
+ await wait(()=>evaluate('document.body.innerText.includes("CRD Commercial Test Account")'),'CRD customer list');
+ await call('Emulation.setDeviceMetricsOverride',{width:390,height:900,deviceScaleFactor:1,mobile:true});
+ assert(await evaluate('!document.body.innerText.includes("Responsive Test Customer")'),'CRD list must not include the TRD-only customer');
+ assert(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'));
+ console.log('PASS CRM CRD customer list: division-scoped results and bounded mobile width');
+ await call('Emulation.setDeviceMetricsOverride',{width:1024,height:900,deviceScaleFactor:1,mobile:false});
+ await clickText('Residential TRD');
+ await clickElement(`[...document.querySelectorAll('.main-nav button')].find(e=>e.textContent.includes('Customers'))`);
+ await wait(()=>evaluate('document.body.innerText.includes("Responsive Test Customer")'),'TRD customer list restore');
  const nav=await evaluate(`[...document.querySelectorAll('.main-nav button')].map(e=>e.textContent.replace(/^[^A-Za-z]+/,'').trim())`);
  for(const label of nav){await clickElement(`[...document.querySelectorAll('.main-nav button')].find(e=>e.textContent.replace(/^[^A-Za-z]+/,'').trim()===${JSON.stringify(label)})`);await new Promise(r=>setTimeout(r,150));await matrix('workspace-'+label.replaceAll(' ','-').toLowerCase());
   if(label==='Leads'){
