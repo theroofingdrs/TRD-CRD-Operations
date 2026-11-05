@@ -135,6 +135,7 @@ try{
  await clickText('Commercial CRD');
  await clickElement(`[...document.querySelectorAll('.main-nav button')].find(e=>e.textContent.includes('Customers'))`);
  await wait(()=>evaluate('document.body.innerText.includes("CRD Commercial Test Account")'),'CRD customer list');
+ await call('Emulation.setDeviceMetricsOverride',{width:390,height:900,deviceScaleFactor:1,mobile:true});
  assert(await evaluate('!document.body.innerText.includes("Responsive Test Customer")'),'CRD list must not include the TRD-only customer');
  assert(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'));
  console.log('PASS CRM CRD customer list: division-scoped results and bounded mobile width');
