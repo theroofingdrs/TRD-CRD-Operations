@@ -35,7 +35,10 @@ Deno.serve(async (req: Request) => {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
   const secret = readKey("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEYS") ||
     Deno.env.get("SUPABASE_SECRET_KEY") || "";
-  if (!url || !secret) return json({ error: "Blog service is not configured." }, 500);
+  if (!url || !secret) {
+    console.error("crm-public-blog configuration missing", { hasSupabaseUrl: Boolean(url), hasServiceRoleKey: Boolean(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")), hasSecretKeyMap: Boolean(Deno.env.get("SUPABASE_SECRET_KEYS")), hasLegacySecret: Boolean(Deno.env.get("SUPABASE_SECRET_KEY")) });
+    return json({ error: "Blog service is not configured." }, 500);
+  }
 
   const admin = createClient(url, secret, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -49,7 +52,10 @@ Deno.serve(async (req: Request) => {
   if (slug) query = query.eq("slug", slug);
   const { data, error } = await query.order("published_at", { ascending: false, nullsFirst: false }).order("scheduled_at", { ascending: false, nullsFirst: false });
 
-  if (error) return json({ error: "Unable to load blog articles." }, 500);
+  if (error) {
+    console.error("crm-public-blog query failed", { code: error.code, message: error.message, details: error.details, hint: error.hint, division, slug: slug ?? null });
+    return json({ error: "Unable to load blog articles." }, 500);
+  }
 
   const visible = (data ?? []).filter((post) => {
     if (post.status === "published") return !!post.published_at && post.published_at <= now;
