@@ -452,9 +452,27 @@ function Customers({ division, userId, canWrite, canWriteMaintenance, canShareBo
     setLoading(true);
     setMessage("");
     setLoadError("");
+    // Resolve division membership first, then load customers by primary key.
+    // This avoids depending on embedded-relation filtering for the directory.
+    const { data: links, error: linkError } = await supabase
+      .from("crm_customer_divisions")
+      .select("customer_id")
+      .eq("division_id", division);
+    if (linkError) {
+      setLoadError(linkError.message);
+      setRows([]);
+      setLoading(false);
+      return;
+    }
+    const customerIds = (links ?? []).map((item: { customer_id: string }) => item.customer_id);
+    if (!customerIds.length) {
+      setRows([]);
+      setLoading(false);
+      return;
+    }
     const { data, error } = await supabase.from("crm_customers")
-      .select("id,display_name,customer_type,email,phone,billing_address_line1,billing_city,billing_state,billing_postal_code,created_at,assigned_to,crm_customer_divisions!inner(division_id)")
-      .eq("crm_customer_divisions.division_id", division)
+      .select("id,display_name,customer_type,email,phone,billing_address_line1,billing_city,billing_state,billing_postal_code,created_at,assigned_to")
+      .in("id", customerIds)
       .order("created_at", { ascending: false });
     if (error) {
       setLoadError(error.message);
