@@ -55,14 +55,16 @@ try{
    data=fixtures[table]??[];
    if(table==='crm_customer_divisions'){
     const division=url.searchParams.get('division_id')?.replace(/^eq\./,'');
-    if(division)data=data.filter(row=>row.division_id===division);
+    const customerId=url.searchParams.get('customer_id')?.replace(/^eq\./,'');
+    data=data.filter(row=>(!division||row.division_id===division)&&(!customerId||row.customer_id===customerId));
    }
    if(table==='crm_customers'){
     const division=url.searchParams.get('crm_customer_divisions.division_id')?.replace(/^eq\./,'');
     const linked=division?new Set(fixtures.crm_customer_divisions.filter(row=>row.division_id===division).map(row=>row.customer_id)):null;
     const idFilter=url.searchParams.get('id');
     const ids=idFilter?.startsWith('in.(')?new Set(idFilter.slice(4,-1).split(',')):null;
-    data=data.filter(row=>(!linked||linked.has(row.id))&&(!ids||ids.has(row.id)));
+    const exactId=idFilter?.startsWith('eq.')?idFilter.slice(3):null;
+    data=data.filter(row=>(!linked||linked.has(row.id))&&(!ids||ids.has(row.id))&&(!exactId||row.id===exactId));
    }
    if(table==='crm_maintenance_records')data=populated?[{id:'service',property_id:property,service_type:'roof_repair',status:'completed',priority:'normal',description:long,work_performed:long,findings:long,service_cost:100}]:[];
    if(table==='crm_website_lead_attachments')data=[{id:'attachment',filename:'synthetic.png',mime:'image/png',size_bytes:8}];
