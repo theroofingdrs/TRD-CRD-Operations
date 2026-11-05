@@ -131,12 +131,14 @@ try{
  await clickText('Edit customer');await matrix('customer-edit');
  // Reload fixture to exercise a populated service table and the rest of the workspace.
  populated=true;await clickText('Close details');await clickText('Responsive Test Customer');await matrix('customer-populated');
+ await call('Emulation.setDeviceMetricsOverride',{width:1024,height:900,deviceScaleFactor:1,mobile:false});
  await clickText('Commercial CRD');
  await clickElement(`[...document.querySelectorAll('.main-nav button')].find(e=>e.textContent.includes('Customers'))`);
  await wait(()=>evaluate('document.body.innerText.includes("CRD Commercial Test Account")'),'CRD customer list');
  assert(await evaluate('!document.body.innerText.includes("Responsive Test Customer")'),'CRD list must not include the TRD-only customer');
  assert(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'));
  console.log('PASS CRM CRD customer list: division-scoped results and bounded mobile width');
+ await call('Emulation.setDeviceMetricsOverride',{width:1024,height:900,deviceScaleFactor:1,mobile:false});
  await clickText('Residential TRD');
  await clickElement(`[...document.querySelectorAll('.main-nav button')].find(e=>e.textContent.includes('Customers'))`);
  await wait(()=>evaluate('document.body.innerText.includes("Responsive Test Customer")'),'TRD customer list restore');
