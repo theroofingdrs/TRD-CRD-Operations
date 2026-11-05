@@ -54,11 +54,11 @@ try{
    if(request.method==='POST'&&!url.pathname.includes('/rpc/'))throw Error('Responsive tests must not mutate records.');
    data=fixtures[table]??[];
    if(table==='crm_customer_divisions'){
-    const division=url.searchParams.get('division_id')?.replace(/^eq\\./,'');
+    const division=url.searchParams.get('division_id')?.replace(/^eq\./,'');
     if(division)data=data.filter(row=>row.division_id===division);
    }
    if(table==='crm_customers'){
-    const division=url.searchParams.get('crm_customer_divisions.division_id')?.replace(/^eq\\./,'');
+    const division=url.searchParams.get('crm_customer_divisions.division_id')?.replace(/^eq\./,'');
     const linked=division?new Set(fixtures.crm_customer_divisions.filter(row=>row.division_id===division).map(row=>row.customer_id)):null;
     const idFilter=url.searchParams.get('id');
     const ids=idFilter?.startsWith('in.(')?new Set(idFilter.slice(4,-1).split(',')):null;
