@@ -80,7 +80,7 @@ try{
  await call('Browser.setDownloadBehavior',{behavior:'deny'});await call('Page.enable');await call('Runtime.enable');await call('Fetch.enable',{patterns:[{urlPattern:'*'}]});
  const token=Buffer.from('{"alg":"HS256"}').toString('base64url')+'.'+Buffer.from(JSON.stringify({sub:user,role:'authenticated',exp:Math.floor(Date.now()/1000)+3600})).toString('base64url')+'.synthetic';
  const session={access_token:token,refresh_token:'synthetic',expires_at:Math.floor(Date.now()/1000)+3600,expires_in:3600,token_type:'bearer',user:{id:user,aud:'authenticated',role:'authenticated',email:'operator@example.test'}};
- const authScript=await call('Page.addScriptToEvaluateOnNewDocument',{source:`localStorage.setItem('sb-layout-fixture-auth-token',${JSON.stringify(JSON.stringify(session))});localStorage.setItem('trd-crd-workspace-${user}','{"division":"TRD","view":"customers"}');`});
+ await call('Page.addScriptToEvaluateOnNewDocument',{source:`localStorage.setItem('sb-layout-fixture-auth-token',${JSON.stringify(JSON.stringify(session))});localStorage.setItem('trd-crd-workspace-${user}','{"division":"TRD","view":"customers"}');`});
  await call('Emulation.setDeviceMetricsOverride',{width:390,height:900,deviceScaleFactor:1,mobile:true});
  await call('Page.navigate',{url:'http://127.0.0.1:19400/'});
  await wait(()=>evaluate('document.body.innerText.includes("Responsive Test Customer")'),'customer list');
@@ -131,15 +131,14 @@ try{
  await clickText('Edit customer');await matrix('customer-edit');
  // Reload fixture to exercise a populated service table and the rest of the workspace.
  populated=true;await clickText('Close details');await clickText('Responsive Test Customer');await matrix('customer-populated');
- await call('Page.removeScriptToEvaluateOnNewDocument',{identifier:authScript.identifier});
- await evaluate(`localStorage.setItem('trd-crd-workspace-${user}','{"division":"CRD","view":"customers"}')`);
- await call('Page.navigate',{url:'http://127.0.0.1:19400/'});
- await wait(()=>evaluate('document.body.innerText.includes("CRD Responsive Test Customer")'),'CRD customer list');
+ await clickText('Commercial CRD');
+ await clickText('Customers');
+ await wait(()=>evaluate('document.body.innerText.includes("CRD Commercial Test Account")'),'CRD customer list');
  assert(await evaluate('!document.body.innerText.includes("Responsive Test Customer")'),'CRD list must not include the TRD-only customer');
  assert(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'));
  console.log('PASS CRM CRD customer list: division-scoped results and bounded mobile width');
- await evaluate(`localStorage.setItem('trd-crd-workspace-${user}','{"division":"TRD","view":"customers"}')`);
- await call('Page.navigate',{url:'http://127.0.0.1:19400/'});
+ await clickText('Residential TRD');
+ await clickText('Customers');
  await wait(()=>evaluate('document.body.innerText.includes("Responsive Test Customer")'),'TRD customer list restore');
  const nav=await evaluate(`[...document.querySelectorAll('.main-nav button')].map(e=>e.textContent.replace(/^[^A-Za-z]+/,'').trim())`);
  for(const label of nav){await clickElement(`[...document.querySelectorAll('.main-nav button')].find(e=>e.textContent.replace(/^[^A-Za-z]+/,'').trim()===${JSON.stringify(label)})`);await new Promise(r=>setTimeout(r,150));await matrix('workspace-'+label.replaceAll(' ','-').toLowerCase());
