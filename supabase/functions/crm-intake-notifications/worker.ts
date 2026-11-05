@@ -1,3 +1,4 @@
+export function intakeNotificationsEnabled(value?:string):boolean{return value!=='false';}
 export async function runNotifications(config:{enabled:boolean;apiKey?:string;from?:string;internalTo?:string}, rpc:(name:string,args?:Record<string,unknown>)=>Promise<any>, transport:typeof fetch=fetch) {
  if(!config.enabled)return {status:'disabled',processed:0};
  const email=(s:unknown):s is string=>typeof s==='string'&&/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(s);

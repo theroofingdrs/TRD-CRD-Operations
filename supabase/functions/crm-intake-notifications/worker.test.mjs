@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {runNotifications} from './worker.ts';
+import {intakeNotificationsEnabled,runNotifications} from './worker.ts';
 const config={enabled:true,apiKey:'synthetic',from:'sender@example.test',internalTo:'owner@example.test'};
 const job={id:'synthetic-id',recipient_kind:'internal',division_id:'TRD',submission_key:'synthetic-key',payload:{email:'customer@example.test'}};
 function fixture(jobs=[job]){const calls=[];return{calls,rpc:async(name,args)=>{calls.push({name,args});if(name==='crm_intake_notification_work')return jobs;if(name==='crm_claim_intake_notification')return{action:'send',key:'immutable-provider-key',body:JSON.stringify(args.p_body),claim:'synthetic-claim'};}};}
@@ -10,3 +10,5 @@ test('definitive rejection is retryable failure',async()=>{const f=fixture();awa
 test('a failed durable finalizer propagates, and completed claims never resend',async()=>{const f=fixture();await assert.rejects(runNotifications(config,async(name,args)=>{if(name==='crm_finish_intake_notification')throw Error('Persistence failed');return f.rpc(name,args);},async()=>Response.json({id:'provider'})));await runNotifications(config,async name=>name==='crm_intake_notification_work'?[job]:{action:'complete'},()=>{throw Error('Duplicate send');});});
 
 test('internal notification subject distinguishes estimate requests from ordinary leads',async()=>{for(const [payload,expected] of [[{source:'Website contact form'},'The Roof Doctors: new lead'],[{source:'Residential Estimate Request',landingPage:'/residential/estimate-request',estimateDetails:{requestedMaterial:'Metal'}},'The Roof Doctors: new estimate request']]){const f=fixture([{...job,payload}]);await runNotifications(config,f.rpc,async(_url,options)=>{assert.equal(JSON.parse(options.body).subject,expected);return Response.json({id:'provider-id'});});}});
+
+test('intake notifications default on unless explicitly disabled',()=>{assert.equal(intakeNotificationsEnabled(undefined),true);assert.equal(intakeNotificationsEnabled('true'),true);assert.equal(intakeNotificationsEnabled('false'),false);});
