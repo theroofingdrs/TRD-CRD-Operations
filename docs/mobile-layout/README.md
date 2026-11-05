@@ -50,7 +50,7 @@ including customer details with empty/populated service history, service/propert
 customer forms, Roofr review and custom waste controls, project financial details
 and expense forms, and other available workspace forms.
 
-Every scenario runs at **320, 360, 375, 390, 430, 768, 1024 and 1440px**. Checks cover
+Every scenario runs at **320, 360, 375, 390, 414, 667, 768, 1024, 1280 and 1440px**. Checks cover
 requested device width versus document/layout width, main-area margins, immediate
 parent content bounds, service-heading alignment, readable customer-table headers,
 root clipping, table-cell control bounds, and browser runtime errors. Attachment downloads are hit-tested after local table scrolling at every width. Browser input events open the forms and
