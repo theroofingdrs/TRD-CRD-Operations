@@ -15,7 +15,7 @@ const fixtures={
  crm_memberships:[{user_id:user,division_id:'TRD',role:'owner',active:true},{user_id:user,division_id:'CRD',role:'owner',active:true}],
  crm_profiles:[{user_id:user,display_name:'Layout Test Operator',email:'operator@example.test'}],
  crm_customer_divisions:[{customer_id:customer,division_id:'TRD'},{customer_id:customerCRD,division_id:'CRD'}],
- crm_customers:[{id:customer,customer_type:'individual',display_name:'Responsive Test Customer',email:long+'@example.test',phone:'9035550100',billing_address_line1:address,billing_city:'Synthetic City',billing_state:'TX',billing_postal_code:'00000',created_at:'2026-01-01T12:00Z',assigned_to:null},{id:customerCRD,customer_type:'commercial',display_name:'CRD Responsive Test Customer',email:'crd@example.test',phone:'9035550199',billing_address_line1:'500 Commercial Way',billing_city:'Texarkana',billing_state:'TX',billing_postal_code:'75501',created_at:'2026-01-02T12:00Z',assigned_to:null}],
+ crm_customers:[{id:customer,customer_type:'individual',display_name:'Responsive Test Customer',email:long+'@example.test',phone:'9035550100',billing_address_line1:address,billing_city:'Synthetic City',billing_state:'TX',billing_postal_code:'00000',created_at:'2026-01-01T12:00Z',assigned_to:null},{id:customerCRD,customer_type:'commercial',display_name:'CRD Commercial Test Account',email:'crd@example.test',phone:'9035550199',billing_address_line1:'500 Commercial Way',billing_city:'Texarkana',billing_state:'TX',billing_postal_code:'75501',created_at:'2026-01-02T12:00Z',assigned_to:null}],
  crm_properties:[{id:property,customer_id:customer,address_line1:address,city:'Synthetic City',state:'TX',postal_code:'00000',property_type:'residential',county:'Test County',parcel_number:long,building_name:'Synthetic Building'}],
  crm_contacts:[{id:'contact',customer_id:customer,full_name:'Synthetic contact',email:long+'@example.test',phone:'9035550100',title:long,is_primary:true}],
  crm_leads:[{id:'lead',division_id:'TRD',customer_id:customer,property_id:property,service_interest:'Roof inspection '+long,status:'new',priority:'normal',description:long,source_record_id:'website-TRD-fixture',customer:{display_name:'Responsive Test Customer',email:long+'@example.test'},created_at:'2026-01-01T12:00Z'}],
@@ -61,7 +61,6 @@ try{
    if(table==='crm_customers'){
     const divisionFilter=url.searchParams.get('crm_customer_divisions.division_id')||url.searchParams.get('division_id');
     const division=divisionFilter?.replace(/^eq\./,'');
-    console.log('CRM customer query filter',url.search,division);
     const linked=division?new Set(fixtures.crm_customer_divisions.filter(row=>row.division_id===division).map(row=>row.customer_id)):null;
     const idFilter=url.searchParams.get('id');
     const ids=idFilter?.startsWith('in.(')?new Set(idFilter.slice(4,-1).split(',')):null;
