@@ -1,12 +1,12 @@
 import {runOperationalNotifications} from './operations.ts';
 import {createClient} from 'npm:@supabase/supabase-js@2.58.0';
-import {runNotifications} from './worker.ts';
+import {intakeNotificationsEnabled,runNotifications} from './worker.ts';
 Deno.serve(async(req:Request)=>{
  const key=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
  if(req.method!=='POST'||!key||req.headers.get('Authorization')!=='Bearer '+key)return new Response('Unauthorized',{status:401});
  const client=createClient(Deno.env.get('SUPABASE_URL')||'',key,{auth:{persistSession:false,autoRefreshToken:false}});
  try{
-  const intakeEnabled=Deno.env.get('INTAKE_NOTIFICATIONS_ENABLED')!=='false';
+  const intakeEnabled=intakeNotificationsEnabled(Deno.env.get('INTAKE_NOTIFICATIONS_ENABLED'));
   if(!intakeEnabled){
    console.error('crm-intake-notifications is disabled: set INTAKE_NOTIFICATIONS_ENABLED=true to send website lead emails.');
    return Response.json({error:'Intake notifications are disabled.'},{status:503});
