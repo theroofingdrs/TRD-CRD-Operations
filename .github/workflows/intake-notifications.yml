@@ -17,8 +17,16 @@ jobs:
     steps:
       - name: Invoke approved service-authenticated worker
         env:
-          WORKER_URL: ${{ vars.INTAKE_NOTIFICATION_WORKER_URL }}
+          WORKER_URL: ${{ vars.INTAKE_NOTIFICATION_WORKER_URL || 'https://gubvelngdohrfvqeeabu.supabase.co/functions/v1/crm-intake-notifications' }}
           WORKER_KEY: ${{ secrets.INTAKE_NOTIFICATION_SERVICE_KEY }}
         run: |
-          test -n "$WORKER_URL" && test -n "$WORKER_KEY"
-          curl --fail --silent --show-error --max-time 120 --request POST --header "Authorization: Bearer $WORKER_KEY" --header 'Content-Type: application/json' --data '{}' "$WORKER_URL"
+          set -eu
+          if [ -z "$WORKER_URL" ]; then
+            echo "::error::Missing worker URL. Set INTAKE_NOTIFICATION_WORKER_URL or keep the configured default."
+            exit 1
+          fi
+          if [ -z "$WORKER_KEY" ]; then
+            echo "::error::Missing GitHub Actions secret INTAKE_NOTIFICATION_SERVICE_KEY. Add the Supabase service-role key in repository Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error --max-time 120 --request POST --header "Authorization: Bearer $WORKER_KEY" --header 'Content-Type: application/json' --data '{}' "$WORKER_URL"
