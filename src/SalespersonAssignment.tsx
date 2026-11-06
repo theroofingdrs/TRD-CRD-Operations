@@ -89,6 +89,7 @@ export default function SalespersonAssignment({ entityType, entityId, division, 
       <option value="">Unassigned</option>
       {people.map(person => <option key={person.user_id} value={person.user_id}>{person.display_name}{entityType === "customer" ? ` (${person.divisions.join("/")})` : ""}</option>)}
     </select>
+    {!people.length && <span className="assignment-message" title="No active Sales Rep accounts are assigned to either division. Add a Sales Rep in Team access before assigning customers.">{compact ? "No reps available" : "No active Sales Rep accounts are available. Add a Sales Rep in Team access before assigning this record."}</span>}
     {message && <span className="assignment-message">{message}</span>}
     {!compact && history.length > 0 && <details className="assignment-history"><summary>Assignment history ({history.length})</summary>
       {history.map(item => <div key={item.id}>{new Date(item.changed_at).toLocaleString()} · {historyNames[item.previous_assignee || ""] || (item.previous_assignee ? "Former salesperson" : "Unassigned")} → {historyNames[item.new_assignee || ""] || (item.new_assignee ? "Former salesperson" : "Unassigned")} · changed by {historyNames[item.changed_by] || "admin"}</div>)}
