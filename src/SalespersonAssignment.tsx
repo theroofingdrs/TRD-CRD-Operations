@@ -16,6 +16,7 @@ type History = { id: string; previous_assignee: string | null; new_assignee: str
 
 export default function SalespersonAssignment({ entityType, entityId, division, assignedTo, isOwner, compact = false }: Props) {
   const [people, setPeople] = useState<Salesperson[]>([]);
+  const [peopleLoaded, setPeopleLoaded] = useState(false);
   const [history, setHistory] = useState<History[]>([]);
   const [historyNames, setHistoryNames] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -23,18 +24,20 @@ export default function SalespersonAssignment({ entityType, entityId, division, 
   const [assignedName, setAssignedName] = useState("");
 
   const load = useCallback(async () => {
+    setPeopleLoaded(false);
     if (!supabase || !isOwner) return;
     const { data: memberships, error } = await supabase.from("crm_memberships")
       .select("user_id,division_id").in("division_id", entityType === "customer" ? ["TRD", "CRD"] : [division]).eq("role", "sales_rep").eq("active", true);
-    if (error) { setMessage(error.message); return; }
+    if (error) { setMessage(error.message); setPeopleLoaded(true); return; }
     const divisionMap = new Map<string, string[]>();
     (memberships ?? []).forEach((item: { user_id: string; division_id: string }) => divisionMap.set(item.user_id, [...(divisionMap.get(item.user_id) ?? []), item.division_id]));
     const ids = [...divisionMap.keys()];
-    if (!ids.length) { setPeople([]); return; }
+    if (!ids.length) { setPeople([]); setPeopleLoaded(true); return; }
     const { data: profiles, error: profileError } = await supabase.from("crm_profiles")
       .select("user_id,display_name,email").in("user_id", ids).eq("active", true).order("display_name");
-    if (profileError) { setMessage(profileError.message); return; }
+    if (profileError) { setMessage(profileError.message); setPeopleLoaded(true); return; }
     setPeople((profiles ?? []).map((p: any) => ({ user_id: p.user_id, display_name: p.display_name || p.email || "Salesperson", email: p.email || "", divisions: divisionMap.get(p.user_id) ?? [] })));
+    setPeopleLoaded(true);
   }, [division, isOwner]);
 
   const loadHistory = useCallback(async () => {
@@ -89,6 +92,7 @@ export default function SalespersonAssignment({ entityType, entityId, division, 
       <option value="">Unassigned</option>
       {people.map(person => <option key={person.user_id} value={person.user_id}>{person.display_name}{entityType === "customer" ? ` (${person.divisions.join("/")})` : ""}</option>)}
     </select>
+    {peopleLoaded && !people.length && <span className="assignment-message" title="No active Sales Rep accounts are assigned to either division. Add a Sales Rep in Team access before assigning customers.">{compact ? "No reps available" : "No active Sales Rep accounts are available. Add a Sales Rep in Team access before assigning this record."}</span>}
     {message && <span className="assignment-message">{message}</span>}
     {!compact && history.length > 0 && <details className="assignment-history"><summary>Assignment history ({history.length})</summary>
       {history.map(item => <div key={item.id}>{new Date(item.changed_at).toLocaleString()} · {historyNames[item.previous_assignee || ""] || (item.previous_assignee ? "Former salesperson" : "Unassigned")} → {historyNames[item.new_assignee || ""] || (item.new_assignee ? "Former salesperson" : "Unassigned")} · changed by {historyNames[item.changed_by] || "admin"}</div>)}
